@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar icon: the app icon's two devices and beam. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="740" android:viewportHeight="740">
+    <group android:translateX="-142" android:translateY="-162">
+        <path android:fillColor="#FFFFFF" android:pathData="M170,700 a130,130 0 1,0 260,0 a130,130 0 1,0 -260,0 Z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M634,324 a90,90 0 1,0 180,0 a90,90 0 1,0 -180,0 Z" />
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="64" android:strokeLineCap="round" android:pathData="M442.2,573.9 L494.5,527.5" />
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="64" android:strokeLineCap="round" android:pathData="M546.9,481.0 L584.3,447.9" />
+    </group>
+</vector>

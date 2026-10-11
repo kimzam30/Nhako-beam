@@ -1,0 +1,186 @@
+# Checks, tests and installers for Windows, Linux and Android.
+# Start it by hand: GitHub > Actions > "Build" > Run workflow. Free on public repositories.
+# When it finishes, the .exe, .deb and .apk are under "Artifacts" on the run's page (kept 14 days).
+name: Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Smaller debug info keeps the test builds within the runners' disk space.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+jobs:
+  linux:
+    name: Linux (checks, tests, .deb)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GTK and WebKit libraries for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install the UI's packages
+        working-directory: desktop
+        run: npm ci
+      # The Tauri crate embeds desktop/dist, so the UI is built before any cargo step.
+      - name: Build the UI
+        working-directory: desktop
+        run: npm run build
+
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Rust lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests (engine, command line, desktop app)
+        run: cargo test --workspace
+
+      - name: UI type check
+        working-directory: desktop
+        run: npm run check
+      - name: UI unit tests
+        working-directory: desktop
+        run: npm test
+      - name: UI flows (Playwright, browser prototype)
+        working-directory: desktop
+        run: |
+          npx playwright install --with-deps chromium
+          npm run e2e
+
+      - name: Build the .deb
+        working-directory: desktop
+        run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhako-beam-linux-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: linux-test-results
+          path: desktop/test-results/
+          retention-days: 7
+
+  windows:
+    name: Windows (checks, tests, .exe)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install the UI's packages
+        working-directory: desktop
+        run: npm ci
+      - name: Build the UI
+        working-directory: desktop
+        run: npm run build
+
+      - name: Rust lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests (engine, command line, desktop app)
+        run: cargo test --workspace
+
+      # Unsigned for now: Windows SmartScreen will say "Windows protected your PC" on install
+      # (More info > Run anyway). Signing can be added later in tauri.windows.conf.json.
+      - name: Build the installer (.exe)
+        working-directory: desktop
+        run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhako-beam-windows-setup
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android (tests, debug .apk)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 29.0.14206865
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The runner comes with the Android SDK; add the NDK and platform this app builds with.
+      - name: Android NDK and platform
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Screens rendered on the JVM (Robolectric), the shared strings, and the real engine.
+      - name: Unit and screenshot tests
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest
+      - name: Build the .apk for arm64, arm32 and x86_64 phones
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhako-beam-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-screenshots
+          path: android/app/build/screenshots/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-results
+          path: android/app/build/reports/tests/
+          retention-days: 7

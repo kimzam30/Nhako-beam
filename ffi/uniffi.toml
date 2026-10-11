@@ -1,0 +1,4 @@
+# Kotlin bindings for the Android app (generated at build time, see android/README.md).
+[bindings.kotlin]
+package_name = "io.github.kimzam30.nhakobeam.core"
+cdylib_name = "nhako_ffi"

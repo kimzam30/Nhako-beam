@@ -1,0 +1,2 @@
+# Holds the relay token. Never commit it.
+.env

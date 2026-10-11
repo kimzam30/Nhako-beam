@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nhako Beam Tokens</title>
+<link rel="stylesheet" href="build/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--color-canvas);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: var(--space-8) var(--space-5); }
+  h1, h2, h3 { margin: 0; }
+  .lede { color: var(--color-text-secondary); margin: var(--space-3) 0 var(--space-8); }
+  .themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-5); }
+  .theme {
+    background: var(--color-canvas);
+    color: var(--color-text-primary);
+    border-radius: var(--radius-xl);
+    padding: var(--space-7);
+    box-shadow: 0 0 0 1px var(--color-separator);
+  }
+  .theme > h2 { margin-bottom: var(--space-6); }
+  .section { margin-top: var(--space-7); }
+  .label { color: var(--color-text-secondary); margin-bottom: var(--space-3); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--space-3); }
+  .swatch { border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); box-shadow: var(--elevation-1); }
+  .chip { height: 48px; box-shadow: inset 0 -1px 0 var(--color-separator); }
+  .swatch div:last-child { padding: var(--space-2) var(--space-3); }
+  .swatch .hex { color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .type-row { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-separator); }
+  .type-row span:first-child { width: 88px; flex: none; color: var(--color-text-tertiary); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  button {
+    font: inherit;
+    border: 0;
+    cursor: pointer;
+    min-height: var(--size-control-md);
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-full);
+    font-weight: 600;
+    transition: transform var(--spring-press-duration) var(--spring-press),
+                background-color var(--duration-fast) var(--ease-standard);
+  }
+  button:active { transform: scale(var(--scale-pressed)); }
+  button:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+  .primary { background: var(--color-accent); color: var(--color-on-accent); }
+  .primary:active { background: var(--color-accent-pressed); }
+  .secondary { background: var(--color-fill); color: var(--color-text-primary); }
+  .secondary:active { background: var(--color-fill-pressed); }
+  .danger { background: var(--color-danger); color: var(--color-on-danger); }
+  .ghost { background: transparent; color: var(--color-accent-text); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+  .card { aspect-ratio: 1; border-radius: var(--radius-lg); background: var(--color-surface-raised); display: grid; place-items: center; color: var(--color-text-secondary); }
+  .status { display: flex; flex-direction: column; gap: var(--space-2); }
+  .pill { padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: 500; }
+  .beam { height: 8px; border-radius: var(--radius-full); background: var(--color-beam-track); overflow: hidden; }
+  .beam > div { height: 100%; width: 62%; border-radius: inherit; background: var(--color-beam-core); box-shadow: 0 0 12px 2px var(--color-beam-glow); }
+
+  .springs { display: grid; gap: var(--space-4); margin-top: var(--space-5); }
+  .spring {
+    display: grid;
+    grid-template-columns: 180px 160px 1fr;
+    gap: var(--space-5);
+    align-items: center;
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    box-shadow: var(--elevation-1);
+  }
+  .spring svg { width: 160px; height: 80px; }
+  .spring .meta { color: var(--color-text-secondary); }
+  .track { position: relative; height: 40px; border-radius: var(--radius-full); background: var(--color-fill); }
+  .dot {
+    position: absolute; top: 4px; left: 4px;
+    width: 32px; height: 32px; border-radius: var(--radius-full);
+    background: var(--color-accent);
+  }
+  .track.on .dot { left: calc(100% - 36px); }
+  @media (max-width: 720px) {
+    .spring { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1 class="type-large-title">Nhako Beam design tokens</h1>
+  <p class="lede type-body">Generated from design/tokens/tokens.json. Light and dark side by side. Tap a spring row to play it.</p>
+
+  <div class="themes">
+    <section class="theme" data-theme="light"><h2 class="type-title2">Light</h2></section>
+    <section class="theme" data-theme="dark"><h2 class="type-title2">Dark</h2></section>
+  </div>
+
+  <section class="section">
+    <h2 class="type-title1">Springs</h2>
+    <div class="row" style="margin-top: var(--space-4)">
+      <button class="primary" id="play-all">Play all</button>
+      <span class="type-footnote" style="color: var(--color-text-secondary)">CSS uses the generated linear() easing, so this is exactly what the prototype will feel like.</span>
+    </div>
+    <div class="springs" id="springs"></div>
+  </section>
+</main>
+
+<script type="module">
+  import { color, type, spring } from './build/tokens.js';
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) k === 'style' ? n.setAttribute('style', v) : (n[k] = v);
+    n.append(...kids);
+    return n;
+  };
+  const kebab = (s) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+
+  for (const section of document.querySelectorAll('.theme')) {
+    const theme = section.dataset.theme;
+
+    const sw = el('div', { className: 'swatches' });
+    for (const [name, hex] of Object.entries(color[theme])) {
+      sw.append(el('div', { className: 'swatch' },
+        el('div', { className: 'chip', style: `background: var(--color-${kebab(name)})` }),
+        el('div', {}, el('div', { className: 'type-caption', textContent: name }), el('div', { className: 'type-caption hex', textContent: hex }))));
+    }
+    section.append(el('div', { className: 'label type-footnote', textContent: 'Color' }), sw);
+
+    const ty = el('div', { className: 'section' }, el('div', { className: 'label type-footnote', textContent: 'Type' }));
+    for (const [name, v] of Object.entries(type)) {
+      ty.append(el('div', { className: 'type-row' },
+        el('span', { className: 'type-caption', textContent: `${name} ${v.size}/${v.lineHeight}` }),
+        el('span', { className: `type-${kebab(name)}`, textContent: name === 'codeWords' ? 'river-lantern-seven' : 'Beam it over' })));
+    }
+    section.append(ty);
+
+    section.append(el('div', { className: 'section' },
+      el('div', { className: 'label type-footnote', textContent: 'Controls' }),
+      el('div', { className: 'row' },
+        el('button', { className: 'primary', textContent: 'Send' }),
+        el('button', { className: 'secondary', textContent: 'Add files' }),
+        el('button', { className: 'ghost', textContent: 'Show code' }),
+        el('button', { className: 'danger', textContent: 'Cancel' }))));
+
+    const cards = el('div', { className: 'cards' });
+    for (const lvl of [1, 2, 3, 4]) cards.append(el('div', { className: 'card type-footnote', style: `box-shadow: var(--elevation-${lvl})`, textContent: `Level ${lvl}` }));
+    section.append(el('div', { className: 'section' }, el('div', { className: 'label type-footnote', textContent: 'Elevation' }), cards));
+
+    section.append(el('div', { className: 'section status' },
+      el('div', { className: 'label type-footnote', textContent: 'Status and beam' }),
+      el('div', { className: 'pill type-callout', style: 'background: var(--color-success-subtle); color: var(--color-success)', textContent: 'Sent to Aisyah\'s laptop' }),
+      el('div', { className: 'pill type-callout', style: 'background: var(--color-warning-subtle); color: var(--color-warning)', textContent: 'Reconnecting, your progress is safe' }),
+      el('div', { className: 'pill type-callout', style: 'background: var(--color-danger-subtle); color: var(--color-danger)', textContent: 'Not enough space on this device' }),
+      el('div', { className: 'beam', style: 'margin-top: var(--space-3)' }, el('div'))));
+  }
+
+  const list = document.getElementById('springs');
+  const tracks = [];
+  for (const [name, s] of Object.entries(spring)) {
+    const pts = s.css.slice(7, -1).split(',').map(Number);
+    const max = Math.max(1.12, ...pts);
+    const d = pts.map((v, i) => `${(i / (pts.length - 1)) * 156 + 2},${78 - (v / max) * 70}`).join(' ');
+    const svg = `<svg viewBox="0 0 160 80" aria-hidden="true">
+      <line x1="2" x2="158" y1="${78 - (1 / max) * 70}" y2="${78 - (1 / max) * 70}" stroke="var(--color-separator)" stroke-width="1"/>
+      <polyline points="${d}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round"/></svg>`;
+    const track = el('div', { className: 'track' }, el('div', { className: 'dot', style: `transition: left var(--spring-${kebab(name)}-duration) var(--spring-${kebab(name)})` }));
+    tracks.push(track);
+    const row = el('div', { className: 'spring', tabIndex: 0, role: 'button', ariaLabel: `Play ${name} spring` },
+      el('div', {}, el('div', { className: 'type-headline', textContent: name }),
+        el('div', { className: 'meta type-footnote tabular', textContent: `ratio ${s.dampingRatio} · k ${s.stiffness}` }),
+        el('div', { className: 'meta type-footnote tabular', textContent: `${s.settleMs} ms · overshoot ${s.overshootPct}%` })),
+      Object.assign(document.createElement('div'), { innerHTML: svg }),
+      track);
+    const play = () => track.classList.toggle('on');
+    row.addEventListener('click', play);
+    row.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), play()));
+    list.append(row);
+  }
+  document.getElementById('play-all').addEventListener('click', () => tracks.forEach((t) => t.classList.toggle('on')));
+</script>
+</body>
+</html>

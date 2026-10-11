@@ -117,52 +117,24 @@ Nhako Beam is built on a modular, three-layer architecture designed for resilien
 
 ---
 
-## 🐳 Docker Deployment (Planned)
+## 🐳 Docker Deployment
 
-Nhako Beam is designed to be self-hosted in seconds. The relay server ships as a lightweight Docker image.
-
-### Quick Start
+Your own relay and address lookup server run from `relay/` with Docker Compose. Full guide: [relay/README.md](relay/README.md).
 
 ```bash
-# Pull and run the relay
-docker run -d \
-  --name nhako-relay \
-  -p 8080:8080 \
-  -p 3478:3478/udp \
-  -p 3478:3478/tcp \
-  -v nhako-data:/data \
-  -e RELAY_AUTH_MODE=token \
-  ghcr.io/yourorg/nhako-beam-relay:latest
+cd relay
+cp .env.example .env            # put a token in it: openssl rand -hex 24
+docker compose up -d --build
 ```
 
-### Docker Compose (Recommended)
+| Service | Port | What it does |
+|---|---|---|
+| relay | 3340/tcp | Passes encrypted traffic when two devices can't connect directly. Token required. |
+| lookup | 3341/tcp | Lets your devices find each other by device key. |
 
-```yaml
-version: '3.8'
+Then point your devices at it: in the app under Settings > Connection > Your own, or with `nhako server set http://YOUR-IP:3340 --lookup http://YOUR-IP:3341`.
 
-services:
-  relay:
-    image: ghcr.io/yourorg/nhako-beam-relay:latest
-    container_name: nhako-relay
-    restart: unless-stopped
-    ports:
-      - "8080:8080"        # WebSocket signaling
-      - "3478:3478/udp"    # QUIC relay
-      - "3478:3478/tcp"    # TCP fallback
-    volumes:
-      - ./relay-data:/data
-    environment:
-      - RELAY_MAX_BANDWIDTH=1gbit
-      - RELAY_BUFFER_SIZE=512MB
-      - RELAY_AUTH_MODE=token
-      - RELAY_LOG_LEVEL=info
-    networks:
-      - nhako-net
-
-networks:
-  nhako-net:
-    driver: bridge
-```
+This setup is for your own computer or home network (plain HTTP). Making it reachable from other networks needs HTTPS and a public address, which is a later step.
 
 ### Deployment Models
 
@@ -171,6 +143,38 @@ networks:
 | **Private Relay** | Personal / family use | Single Docker container on home server or VPS |
 | **Community Relay** | Small teams or friend groups | Shared instance with token-based access |
 | **Public Relay** | Open ecosystem | Listed in community directory with rate limits |
+
+---
+
+## Desktop app (Windows and Linux)
+
+The desktop app is in `desktop/` (Svelte UI in a Tauri window, running the engine from `core/`).
+
+**Windows:** run the Build workflow on GitHub (Actions > Build > Run workflow) and download the installer, `Nhako Beam_0.1.0_x64-setup.exe`, from the run. It isn't signed yet, so Windows SmartScreen warns first (More info, then Run anyway).
+
+**Linux:** build the .deb on Debian or Ubuntu:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev build-essential file
+cd desktop
+npm install
+npx tauri build
+sudo apt install "../target/release/bundle/deb/Nhako Beam_0.1.0_amd64.deb"
+```
+
+Both add Nhako Beam to the app menu, with a tray icon, an option to start when you log in, notifications for incoming files, and "Send with Nhako Beam" in the file manager's right-click menu. More in [desktop/README.md](desktop/README.md).
+
+---
+
+## Android app
+
+The Android app is in `android/` (Kotlin and Jetpack Compose, running the same engine through `ffi/`). It has every screen of the desktop app, takes files from any app's Share menu, keeps transfers going in the background with a progress notification, and saves received files to `Download/Nhako Beam`.
+
+Build the .apk with `scripts/build-android.sh`, or download `nhako-beam-android-apk` from the Build workflow, then copy it to your phone and tap it. It's a debug build for now; a Play Store release comes later. More in [android/README.md](android/README.md).
+
+## Building it yourself
+
+Every app builds on your own computer with the scripts in `scripts/`, or on GitHub with the Build workflow. Setup for each, and how to install the .apk on a phone, is in [docs/building.md](docs/building.md).
 
 ---
 

@@ -1,0 +1,27 @@
+# iroh address lookup server (pkarr), local mode.
+#
+# Devices publish a small signed record here ("device X can be reached
+# through relay Y") and look each other up by device key. Records are signed
+# by the device, so the server can't change them.
+
+# Publishing is rate limited per IP address. Lookups are not.
+pkarr_put_rate_limit = "simple"
+
+[http]
+port = 8080
+bind_addr = "0.0.0.0"
+
+# The DNS side is required by the server but Nhako Beam only uses the HTTP
+# side above, so this port is never published outside the container.
+[dns]
+port = 5300
+bind_addr = "0.0.0.0"
+default_soa = "lookup.nhakobeam.invalid hostmaster.nhakobeam.invalid 0 10800 3600 604800 3600"
+default_ttl = 30
+origins = ["nhakobeam.invalid.", "."]
+
+[mainline]
+enabled = false
+
+[metrics]
+disabled = true

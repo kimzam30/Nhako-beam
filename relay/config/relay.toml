@@ -1,0 +1,18 @@
+# iroh relay, local mode: plain HTTP on port 3340.
+#
+# Fine on your own computer or home network. Before putting this on the
+# internet, read "Going public" in relay/README.md (it needs TLS).
+
+http_bind_addr = "0.0.0.0:3340"
+
+# QUIC address discovery needs TLS, so it is off in local mode.
+enable_quic_addr_discovery = false
+
+# Metrics stay inside the container (port 9090). Nothing publishes them.
+enable_metrics = true
+
+# Only devices that know the token may use this relay.
+# The real token comes from the IROH_RELAY_ACCESS_TOKEN environment variable
+# (set NHAKO_RELAY_TOKEN in .env), which replaces this placeholder.
+[access]
+shared_token = ["placeholder-replaced-by-env"]

@@ -1,0 +1,5 @@
+# Gradle and Kotlin build output, and this machine's SDK path.
+.gradle/
+.kotlin/
+build/
+local.properties

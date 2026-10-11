@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Received files live in Download/Nhako Beam. -->
+<paths>
+    <external-path name="download" path="Download/" />
+</paths>

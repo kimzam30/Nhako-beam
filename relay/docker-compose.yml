@@ -1,0 +1,46 @@
+# Nhako Beam server, local mode.
+#
+#   cp .env.example .env      # then put a token in it
+#   docker compose up -d --build
+#
+# Relay:          http://<this computer's IP>:3340
+# Address lookup: http://<this computer's IP>:3341/pkarr
+
+name: nhakobeam
+
+services:
+  relay:
+    build: .
+    image: nhakobeam-server:local
+    command: ["--config-path", "/etc/nhako/relay.toml"]
+    restart: unless-stopped
+    environment:
+      IROH_RELAY_ACCESS_TOKEN: ${NHAKO_RELAY_TOKEN:?Put a token in relay/.env first (see .env.example)}
+      # A busy relay drops packets now and then (QUIC resends them); don't log each one.
+      RUST_LOG: ${NHAKO_LOG:-info,iroh_relay::server::client=error}
+      NO_COLOR: "1"
+    ports:
+      - "${NHAKO_RELAY_PORT:-3340}:3340/tcp"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  lookup:
+    image: nhakobeam-server:local
+    depends_on: [relay]
+    entrypoint: ["/usr/local/bin/iroh-dns-server"]
+    command: ["--config", "/etc/nhako/lookup.toml"]
+    restart: unless-stopped
+    environment:
+      RUST_LOG: ${NHAKO_LOG:-info}
+      NO_COLOR: "1"
+    ports:
+      - "${NHAKO_LOOKUP_PORT:-3341}:8080/tcp"
+    volumes:
+      - lookup-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  lookup-data:
