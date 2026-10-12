@@ -128,7 +128,7 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
 
     val title = when (tr.status) {
         TransferStatus.Waiting -> t(if (tr.waitingLong) "send.waiting.long" else "send.waiting", "device" to name)
-        TransferStatus.Connecting -> t("transfer.connecting")
+        TransferStatus.Connecting -> if (tr.waking) t("transfer.waking", "device" to name) else t("transfer.connecting")
         TransferStatus.Done -> t(if (tr.direction == TransferDirection.Send) "transfer.done.sent" else "transfer.done.received", "device" to name)
         TransferStatus.Declined -> t("send.declined", "device" to name)
         TransferStatus.Failed -> if (unreachable) t("send.unreachable", "device" to name) else t("transfer.failed")

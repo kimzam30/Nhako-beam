@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +61,7 @@ import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.MotionPref
 import io.github.kimzam30.nhakobeam.state.Prefs
 import io.github.kimzam30.nhakobeam.state.Screen
+import io.github.kimzam30.nhakobeam.state.SoundPref
 import io.github.kimzam30.nhakobeam.state.Sheet
 import io.github.kimzam30.nhakobeam.state.ThemePref
 import io.github.kimzam30.nhakobeam.ui.Copy.t
@@ -75,6 +77,7 @@ import io.github.kimzam30.nhakobeam.ui.components.NTextField
 import io.github.kimzam30.nhakobeam.ui.components.NToggle
 import io.github.kimzam30.nhakobeam.ui.components.SectionTitle
 import io.github.kimzam30.nhakobeam.ui.components.SegmentOption
+import io.github.kimzam30.nhakobeam.ui.components.pressScale
 import io.github.kimzam30.nhakobeam.ui.components.Separator
 import io.github.kimzam30.nhakobeam.ui.hostOf
 import io.github.kimzam30.nhakobeam.ui.readOwnForm
@@ -82,6 +85,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -151,7 +155,18 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
             }
 
             Section(2, t("settings.section.connection")) {
-                NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) { ConnectionSettings(app) }
+                Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
+                    NCard {
+                        val scope = rememberCoroutineScope()
+                        // Flips at once; goes back if the engine couldn't restart (transfers running).
+                        var lan by remember(app.lanDiscovery) { mutableStateOf(app.lanDiscovery) }
+                        NToggle(lan, t("settings.network.lan"), { on ->
+                            lan = on
+                            scope.launch { if (!app.setLanDiscovery(on)) lan = !on }
+                        }, hint = t("settings.network.lan.hint"))
+                    }
+                    NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) { ConnectionSettings(app) }
+                }
             }
 
             Section(3, t("settings.section.appearance")) {
@@ -177,6 +192,17 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                             prefs.motion, { prefs.motion = it },
                         )
                         BasicText(t("settings.appearance.motion.hint"), style = NhakoType.footnote.style(c.textSecondary))
+                        Spacer(Modifier.height(NhakoSpace.s3))
+                        BasicText(t("settings.appearance.sounds"), style = NhakoType.body.style(c.textPrimary))
+                        NSegmented(
+                            listOf(
+                                SegmentOption(SoundPref.Loud, t("settings.appearance.sounds.loud"), "speaker-high"),
+                                SegmentOption(SoundPref.Soft, t("settings.appearance.sounds.soft"), "speaker-low"),
+                                SegmentOption(SoundPref.Off, t("settings.appearance.sounds.off"), "speaker-slash"),
+                            ),
+                            prefs.sounds, { prefs.sounds = it },
+                        )
+                        BasicText(t("settings.appearance.sounds.hint"), style = NhakoType.footnote.style(c.textSecondary))
                     }
                 }
             }
@@ -193,6 +219,23 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                                 BasicText(t("settings.about.fingerprint"), Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary))
                                 BasicText(it, style = NhakoType.body.style(c.textSecondary))
                             }
+                        }
+                        Separator()
+                        Column(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s1)) {
+                            Row {
+                                BasicText(t("settings.about.wake"), Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary))
+                                BasicText(t(if (app.wakeReady) "settings.about.wake.on" else "settings.about.wake.off"), style = NhakoType.body.style(if (app.wakeReady) c.success else c.textSecondary))
+                            }
+                            BasicText(t(if (app.wakeReady) "settings.about.wake.on.hint" else "settings.about.wake.off.hint"), style = NhakoType.footnote.style(c.textSecondary))
+                        }
+                        Separator()
+                        val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        Row(
+                            Modifier.fillMaxWidth().pressScale(press).clickable(press, null, onClick = withTap { app.navigate(Screen.Licenses) }).padding(vertical = NhakoSpace.s4),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BasicText(t("settings.about.licenses"), Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary))
+                            PhIcon("caret-right", size = 16.dp, tint = c.textTertiary)
                         }
                     }
                 }

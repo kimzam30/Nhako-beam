@@ -11,6 +11,7 @@
   import { pastSwipeThreshold, rubberBand, swipeDecision, VelocityTracker } from '../lib/motion/physics';
   import { SpringValue } from '../lib/motion/springs';
   import { playHaptic } from '../lib/haptics.svelte';
+  import { playSound } from '../lib/sounds.svelte';
   import Button from './Button.svelte';
   import ConnectionBadge from './ConnectionBadge.svelte';
   import DeviceOrb from './DeviceOrb.svelte';
@@ -85,6 +86,7 @@
     if (nowPast !== past) {
       past = nowPast;
       playHaptic(nowPast ? 'thresholdActivate' : 'thresholdDeactivate');
+      if (nowPast) playSound('tick');
     }
   }
 
@@ -107,6 +109,7 @@
     if (leaving) return;
     leaving = true;
     playHaptic(outcome);
+    playSound(outcome);
     const dir = outcome === 'accept' ? 1 : -1;
     if (prefs.reducedMotion) {
       await so.to(0, 'smooth');
@@ -195,6 +198,8 @@
   .card {
     position: relative;
     display: grid;
+    /* One column that can't grow past the card: a long file name would widen it otherwise. */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
     width: min(calc(100vw - 32px), 420px);
     padding: var(--space-6);

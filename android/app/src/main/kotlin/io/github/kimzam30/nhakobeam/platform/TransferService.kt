@@ -10,13 +10,15 @@ import io.github.kimzam30.nhakobeam.NhakoApplication
 
 /**
  * Keeps the app alive while files are moving, so a transfer carries on with the screen off or the
- * app in the background. It only shows the progress notification; [Background] starts and stops it.
+ * app in the background, and for the few minutes it's kept ready to receive (the Quick Settings
+ * tile, or a wake-up from another device). It only shows the notification; [Background] starts
+ * and stops it.
  */
 class TransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = (application as NhakoApplication).background.progressNotification()
+        val notification = (application as NhakoApplication).background.serviceNotification()
         if (notification == null) {
             stopSelf()
             return START_NOT_STICKY

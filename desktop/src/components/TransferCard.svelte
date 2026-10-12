@@ -39,7 +39,7 @@
       case 'waiting':
         return tr.waitingLong ? t('send.waiting.long', { device: name }) : t('send.waiting', { device: name });
       case 'connecting':
-        return t('transfer.connecting');
+        return tr.waking ? t('transfer.waking', { device: name }) : t('transfer.connecting');
       case 'done':
         return tr.direction === 'send' ? t('transfer.done.sent', { device: name }) : t('transfer.done.received', { device: name });
       case 'declined':
@@ -124,12 +124,12 @@
       </p>
       <div class="actions">
         {#if tr.status === 'paused' && tr.pausedBy !== 'peer'}
-          <IconButton icon="play" weight="fill" label={t('transfer.resume')} tone="accent" testid="resume" onclick={() => app.engine.resume(tr.id)} />
+          <IconButton icon="play" weight="fill" label={t('transfer.resume')} tone="accent" testid="resume" sound="resume" onclick={() => app.engine.resume(tr.id)} />
         {:else if tr.status === 'transferring'}
-          <IconButton icon="pause" weight="fill" label={t('transfer.pause')} testid="pause" onclick={() => app.engine.pause(tr.id)} />
+          <IconButton icon="pause" weight="fill" label={t('transfer.pause')} testid="pause" sound="pause" onclick={() => app.engine.pause(tr.id)} />
         {/if}
         {#if ondetails}<IconButton icon="files" label={t('transfer.details')} testid="details" onclick={ondetails} />{/if}
-        <IconButton icon="x" label={t('send.cancel')} testid="cancel" onclick={() => app.engine.cancel(tr.id)} />
+        <IconButton icon="x" label={t('send.cancel')} testid="cancel" sound="cancel" onclick={() => app.engine.cancel(tr.id)} />
       </div>
     {:else if tr.status === 'waiting'}
       <span class="pulse-dot" aria-hidden="true"></span>
@@ -137,7 +137,7 @@
         {#if tr.waitingLong}
           <Button variant="secondary" size="sm" testid="keep-waiting" onclick={() => app.toast(t('send.waiting', { device: name }))}>{t('send.waiting.keep')}</Button>
         {/if}
-        <Button variant="plain" size="sm" testid="cancel" onclick={() => app.engine.cancel(tr.id)}>{t('send.cancel')}</Button>
+        <Button variant="plain" size="sm" testid="cancel" sound="cancel" onclick={() => app.engine.cancel(tr.id)}>{t('send.cancel')}</Button>
       </div>
     {:else if tr.status === 'done'}
       <div class="actions grow">
@@ -156,7 +156,7 @@
     {:else}
       <div class="actions grow">
         {#if tr.status === 'failed' || tr.status === 'declined' || (tr.status === 'cancelled' && tr.cancelledBy === 'peer')}
-          <Button variant="secondary" size="sm" icon="arrow-clockwise" testid="retry" onclick={() => app.engine.retry(tr.id)}>{t('transfer.failed.retry')}</Button>
+          <Button variant="secondary" size="sm" icon="arrow-clockwise" testid="retry" sound="resume" onclick={() => app.engine.retry(tr.id)}>{t('transfer.failed.retry')}</Button>
           {#if tr.status === 'failed' && tr.doneBytes > 0}<span class="hint">{t('transfer.failed.retry.hint')}</span>{/if}
         {/if}
         <span class="spacer"></span>

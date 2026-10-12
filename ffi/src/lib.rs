@@ -263,21 +263,10 @@ impl NhakoEngine {
     pub fn set_connection(&self, connection_json: String) -> Result<(), NhakoError> {
         let connection: Connection = serde_json::from_str(&connection_json).map_err(|e| failed(format!("Not a server setting: {e}")))?;
         Network::from_connection(&connection).map_err(|e| failed(e.to_string()))?;
-        let _g = self.lifecycle.lock().expect("lifecycle lock");
-        let Some(engine) = self.running() else {
-            let mut s = self.store()?;
-            s.state.connection = connection;
-            return s.save().map_err(|e| failed(e.to_string()));
-        };
-        if engine.transfers().iter().any(|t| !t.status.is_final()) {
-            return Err(failed("Wait for the transfers in progress to finish (or cancel them), then save again."));
-        }
-        engine.set_connection(connection).map_err(|e| failed(e.to_string()))?;
-        self.stop_locked();
-        let engine = self.start_locked()?;
-        let snapshot = serde_json::json!({ "type": "snapshot", "snapshot": engine.snapshot() });
-        self.listener.on_event(snapshot.to_string());
-        Ok(())
+        self.save_and_restart(
+            |e| e.set_connection(connection.clone()).map_err(|e| failed(e.to_string())),
+            |s| s.state.connection = connection.clone(),
+        )
     }
 
     /// Checks your own server before saving it. Takes an OwnServer as JSON (`{relay, token?,
@@ -285,6 +274,39 @@ impl NhakoEngine {
     pub fn check_server(&self, server_json: String) -> Result<String, NhakoError> {
         let own: OwnServer = serde_json::from_str(&server_json).map_err(|e| failed(format!("Not a server: {e}")))?;
         json(&self.rt.block_on(check_server(&own)))
+    }
+
+    pub fn get_lan_discovery(&self) -> Result<bool, NhakoError> {
+        self.settings(|e| e.lan_discovery(), |s| Ok(s.state.lan_discovery))
+    }
+
+    /// Turns looking for nearby devices on or off. Like the server setting, a running engine
+    /// restarts (refused while transfers are running) and the new snapshot arrives as an event.
+    pub fn set_lan_discovery(&self, on: bool) -> Result<(), NhakoError> {
+        self.save_and_restart(|e| e.set_lan_discovery(on).map_err(|e| failed(e.to_string())), |s| s.state.lan_discovery = on)
+    }
+
+    /// This phone's wake token from Firebase, or none when push isn't set up. Saved also before the
+    /// engine starts; trusted devices get it in the next hello.
+    pub fn set_wake_token(&self, token: Option<String>) -> Result<(), NhakoError> {
+        self.settings(
+            |e| e.set_wake_token(token.clone()),
+            |s| {
+                s.state.wake_token = token.clone().filter(|t| nhako_core::wake::valid_token(t));
+                s.save().map_err(|e| failed(e.to_string()))
+            },
+        )
+    }
+
+    /// Whether other devices could wake this one (a wake service was built in). The app shows it in
+    /// Settings > About.
+    pub fn wake_available(&self) -> bool {
+        nhako_core::wake::default_url().is_some()
+    }
+
+    pub fn clear_history(&self) -> Result<(), NhakoError> {
+        self.engine()?.clear_history();
+        Ok(())
     }
 
     /// Where a received transfer's files are on disk (only the ones that arrived and checked out).
@@ -324,6 +346,26 @@ impl NhakoEngine {
             Some(e) => Ok(running(&e)),
             None => stored(&mut self.store()?),
         }
+    }
+
+    /// Saves a setting that only takes effect when the engine starts, then restarts it (refused
+    /// while transfers are running). Without a running engine, it's written to disk for next time.
+    fn save_and_restart(&self, running: impl FnOnce(&Engine) -> Result<(), NhakoError>, stored: impl FnOnce(&mut store::Store)) -> Result<(), NhakoError> {
+        let _g = self.lifecycle.lock().expect("lifecycle lock");
+        let Some(engine) = self.running() else {
+            let mut s = self.store()?;
+            stored(&mut s);
+            return s.save().map_err(|e| failed(e.to_string()));
+        };
+        if engine.transfers().iter().any(|t| !t.status.is_final()) {
+            return Err(failed("Wait for the transfers in progress to finish (or cancel them), then save again."));
+        }
+        running(&engine)?;
+        self.stop_locked();
+        let engine = self.start_locked()?;
+        let snapshot = serde_json::json!({ "type": "snapshot", "snapshot": engine.snapshot() });
+        self.listener.on_event(snapshot.to_string());
+        Ok(())
     }
 
     /// Only with `lifecycle` held.

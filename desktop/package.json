@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Nhako Beam desktop app: the Svelte UI (also runs in a browser on a pretend engine) and the Tauri shell in src-tauri/ that runs the real engine.",
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "scripts": {
     "tokens": "node ../design/tokens/build.mjs",
+    "sounds": "node ../design/sounds/build.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

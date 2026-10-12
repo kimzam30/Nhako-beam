@@ -30,7 +30,8 @@ class FormatTest {
     @Test fun formatsTimeLeft() {
         assertNull(formatEta(100, 0.0))
         assertNull(formatEta(0, 100.0))
-        assertEquals("a few seconds", formatEta(5, 1.0))
+        assertEquals("5 sec", formatEta(5, 1.0))
+        assertEquals("5 sec", formatEta(2, 1.0))
         assertEquals("45 sec", formatEta(42, 1.0))
         assertEquals("2 min", formatEta(130, 1.0))
         assertEquals("2 hr 15 min", formatEta(3600 * 2 + 60 * 15, 1.0))

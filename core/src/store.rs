@@ -3,6 +3,7 @@
 //! Files in the config folder:
 //! - `identity.key`: the device secret key, hex. Owner read/write only on Unix.
 //! - `state.json`: everything else.
+//! - `history.json`: finished transfers (see `history.rs`).
 
 use std::{
     io::Write,
@@ -24,6 +25,9 @@ pub struct TrustedDevice {
     pub auto_accept: bool,
     /// Epoch milliseconds.
     pub added_at: u64,
+    /// Its wake token, if it's a phone that can be woken up (see `wake.rs`). Learned from its hello.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +41,17 @@ pub struct State {
     /// Public servers or your own. Takes effect the next time the engine starts.
     #[serde(default)]
     pub connection: Connection,
+    /// Announce this device on the local network and look for others there (mDNS). Takes effect
+    /// the next time the engine starts.
+    #[serde(default = "yes")]
+    pub lan_discovery: bool,
+    /// This device's own wake token (Android, when push is set up). Shared with trusted devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake_token: Option<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug)]
@@ -100,6 +115,8 @@ impl Store {
                     save_dir: default_save_dir,
                     trusted: vec![],
                     connection: Connection::Public,
+                    lan_discovery: true,
+                    wake_token: None,
                 }
             }
             Err(e) => return Err(io_err(&state_path)(e)),
@@ -207,7 +224,7 @@ pub fn default_config_dir() -> PathBuf {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -223,6 +240,17 @@ mod tests {
             let mode = std::fs::metadata(dir.join("identity.key")).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+    }
+
+    #[test]
+    fn older_state_files_keep_lan_discovery_on() {
+        let dir = tempdir("store-old");
+        let fresh = Store::open(&dir, dir.join("save")).unwrap();
+        assert!(fresh.state.lan_discovery);
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("state.json")).unwrap()).unwrap();
+        v.as_object_mut().unwrap().remove("lanDiscovery");
+        std::fs::write(dir.join("state.json"), v.to_string()).unwrap();
+        assert!(Store::open(&dir, dir.join("save")).unwrap().state.lan_discovery);
     }
 
     #[test]

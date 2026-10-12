@@ -71,6 +71,17 @@ class RealEngineTest {
         assertEquals(own, ContractJson.decodeFromString<Connection>(engine.getConnection()))
         engine.setConnection(ContractJson.encodeToString(Connection.serializer(), Connection.Public))
 
+        // Phase 8: nearby search on and off (the engine restarts), History, the wake token.
+        assertTrue(engine.getLanDiscovery())
+        engine.setLanDiscovery(false)
+        assertEquals(false, engine.getLanDiscovery())
+        engine.setLanDiscovery(true)
+        assertTrue(ContractJson.decodeFromString<Snapshot>(engine.snapshot()).history.isEmpty())
+        engine.clearHistory()
+        engine.setWakeToken("dQw4w9WgXcQ:APA91bHn-test_token-0123456789abcdefghijklmnopqrstuvwxyz")
+        engine.setWakeToken(null)
+        assertEquals(false, engine.wakeAvailable())
+
         // Everything the engine said along the way is something the app understands.
         Thread.sleep(300)
         val said = synchronized(events) { events.toList() }

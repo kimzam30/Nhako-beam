@@ -1,125 +1,189 @@
 <div align="center">
 
-# ⚡ Nhako Beam
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo/png/nhako-beam-logo-horizontal-dark.png">
+  <img src="docs/brand/logo/png/nhako-beam-logo-horizontal-light.png" alt="Nhako Beam" width="440">
+</picture>
 
-**Open-source, cross-platform direct file transfer — no cloud, no limits, no subscriptions.**
+### Send files straight between your own devices.
+**No cloud. No size limit. No account.**
 
-[![Status](https://img.shields.io/badge/status-planning-blue)](https://github.com/yourorg/nhako-beam)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Android-lightgrey)]()
-[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker)](https://hub.docker.com/r/yourorg/nhako-beam-relay)
+[![Version](https://img.shields.io/badge/version-0.1.0-1A6FE0)](#project-status)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-1A6FE0)](#install)
+[![License](https://img.shields.io/badge/license-MIT%20or%20Apache--2.0-0B1B33)](#license)
+[![Rust](https://img.shields.io/badge/Rust-1.91%2B-0B1B33?logo=rust)](https://rustup.rs)
+[![Built on iroh](https://img.shields.io/badge/built%20on-iroh%201.3-FFD23F)](https://iroh.computer)
 
-> 🚧 **This project is currently in the planning phase.** Architecture and specifications are being finalized. Contributions and feedback are welcome.
+[Features](#features) · [Install](#install) · [How it works](#how-it-works) · [Self-hosting](#run-your-own-server) · [Development](#development) · [Brand kit](#brand-kit)
+
+<br>
+
+<img src="docs/brand/posters/nhako-beam-poster-hero-16x9.png" alt="Nhako Beam. Send anything. Straight to them. Open source file transfer that goes device to device." width="100%">
 
 </div>
 
----
+<br>
 
-## 📖 Overview
+## Overview
 
-**Nhako Beam** is an open-source alternative to proprietary direct-transfer applications like Blip. It enables fast, secure, and unlimited file transfers directly between devices — without uploading files to cloud storage, without file size caps, and without requiring user accounts.
+Nhako Beam moves files directly from one of your devices to another: a phone to a laptop, a
+desktop to a tablet. On the same Wi-Fi they find each other by themselves. Across the internet
+they connect directly when they can, and through a relay when they can't. Either way the files
+are encrypted end to end and never stored anywhere in between.
 
-Built with a privacy-first architecture, Nhako Beam streams files peer-to-peer whenever possible, and falls back to a self-hosted relay only when network conditions require it. The entire stack is open-source, free forever, and deployable in seconds via Docker.
+|  |  |
+|---|---|
+| **No cloud** | Files go device to device. Nothing is uploaded or kept on a server. |
+| **No size limit** | Only your disk decides. A dropped connection picks up from the last confirmed byte. |
+| **No account** | Devices pair once with a three-word code or a QR code, and remember each other. |
+| **Your own servers, if you want** | The relay and address lookup run on any computer with Docker. By default the apps use n0's free public ones. |
+| **Free and open source** | MIT or Apache 2.0. No ads, no tracking, no subscription. |
 
-### Why Nhako Beam?
+It's an open alternative to apps like Blip.
 
-| Feature | Proprietary Alternatives | Nhako Beam |
-|---------|------------------------|------------|
-| Open Source | ❌ Closed | ✅ Fully open |
-| Self-hosted relay | ❌ Not available | ✅ Docker in one command |
-| Cross-platform | ✅ Limited | ✅ Windows, Linux, Android |
-| File size limits | ⚠️ Freemium tiers | ✅ Unlimited (disk-bound) |
-| Cloud storage required | ❌ Yes (intermediate) | ✅ Direct stream, no cloud |
-| LAN acceleration | ✅ Yes | ✅ mDNS direct connect |
-| Free forever | ⚠️ Freemium / Ads | ✅ Truly free (MIT License) |
+## Features
 
----
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## 🏗️ Architecture
+#### Sending and receiving
+- Drag files onto a device (desktop), pick or share them from any app (Android), or
+  right-click **Send with Nhako Beam** in Explorer or Files.
+- A request card with **Accept** and **Decline**, or files straight in from devices you trust.
+- Notifications with Accept and Decline buttons while the app is in the background.
+- **Send with a code** to a device you haven't paired with.
 
-Nhako Beam is built on a modular, three-layer architecture designed for resilience, speed, and privacy.
+</td>
+<td width="50%" valign="top">
+
+#### Transfers you can rely on
+- Pause, resume, cancel, and retry from the last confirmed byte.
+- Every file is checked with BLAKE3 before it's saved.
+- Full **history** of everything sent and received, with Open and Show in folder.
+- Transfers on Android keep going with the screen off.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### Desktop (Windows and Linux)
+- Tray icon with a quick view of your devices and transfers.
+- Starts at login and keeps running when the window is closed.
+- Explorer and Files integration for sending from the file manager.
+
+</td>
+<td valign="top">
+
+#### Android
+- A **Receive** tile in Quick Settings.
+- Shrunk release builds, one APK per phone type (17 MB on arm64).
+- Optional push wake-up, so your other devices can reach the phone while the app is closed
+  ([wake/README.md](wake/README.md)).
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### Feel
+- Animated everywhere, with a reduced motion mode.
+- Original sounds for every interaction: **Loud**, **Soft** (default) or **Off**.
+- Light and dark themes, and a short launch intro.
+
+</td>
+<td valign="top">
+
+#### Privacy and control
+- Turn finding nearby devices on or off.
+- Point the apps at your own relay and lookup server.
+- Every open source package used is listed under Settings > About > Open source licenses.
+
+</td>
+</tr>
+</table>
+
+<div align="center">
+<img src="docs/brand/posters/nhako-beam-poster-features-16x9.png" alt="Fast. Private. Yours. Direct peer to peer, end to end encrypted, no size limits, resumes on its own." width="49%">
+<img src="docs/brand/posters/nhako-beam-poster-no-cloud-16x9.png" alt="No cloud in between. Nhako Beam sends files from one device to another, directly." width="49%">
+</div>
+
+## Install
+
+There are no store releases yet. You can build the apps yourself (free; the scripts check what you
+need and tell you what's missing), or run the **Build** workflow on GitHub and download the files
+from the run's Artifacts.
+
+| Platform | Build it | Install it |
+|---|---|---|
+| **Android** 8.0+ | `scripts/build-android.sh` | Copy `out/nhako-beam-arm64-v8a.apk` to the phone and tap it |
+| **Linux** (Debian, Ubuntu) | `scripts/build-linux.sh` | `sudo apt install --reinstall ./out/*.deb` |
+| **Windows** 10/11 | `scripts\build-windows.ps1` | Run the installer in `out\` |
+
+Step by step, including which APK your phone needs and how to install it:
+[docs/building.md](docs/building.md).
+
+> [!NOTE]
+> The Windows installer isn't signed yet, so SmartScreen shows a warning. Android APKs are signed
+> with the building computer's debug key until there's a Play Store release key.
+
+## Usage
+
+**In the apps:** open Nhako Beam on both devices. On the same Wi-Fi they show up under Nearby.
+Pair once with the three-word code or the QR code and check that both screens show the same short
+value. After that, send by dropping or sharing files onto the device.
+
+**From the command line:** `nhako` is a small client of the same engine.
+
+```bash
+cargo build --release -p nhako-cli        # binary: target/release/nhako
+
+nhako send holiday.mp4 notes.pdf          # prints three words for the other device
+nhako receive river lantern seven         # on the other device
+
+nhako pair                                # pair once, then send by name
+nhako send report.pdf --to "Work phone"
+nhako devices                             # see who's around
+```
+
+All commands: [cli/README.md](cli/README.md).
+
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLIENT LAYER                                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────────┐   │
-│  │   Windows    │  │    Linux     │  │            Android               │   │
-│  │  (Tauri)     │  │  (Tauri)     │  │         (Kotlin)                 │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────┬───────────────────┘   │
-│         │                 │                         │                       │
-│         └─────────────────┴─────────────────────────┘                       │
-│                           │                                                │
-│                    ┌────────┴────────┐                                      │
-│                    │   Core Engine   │  ← Chunking, Crypto, QUIC, Resume   │
-│                    │    (Rust)       │                                      │
-│                    └────────┬────────┘                                      │
-└─────────────────────────────┼──────────────────────────────────────────────┘
-                              │
-                              │  WebSocket Signaling / QUIC Relay
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              RELAY LAYER                                     │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                    Nhako Beam Relay (Docker)                         │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐  │   │
-│  │  │   Signaling  │  │ NAT Traversal│  │      Relay / TURN-like     │  │   │
-│  │  │   Server     │  │   Helper     │  │      Packet Forwarder      │  │   │
-│  │  │  (WebSocket) │  │  (ICE-like)  │  │      (QUIC / TCP)          │  │   │
-│  │  └──────────────┘  └──────────────┘  └────────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  Deployment: Docker / Docker Compose / Bare Metal (single binary)           │
-└─────────────────────────────────────────────────────────────────────────────┘
+  Phone (Kotlin, Compose)          Laptop (Svelte in Tauri)
+            │                                 │
+            └───── the same engine (Rust) ────┘
+                           │
+              iroh: QUIC, end to end encrypted
+              ├─ same Wi-Fi: found with mDNS, connects directly
+              ├─ internet: hole punching, direct when possible
+              └─ otherwise: through a relay (n0's, or your own)
 ```
 
-### Core Principles
+- **One engine for every app.** `core/` is written in Rust on [iroh](https://iroh.computer):
+  device keys, discovery, pairing codes and the `nhako/1` transfer protocol
+  ([docs/protocol/nhako-1.md](docs/protocol/nhako-1.md)). The desktop apps run it inside Tauri;
+  the Android app runs it through UniFFI (`ffi/`).
+- **Fast.** The engine moves about 365 MB/s in its own benchmark.
+- **Shared design.** Colors, type, spacing, motion, UI copy and sounds each come from one source
+  and are built for both the desktop and Android apps.
 
-1. **Direct First**: Attempt peer-to-peer connection via LAN (mDNS) or WAN (NAT traversal) before touching any relay.
-2. **Relay as Fallback**: The self-hosted Docker relay only handles signaling and byte-forwarding when P2P is impossible. It never stores decrypted data.
-3. **Chunked Streaming**: Files are broken into encrypted chunks with cryptographic checksums. Transfers resume automatically from the last acknowledged chunk.
-4. **Zero Trust**: All data is encrypted end-to-end using the Noise Protocol (or TLS 1.3 with mutual authentication). The relay sees only opaque packets.
+### Security and privacy
 
----
+- Each device has its own key. Connections are encrypted and authenticated between the two device
+  keys (QUIC with TLS 1.3, through iroh).
+- Pairing codes live 10 minutes and work once. Both screens show a check value derived from both device keys, so
+  a stranger who overheard the code can't step in between.
+- Relays only pass encrypted bytes along. They can't read your files.
+- Device names are only sent inside an encrypted connection, never published.
+- No analytics and no accounts. The optional wake push carries nothing but "wake up".
 
-## 🚀 Planned Features
+## Run your own server
 
-### Phase 1 — Core Protocol (In Planning)
-- [ ] **Chunked File Streaming**: Break files into resumable, cryptographically verified chunks
-- [ ] **End-to-End Encryption**: Noise Protocol / TLS 1.3 with per-device keypairs
-- [ ] **QUIC Transport**: Fast, reliable UDP-based transfer with built-in congestion control
-- [ ] **Auto-Resume**: SQLite-backed transfer state; reconnect and resume from any chunk
-- [ ] **LAN Direct Connect**: mDNS/Bonjour discovery for same-network zero-latency transfers
-
-### Phase 2 — Relay & Infrastructure (In Planning)
-- [ ] **Self-Hosted Relay**: Dockerized signaling + relay server (Go / Rust)
-- [ ] **NAT Traversal**: ICE-like candidate exchange for WAN P2P
-- [ ] **TURN-like Fallback**: Encrypted packet forwarding when direct connection fails
-- [ ] **Multi-Relay Support**: Client can switch between private, community, or public relays
-- [ ] **Rate Limiting & Abuse Prevention**: Configurable quotas and token-based auth
-
-### Phase 3 — Desktop Clients (In Planning)
-- [ ] **Windows Client**: Native Tauri app with system tray and Explorer context menu
-- [ ] **Linux Client**: Tauri app with AppImage / .deb packaging and Nautilus integration
-- [ ] **Drag & Drop UI**: Simple, fast interface with real-time progress
-- [ ] **Background Service**: Persistent WebSocket connection for instant availability
-
-### Phase 4 — Android Client (In Planning)
-- [ ] **System Share Sheet Integration**: "Beam with Nhako" from any app
-- [ ] **Foreground Transfer Service**: Survives app backgrounding with notification progress
-- [ ] **Auto-Accept**: Trusted device pairing for hands-free reception
-- [ ] **Material You Design**: Native Android UI with dynamic theming
-
-### Phase 5 — Polish & Ecosystem (In Planning)
-- [ ] **Community Relay Directory**: Decentralized list of public relay instances
-- [ ] **Transfer History**: Local, encrypted log of sent/received files
-- [ ] **Clipboard Sharing**: Send text snippets and URLs alongside files
-- [ ] **Plugin API**: Extend with custom transfer hooks and integrations
-
----
-
-## 🐳 Docker Deployment
-
-Your own relay and address lookup server run from `relay/` with Docker Compose. Full guide: [relay/README.md](relay/README.md).
+The relay and lookup server are n0's own open source servers in Docker. They run on any computer,
+for free.
 
 ```bash
 cd relay
@@ -127,176 +191,162 @@ cp .env.example .env            # put a token in it: openssl rand -hex 24
 docker compose up -d --build
 ```
 
-| Service | Port | What it does |
-|---|---|---|
-| relay | 3340/tcp | Passes encrypted traffic when two devices can't connect directly. Token required. |
-| lookup | 3341/tcp | Lets your devices find each other by device key. |
+Then on each device: **Settings > Connection > Your own**. Details in
+[relay/README.md](relay/README.md).
 
-Then point your devices at it: in the app under Settings > Connection > Your own, or with `nhako server set http://YOUR-IP:3340 --lookup http://YOUR-IP:3341`.
+## Development
 
-This setup is for your own computer or home network (plain HTTP). Making it reachable from other networks needs HTTPS and a public address, which is a later step.
+**Requirements:** Rust 1.91+, Node 22, and for Android: JDK 17+, the Android SDK with NDK
+`29.0.14206865`, the three Rust Android targets and `cargo-ndk`. For the Linux app: the GTK,
+WebKit and ALSA development packages. Full setup in [docs/building.md](docs/building.md).
 
-### Deployment Models
-
-| Model | Use Case | Setup |
-|-------|----------|-------|
-| **Private Relay** | Personal / family use | Single Docker container on home server or VPS |
-| **Community Relay** | Small teams or friend groups | Shared instance with token-based access |
-| **Public Relay** | Open ecosystem | Listed in community directory with rate limits |
-
----
-
-## Desktop app (Windows and Linux)
-
-The desktop app is in `desktop/` (Svelte UI in a Tauri window, running the engine from `core/`).
-
-**Windows:** run the Build workflow on GitHub (Actions > Build > Run workflow) and download the installer, `Nhako Beam_0.1.0_x64-setup.exe`, from the run. It isn't signed yet, so Windows SmartScreen warns first (More info, then Run anyway).
-
-**Linux:** build the .deb on Debian or Ubuntu:
+**Try the UI in a browser** (a working prototype on a pretend engine, no Rust needed):
 
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev build-essential file
 cd desktop
 npm install
-npx tauri build
-sudo apt install "../target/release/bundle/deb/Nhako Beam_0.1.0_amd64.deb"
+npm run dev
 ```
 
-Both add Nhako Beam to the app menu, with a tray icon, an option to start when you log in, notifications for incoming files, and "Send with Nhako Beam" in the file manager's right-click menu. More in [desktop/README.md](desktop/README.md).
+**Checks** to run before a pull request:
 
----
-
-## Android app
-
-The Android app is in `android/` (Kotlin and Jetpack Compose, running the same engine through `ffi/`). It has every screen of the desktop app, takes files from any app's Share menu, keeps transfers going in the background with a progress notification, and saves received files to `Download/Nhako Beam`.
-
-Build the .apk with `scripts/build-android.sh`, or download `nhako-beam-android-apk` from the Build workflow, then copy it to your phone and tap it. It's a debug build for now; a Play Store release comes later. More in [android/README.md](android/README.md).
-
-## Building it yourself
-
-Every app builds on your own computer with the scripts in `scripts/`, or on GitHub with the Build workflow. Setup for each, and how to install the .apk on a phone, is in [docs/building.md](docs/building.md).
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| **Protocol Core** | Rust | Memory safety, async performance, single-binary deployment |
-| **Relay Server** | Go or Rust | High concurrency, small Docker image, native QUIC support |
-| **Desktop UI** | Tauri (Rust + Web) | Tiny bundle size, native OS integration, cross-compile to Win/Linux |
-| **Android** | Kotlin + Jetpack Compose | Native performance, system share sheet, foreground services |
-| **Transport** | QUIC (UDP) + TCP fallback | Modern, fast, NAT-friendly with built-in security |
-| **Crypto** | Noise Protocol / rustls | Lightweight, formally verified, no certificate authority required |
-| **Discovery** | mDNS (zeroconf) + WebSocket | LAN discovery without infrastructure; WAN via relay |
-| **Checksums** | BLAKE3 | Fast, parallelizable, cryptographically secure |
-
----
-
-## 📂 Repository Structure (Planned)
-
-```
-nhako-beam/
-├── relay/                  # Dockerized relay + signaling server
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── src/
-├── core/                   # Shared Rust library (protocol, crypto, chunking)
-│   └── src/
-├── desktop/                # Tauri desktop application
-│   ├── src-tauri/          # Rust backend
-│   └── src/                # Web frontend (Svelte/Vue)
-├── android/                # Kotlin Android application
-│   └── app/
-├── docs/                   # Architecture docs, protocol specs, deployment guides
-├── .github/
-│   └── workflows/          # CI/CD for Docker images, releases, and cross-compilation
-├── LICENSE
-└── README.md
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd desktop && npm run check && npm test && npm run e2e
+cd android && ./gradlew testDebugUnitTest
 ```
 
----
+### Project structure
 
-## 🗺️ Roadmap
+| Folder | What's there |
+|---|---|
+| [`core/`](core) | The engine (Rust, iroh 1.3): identity, discovery, pairing, the `nhako/1` protocol |
+| [`cli/`](cli) | `nhako`, a command-line client |
+| [`ffi/`](ffi) | The engine for other languages (UniFFI), used by Android |
+| [`desktop/`](desktop) | The Windows and Linux app: Svelte 5 UI, Tauri 2 shell in `src-tauri/` |
+| [`android/`](android) | The Android app (Kotlin, Jetpack Compose) |
+| [`relay/`](relay) | Your own relay and lookup server (Docker) |
+| [`wake/`](wake) | The optional wake service for phones (Cloudflare Worker, Firebase push) |
+| [`design/`](design) | Design tokens and the sound generator, built for both apps |
+| [`docs/`](docs) | Design system, screens and states, UI copy, motion spec, protocol, brand kit |
+| [`scripts/`](scripts) | Local build scripts and the open source licenses list |
 
-| Phase | Milestone | Target |
-|-------|-----------|--------|
-| **0** | Protocol specification & Rust core scaffold | Q4 2026 |
-| **1** | Relay server + Docker image + basic signaling | Q4 2026 |
-| **2** | Linux desktop MVP (send/receive, CLI) | Q1 2027 |
-| **3** | Windows desktop parity | Q1 2027 |
-| **4** | Android MVP (share sheet, basic transfers) | Q2 2027 |
-| **5** | LAN direct connect (mDNS) + resume polish | Q2 2027 |
-| **6** | Public beta + community relay network | Q3 2027 |
-| **7** | v1.0 stable release | Q4 2027 |
+## Project status
 
----
+Version **0.1.0**, in active development and tested on real devices (Linux on Zorin OS and Android
+on a Galaxy S24+).
 
-## 🤝 Contributing
+| Phase | Done |
+|---|---|
+| 0 to 2 | Design system, every screen and state, UI copy, motion, the browser prototype |
+| 3 | The engine, the CLI, the protocol |
+| 4 | Your own relay and lookup server |
+| 5 and 6 | The Linux and Windows apps |
+| 7 | The Android app |
+| 8 | Brand and icons, launch intro, history, licenses, tray quick view, notification buttons, nearby switch, Quick Settings tile, push wake-up, smaller APKs |
+| 9 | Sounds for every interaction on both apps, and fixes from real-device testing |
 
-Nhako Beam is in active planning and we welcome contributors of all skill levels.
+**Next:** more real-device testing (especially across the internet), signed Windows builds, and a
+Play Store release.
 
-### How to Contribute
+## Media
 
-1. **Star & Watch** the repository to stay updated
-2. **Open an Issue** to discuss features, report bugs, or ask questions
-3. **Review the Architecture** — feedback on the protocol and security model is especially valuable at this stage
-4. **Submit a PR** once scaffolding begins
-
-### Areas We Need Help With
-
-- 🔐 Cryptographic protocol review
-- 🌐 NAT traversal and ICE implementation
-- 🎨 UI/UX design for desktop and Android
-- 🐳 Docker and DevOps optimization
-- 📖 Documentation and protocol specifications
-
-Please read our [Contributing Guide](CONTRIBUTING.md) (coming soon) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting.
-
----
-
-## 📜 License
-
-Nhako Beam is licensed under the **MIT License**.
-
-```
-MIT License
-
-Copyright (c) 2026 Nhako Beam Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
-
-## 🙏 Acknowledgments
-
-- Inspired by the direct-transfer philosophy of applications like **Blip**
-- Built on the shoulders of open protocols: **QUIC**, **Noise**, **BLAKE3**, **WebSocket**
-- Thanks to the Rust, Go, and open-source communities for the incredible tooling
-
----
+### Launch video
 
 <div align="center">
+<a href="docs/brand/video/nhako-beam-launch-16x9.mp4">
+  <img src="docs/brand/video/nhako-beam-launch-16x9-cover.png" alt="Watch the Nhako Beam launch video" width="80%">
+</a>
+<br>
+<sub>Click to watch. Also in
+<a href="docs/brand/video/nhako-beam-launch-1x1.mp4">1:1</a>,
+<a href="docs/brand/video/nhako-beam-launch-4x5.mp4">4:5</a> and
+<a href="docs/brand/video/nhako-beam-launch-9x16.mp4">9:16</a>.</sub>
+</div>
 
-**[⭐ Star this repo](https://github.com/yourorg/nhako-beam)** to follow our progress from planning to production.
+### Posters
 
-*Built with ⚡ by the community, for the community.*
+<div align="center">
+<img src="docs/brand/posters/nhako-beam-poster-hero-9x16.png" alt="Hero poster, 9:16" width="32%">
+<img src="docs/brand/posters/nhako-beam-poster-features-9x16.png" alt="Features poster, 9:16" width="32%">
+<img src="docs/brand/posters/nhako-beam-poster-no-cloud-9x16.png" alt="No cloud poster, 9:16" width="32%">
+</div>
 
+<details>
+<summary><b>Every poster and size</b></summary>
+<br>
+
+| Poster | 16:9 | 1:1 | 4:5 | 9:16 |
+|---|---|---|---|---|
+| Hero | [PNG](docs/brand/posters/nhako-beam-poster-hero-16x9.png) | [PNG](docs/brand/posters/nhako-beam-poster-hero-1x1.png) | [PNG](docs/brand/posters/nhako-beam-poster-hero-4x5.png) | [PNG](docs/brand/posters/nhako-beam-poster-hero-9x16.png) |
+| Features | [PNG](docs/brand/posters/nhako-beam-poster-features-16x9.png) | [PNG](docs/brand/posters/nhako-beam-poster-features-1x1.png) | [PNG](docs/brand/posters/nhako-beam-poster-features-4x5.png) | [PNG](docs/brand/posters/nhako-beam-poster-features-9x16.png) |
+| No cloud | [PNG](docs/brand/posters/nhako-beam-poster-no-cloud-16x9.png) | [PNG](docs/brand/posters/nhako-beam-poster-no-cloud-1x1.png) | [PNG](docs/brand/posters/nhako-beam-poster-no-cloud-4x5.png) | [PNG](docs/brand/posters/nhako-beam-poster-no-cloud-9x16.png) |
+| Launch video | [MP4](docs/brand/video/nhako-beam-launch-16x9.mp4) | [MP4](docs/brand/video/nhako-beam-launch-1x1.mp4) | [MP4](docs/brand/video/nhako-beam-launch-4x5.mp4) | [MP4](docs/brand/video/nhako-beam-launch-9x16.mp4) |
+
+GitHub social preview (1280x640): [nhako-beam-github-social-preview.png](docs/brand/posters/nhako-beam-github-social-preview.png)
+
+</details>
+
+## Brand kit
+
+Everything lives in [`docs/brand/`](docs/brand), in SVG and PNG.
+
+<table>
+<tr>
+<td align="center" width="25%"><img src="docs/brand/logo/png/nhako-beam-icon-256.png" alt="App icon" width="96"><br><sub><b>Icon</b></sub></td>
+<td align="center" width="25%"><img src="docs/brand/logo/png/nhako-beam-icon-circle-256.png" alt="Circle icon" width="96"><br><sub><b>Circle</b></sub></td>
+<td align="center" width="25%"><img src="docs/brand/logo/png/nhako-beam-icon-mono-navy-512.png" alt="Navy mono icon" width="96"><br><sub><b>Mono</b></sub></td>
+<td align="center" width="25%"><img src="docs/brand/logo/png/nhako-beam-bolt-512.png" alt="Bolt" width="96"><br><sub><b>Bolt</b></sub></td>
+</tr>
+</table>
+
+| Asset | Files |
+|---|---|
+| App icon | [SVG](docs/brand/logo/svg/nhako-beam-icon.svg), PNG at 16 to 1024 px, [favicon.ico](docs/brand/logo/favicon.ico) |
+| Horizontal logo | [light](docs/brand/logo/svg/nhako-beam-logo-horizontal-light.svg), [dark](docs/brand/logo/svg/nhako-beam-logo-horizontal-dark.svg) |
+| Stacked logo | [light](docs/brand/logo/svg/nhako-beam-logo-stacked-light.svg), [dark](docs/brand/logo/svg/nhako-beam-logo-stacked-dark.svg) |
+| Wordmark | [light](docs/brand/logo/svg/nhako-beam-wordmark-light.svg), [dark](docs/brand/logo/svg/nhako-beam-wordmark-dark.svg) |
+| Mono icons | [navy](docs/brand/logo/svg/nhako-beam-icon-mono-navy.svg), [white](docs/brand/logo/svg/nhako-beam-icon-mono-white.svg) |
+
+| Color | Hex | Use |
+|---|---|---|
+| Blue | `#2F8FFF` | The icon, splash and beam glow |
+| Dark blue | `#1A6FE0` | The bolt's offset, and the accent in the apps (white text on it passes contrast) |
+| Yellow | `#FFD23F` | The bolt and highlights. Never as text on white |
+| Ink | `#0B1B33` | The wordmark on light backgrounds |
+
+"Light" logos are for light backgrounds, "dark" logos for dark ones. The design system, motion
+spec and UI copy are in [`docs/design/`](docs/design).
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, please run the
+[checks](#development). A few things are kept in step across the codebase (the JSON contract, UI
+copy, design tokens, sounds and app behavior on desktop and Android); [CLAUDE.md](CLAUDE.md)
+lists them.
+
+## License
+
+Licensed under either of
+
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+
+at your option. Unless you say otherwise, any contribution you submit for inclusion is dual
+licensed as above, without any additional terms.
+
+## Acknowledgments
+
+Built on [iroh](https://iroh.computer) by n0, [Tauri](https://tauri.app),
+[Svelte](https://svelte.dev), [Jetpack Compose](https://developer.android.com/compose) and
+[UniFFI](https://github.com/mozilla/uniffi-rs). Icons from [Phosphor](https://phosphoricons.com),
+type in [Inter](https://rsms.me/inter/).
+
+<div align="center">
+<br>
+<img src="docs/brand/logo/png/nhako-beam-icon-64.png" alt="" width="40">
+<br>
+<sub>Made for moving your own files, your own way.</sub>
 </div>

@@ -12,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import io.github.kimzam30.nhakobeam.BuildConfig
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
-import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.PlatformHooks
 import io.github.kimzam30.nhakobeam.state.ToastTone
@@ -37,7 +36,7 @@ class ActivityPlatform(private val activity: ComponentActivity, private val app:
 
     override fun haptic(h: NhakoHaptic) = h.perform(activity.window.decorView)
 
-    override fun openReceived(transfer: Transfer, paths: List<String>) {
+    override fun openFiles(paths: List<String>) {
         val files = paths.map(::File)
         // Several files: show the folder in the Files app if it can, else open the first one.
         if (files.size > 1 && openFolder(files.first().parentFile)) return
@@ -47,7 +46,7 @@ class ActivityPlatform(private val activity: ComponentActivity, private val app:
         start(view)
     }
 
-    override fun shareReceived(transfer: Transfer, paths: List<String>) {
+    override fun shareFiles(paths: List<String>) {
         val files = paths.map(::File)
         val uris = files.mapNotNull(::uriFor)
         if (uris.isEmpty()) return failed()

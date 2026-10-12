@@ -47,6 +47,13 @@ data class NhakoColors(
     val beamTrack: Color,
 )
 
+/** The logo's colors, the same in light and dark (icon, splash, beam glow). */
+object NhakoBrand {
+    val blue = Color(0xFF2F8FFF)
+    val navy = Color(0xFF1A6FE0)
+    val yellow = Color(0xFFFFD23F)
+}
+
 object NhakoPalette {
     val Light = NhakoColors(
         canvas = Color(0xFFF4F5F7),
@@ -60,10 +67,10 @@ object NhakoPalette {
         textSecondary = Color(0xFF545B69),
         textTertiary = Color(0xFF686F7D),
         textDisabled = Color(0xFFA4A9B3),
-        accent = Color(0xFF2457F5),
-        accentPressed = Color(0xFF1B46D1),
-        accentSubtle = Color(0xFFE8EEFF),
-        accentText = Color(0xFF2050E6),
+        accent = Color(0xFF1A6FE0),
+        accentPressed = Color(0xFF1559B8),
+        accentSubtle = Color(0xFFE6F1FF),
+        accentText = Color(0xFF1560C8),
         onAccent = Color(0xFFFFFFFF),
         success = Color(0xFF14794A),
         successSubtle = Color(0xFFE3F4EA),
@@ -72,11 +79,11 @@ object NhakoPalette {
         danger = Color(0xFFC42727),
         dangerSubtle = Color(0xFFFDE8E8),
         onDanger = Color(0xFFFFFFFF),
-        focusRing = Color(0xFF2457F5),
+        focusRing = Color(0xFF1A6FE0),
         scrim = Color(0x660A0C10),
-        beamCore = Color(0xFF2457F5),
-        beamGlow = Color(0x402457F5),
-        beamTrack = Color(0x1F2457F5),
+        beamCore = Color(0xFF1F7AF0),
+        beamGlow = Color(0x402F8FFF),
+        beamTrack = Color(0x1F2F8FFF),
     )
     val Dark = NhakoColors(
         canvas = Color(0xFF0D0E11),
@@ -90,10 +97,10 @@ object NhakoPalette {
         textSecondary = Color(0xFFA6ACB8),
         textTertiary = Color(0xFF8F96A3),
         textDisabled = Color(0xFF555B66),
-        accent = Color(0xFF3866F5),
-        accentPressed = Color(0xFF2E58DB),
-        accentSubtle = Color(0xFF1A2440),
-        accentText = Color(0xFF8AA8FF),
+        accent = Color(0xFF1A6FE0),
+        accentPressed = Color(0xFF1559B8),
+        accentSubtle = Color(0xFF12263F),
+        accentText = Color(0xFF7DB8FF),
         onAccent = Color(0xFFFFFFFF),
         success = Color(0xFF4CC487),
         successSubtle = Color(0xFF12271C),
@@ -102,11 +109,11 @@ object NhakoPalette {
         danger = Color(0xFFFF6B6B),
         dangerSubtle = Color(0xFF2E1414),
         onDanger = Color(0xFF1A0505),
-        focusRing = Color(0xFF8AA8FF),
+        focusRing = Color(0xFF7DB8FF),
         scrim = Color(0xA3000000),
-        beamCore = Color(0xFF5B86FF),
-        beamGlow = Color(0x4D5B86FF),
-        beamTrack = Color(0x245B86FF),
+        beamCore = Color(0xFF4DA0FF),
+        beamGlow = Color(0x4D4DA0FF),
+        beamTrack = Color(0x244DA0FF),
     )
 }
 

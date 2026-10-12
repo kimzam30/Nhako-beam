@@ -13,6 +13,8 @@ import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.state.AppState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -34,6 +36,50 @@ class Background(private val context: Context, private val app: AppState, privat
         }
 
     private var serviceRunning = false
+    /** Ready to receive until this moment (elapsed realtime), with no screen open. 0: not. */
+    private var readyUntil = 0L
+    /** Woken up by another device (rather than the tile). */
+    private var readyWoken = false
+    private var readyJob: Job? = null
+    /** The Quick Settings tile listens while it's showing, to switch on or off. */
+    var onReadyChanged: () -> Unit = { ReceiveTile.update(context) }
+
+    val ready: Boolean get() = readyUntil > SystemClock.elapsedRealtime()
+
+    /**
+     * Keeps the phone reachable for [ms] with no screen open: the engine runs, nearby devices can
+     * find it, and requests show as notifications. [woken]: another device asked (a push), so it
+     * only lasts long enough for that device to connect.
+     */
+    fun receiveFor(ms: Long, woken: Boolean) {
+        if (woken && foreground) return
+        readyUntil = SystemClock.elapsedRealtime() + ms
+        readyWoken = woken
+        readyJob?.cancel()
+        readyJob = scope.launch {
+            // The notification counts the minutes down, then it stops by itself.
+            while (ready) {
+                delay(minOf(30_000L, readyUntil - SystemClock.elapsedRealtime()).coerceAtLeast(1L))
+                if (ready) syncService()
+            }
+            stopReceiving()
+        }
+        if (app.started) app.engine.rescan()
+        lastStatus = null
+        syncService()
+        updateMulticast()
+        onReadyChanged()
+    }
+
+    fun stopReceiving() {
+        readyUntil = 0L
+        readyJob?.cancel()
+        readyJob = null
+        lastStatus = null
+        syncService()
+        updateMulticast()
+        onReadyChanged()
+    }
     private var lastProgress = 0L
     private var lastStatus: TransferStatus? = null
     private val postedRequests = mutableSetOf<String>()
@@ -78,10 +124,19 @@ class Background(private val context: Context, private val app: AppState, privat
         return if (active.isEmpty()) null else notifier.progress(active, app::deviceName)
     }
 
+    /** What the foreground service shows: the transfers, or that it's ready to receive. */
+    fun serviceNotification(): Notification? = progressNotification() ?: readyNotification()
+
+    private fun readyNotification(): Notification? {
+        if (!ready) return null
+        val minutes = ((readyUntil - SystemClock.elapsedRealtime() + 59_999) / 60_000).toInt()
+        return notifier.ready(readyWoken, minutes)
+    }
+
     /** Starts the service when files start moving, keeps its notification fresh, stops it after. */
     private fun syncService() {
         val active = app.activeTransfers
-        if (active.isEmpty()) {
+        if (active.isEmpty() && !ready) {
             if (serviceRunning) {
                 context.stopService(Intent(context, TransferService::class.java))
                 serviceRunning = false
@@ -105,11 +160,11 @@ class Background(private val context: Context, private val app: AppState, privat
         // Progress moves many times a second; the notification follows once a second, or at once
         // when the state changes (paused, resumed).
         val now = SystemClock.elapsedRealtime()
-        val status = active.first().status
+        val status = active.firstOrNull()?.status
         if (status != lastStatus || now - lastProgress >= 1000) {
             lastStatus = status
             lastProgress = now
-            progressNotification()?.let { notifier.updateProgress(it) }
+            serviceNotification()?.let { notifier.updateProgress(it) }
         }
     }
 
@@ -118,7 +173,7 @@ class Background(private val context: Context, private val app: AppState, privat
      * app is on screen or files are moving, so nearby devices show up and stay connected.
      */
     private fun updateMulticast() {
-        val want = foreground || app.activeTransfers.isNotEmpty()
+        val want = foreground || ready || app.activeTransfers.isNotEmpty()
         val lock = multicast ?: return
         runCatching {
             if (want && !lock.isHeld) lock.acquire() else if (!want && lock.isHeld) lock.release()

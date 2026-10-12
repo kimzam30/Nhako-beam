@@ -71,6 +71,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 import kotlin.math.max
 import kotlinx.coroutines.delay
 
@@ -250,10 +251,13 @@ fun CodeInput(state: CodeInputState, enabled: Boolean, onSubmit: () -> Unit, mod
                 for (s in suggestions) {
                     BasicText(
                         s,
-                        Modifier.clip(RoundedCornerShape(NhakoRadius.full)).background(c.accentSubtle).clickable(role = Role.Button) {
-                            state.words[active] = s
-                            if (active < 2) focus[active + 1].requestFocus()
-                        }.padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
+                        Modifier.clip(RoundedCornerShape(NhakoRadius.full)).background(c.accentSubtle).clickable(
+                            role = Role.Button,
+                            onClick = withTap {
+                                state.words[active] = s
+                                if (active < 2) focus[active + 1].requestFocus()
+                            },
+                        ).padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
                         style = NhakoType.callout.style(c.accentText).copy(fontWeight = FontWeight(500)),
                     )
                 }

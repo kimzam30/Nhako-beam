@@ -4,10 +4,14 @@
 //!   (`desktop/src/lib/engine/types.ts`) into Tauri commands and events.
 //! - `shell.rs` is the desktop part: tray icon, keep running in the background, notifications.
 //! - `filemenu.rs` is "Send with Nhako Beam" in Explorer and Files, and the `--send` option.
+//! - `popover.rs` is the small window next to the tray icon.
+//! - `sound.rs` plays the app's sounds (design/sounds/).
 
 mod engine;
 mod filemenu;
+mod popover;
 mod shell;
+mod sound;
 
 use std::path::Path;
 
@@ -38,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            app.manage(sound::Sounds::new());
             let config_dir = app.path().app_config_dir()?;
             app.manage(engine::Host::new(config_dir.clone()));
             let shell = shell::Shell::load(config_dir);
@@ -76,6 +81,12 @@ pub fn run() {
             engine::get_connection,
             engine::set_connection,
             engine::check_server,
+            engine::get_lan_discovery,
+            engine::set_lan_discovery,
+            engine::clear_history,
+            shell::open_link,
+            popover::open_main,
+            popover::hand_to_main,
             engine::open_received,
             shell::take_send_paths,
             shell::get_file_menu,
@@ -83,6 +94,7 @@ pub fn run() {
             shell::get_background,
             shell::set_background,
             shell::quit,
+            sound::play_sound,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

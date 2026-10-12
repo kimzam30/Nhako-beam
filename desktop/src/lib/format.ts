@@ -24,7 +24,7 @@ export function formatSpeed(bytesPerSecond: number): string {
 export function formatEta(remainingBytes: number, speed: number): string | null {
   if (speed <= 0 || remainingBytes <= 0) return null;
   const s = remainingBytes / speed;
-  if (s < 10) return 'a few seconds';
+  // Up to the next 5 seconds, so a short wait still reads "About 5 sec left".
   if (s < 60) return `${Math.ceil(s / 5) * 5} sec`;
   if (s < 3600) return `${Math.round(s / 60)} min`;
   const h = Math.floor(s / 3600);
@@ -86,4 +86,42 @@ export function middleTruncate(name: string, max = 28): string {
 /** Fills {placeholders} in a copy string. */
 export function fill(template: string, vars: Record<string, string | number> = {}): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? `{${k}}`));
+}
+
+/** How long something took: "under a second", "12 sec", "4 min 5 sec", "1 hr 20 min". */
+export function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 1) return 'under a second';
+  if (s < 60) return `${s} sec`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const rest = s % 60;
+    return rest ? `${m} min ${rest} sec` : `${m} min`;
+  }
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+/** Local midnight before `at`, as epoch ms: the key History groups a day's entries under. */
+export function dayStart(at: number): number {
+  const d = new Date(at);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** "Today", "Yesterday", or a date like "Mon 12 Oct" ("Mon 12 Oct 2025" in another year). */
+export function dayLabel(at: number, now: number, today: string, yesterday: string): string {
+  const day = dayStart(at);
+  const start = dayStart(now);
+  if (day === start) return today;
+  if (day === dayStart(start - 1)) return yesterday;
+  const d = new Date(at);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+/** The time of day, in the system's own style ("14:05" or "2:05 PM"). */
+export function timeOfDay(at: number): string {
+  return new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }

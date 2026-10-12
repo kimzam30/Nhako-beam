@@ -1,8 +1,27 @@
-//! File helpers: safe names, unique paths, part files and free space.
+//! File helpers: safe names, unique paths, part files, free space, and opening files to send.
 
 use std::path::{Path, PathBuf};
 
 pub const PART_SUFFIX: &str = ".nhakopart";
+
+/// Opens a file to send. The Android app hands the engine files that Android opened for it (from
+/// the share sheet or the file picker) as `/proc/self/fd/<n>`. Opening that path again goes back
+/// through Android's storage layer, which refuses it for files from apps like Files, so the engine
+/// reads through the file Android already opened. The app keeps it open until the transfer ends.
+pub fn open_to_send(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    if let Some(fd) = path.to_str().and_then(|p| p.strip_prefix("/proc/self/fd/")).and_then(|n| n.parse::<u16>().ok()) {
+        use std::os::fd::BorrowedFd;
+        // SAFETY: a descriptor number the app passed for this transfer and keeps open while it runs;
+        // it's duplicated here, so the engine closing its copy never closes the app's.
+        let file = std::fs::File::from(unsafe { BorrowedFd::borrow_raw(i32::from(fd)) }.try_clone_to_owned()?);
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::other("not a file"));
+        }
+        return Ok(file);
+    }
+    std::fs::File::open(path)
+}
 
 /// Makes a file name from another device safe to save here: base name only, no control
 /// characters, nothing Windows refuses, and never empty.
@@ -84,6 +103,23 @@ pub fn is_disk_full(e: &std::io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_a_file_android_opened_even_when_its_path_is_off_limits() {
+        use std::{io::Read, os::fd::AsRawFd};
+        let dir = crate::store::tests::tempdir("open-to-send");
+        let path = dir.join("photo.jpg");
+        std::fs::write(&path, b"pixels").unwrap();
+        let held = std::fs::File::open(&path).unwrap();
+        // The app can't reach the file by its path any more, only through the open descriptor.
+        std::fs::remove_file(&path).unwrap();
+        let link = PathBuf::from(format!("/proc/self/fd/{}", held.as_raw_fd()));
+        let mut text = String::new();
+        open_to_send(&link).unwrap().read_to_string(&mut text).unwrap();
+        assert_eq!(text, "pixels");
+        assert_eq!(open_to_send(&link).unwrap().metadata().unwrap().len(), 6);
+    }
 
     #[test]
     fn names_are_made_safe() {

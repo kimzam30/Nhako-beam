@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Builds the Android app (.apk) on your own computer, the same way the GitHub workflow does.
 #
-#   scripts/build-android.sh            tests, then an .apk for every phone (arm64, arm32, x86_64)
+#   scripts/build-android.sh            tests, then one .apk per kind of phone (arm64, arm32, x86_64)
 #   scripts/build-android.sh --fast     arm64 only (most phones), no tests: quicker for trying things
 #
-# The .apk ends up in out/. Setup steps are in docs/building.md.
+# The .apk files end up in out/. Setup steps are in docs/building.md. With NHAKO_WAKE_URL set (see
+# wake/README.md), the engine can wake your phones while Nhako Beam is closed.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -47,17 +48,24 @@ export CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}
 cd android
 if ((FAST)); then
   echo "Building the .apk for arm64 phones (no tests)..."
-  ./gradlew assembleDebug -Pnhako.abis=arm64-v8a
+  ./gradlew assembleRelease -Pnhako.abis=arm64-v8a
 else
   echo "Running the tests..."
   ./gradlew testDebugUnitTest
   echo "Building the .apk for every phone..."
-  ./gradlew assembleDebug
+  ./gradlew assembleRelease
 fi
 
 mkdir -p "$ROOT/out"
-cp app/build/outputs/apk/debug/app-debug.apk "$ROOT/out/nhako-beam-debug.apk"
+rm -f "$ROOT"/out/nhako-beam-{arm64-v8a,armeabi-v7a,x86_64}{,-debug}.apk
 echo
-echo "Done: out/nhako-beam-debug.apk"
+echo "Done:"
+for apk in app/build/outputs/apk/release/app-*-release.apk; do
+  abi=$(basename "$apk" | sed -e 's/^app-//' -e 's/-release\.apk$//')
+  cp "$apk" "$ROOT/out/nhako-beam-$abi.apk"
+  echo "  out/nhako-beam-$abi.apk ($(( $(stat -c%s "$apk") / 1000000 )) MB)"
+done
+echo "Most phones need the arm64-v8a one. Not sure? Settings > About phone usually says 'ARM64' or '64-bit'."
+[[ -f app/google-services.json ]] || echo "Push wake-up is off in this build (no app/google-services.json; see wake/README.md)."
 ((FAST)) || echo "Screenshots of every screen: android/app/build/screenshots/"
 echo "To install it, see 'Install the .apk on your phone' in docs/building.md."

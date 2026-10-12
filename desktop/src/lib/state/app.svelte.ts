@@ -2,13 +2,14 @@
 import { breakpoint } from '../tokens';
 import { MockEngine } from '../engine/mock';
 import { TauriEngine, isTauri, message } from '../engine/tauri';
-import type { Connection, Device, DiscoveryState, Engine, FileItem, IncomingRequest, PairingCode, ServerProblem, Snapshot, Transfer } from '../engine/types';
+import type { Connection, Device, DiscoveryState, Engine, FileItem, HistoryEntry, IncomingRequest, PairingCode, ServerProblem, Snapshot, Transfer } from '../engine/types';
 import * as shell from '../shell';
 import { playHaptic } from '../haptics.svelte';
+import { playSound } from '../sounds.svelte';
 import { t } from '../copy';
 import { summarizeFiles } from '../format';
 
-export type Screen = 'onboarding' | 'home' | 'settings';
+export type Screen = 'onboarding' | 'home' | 'history' | 'settings' | 'licenses';
 export type PlatformMode = 'auto' | 'desktop' | 'android';
 export type Layout = 'compact' | 'medium' | 'expanded';
 
@@ -19,7 +20,9 @@ export type Sheet =
   | { kind: 'scan' }
   | { kind: 'paired'; deviceId: string; via: 'shown' | 'entered'; check: string }
   | { kind: 'transfer'; id: string }
-  | { kind: 'confirmRemove'; deviceId: string };
+  | { kind: 'confirmRemove'; deviceId: string }
+  | { kind: 'historyItem'; id: string }
+  | { kind: 'confirmClearHistory' };
 
 export interface Toast {
   id: number;
@@ -102,6 +105,10 @@ class AppState {
   /** This device's fingerprint and the app version (from the engine). */
   fingerprint = $state<string | null>(null);
   version = $state('');
+  /** Finished transfers, newest first (kept by the engine across restarts). */
+  history = $state<HistoryEntry[]>([]);
+  /** Announce this device and look for others on the local network (saved by the engine). */
+  lanDiscovery = $state(true);
 
   /** The pretend engine's test hooks (browser prototype and UI tests only). */
   get mock(): MockEngine | null {
@@ -127,7 +134,9 @@ class AppState {
   private acceptedHere = new Set<string>();
   private started = false;
 
-  init(): void {
+  /** `popover`: the tray popover's copy of the app, which leaves files from the file manager to the
+   *  main window. */
+  init(opts: { popover?: boolean } = {}): void {
     if (this.started) return;
     this.started = true;
     const s = loadStored();
@@ -136,8 +145,9 @@ class AppState {
     this.saveLocation = s.saveLocation;
     this.screen = this.onboarded ? 'home' : 'onboarding';
     void this.engine.getConnection().then((c) => (this.connection = c));
+    void this.engine.getLanDiscovery().then((on) => (this.lanDiscovery = on));
     void this.loadSelf();
-    if (this.native) void shell.onSendRequest((paths) => void this.sendFromFileManager(paths));
+    if (this.native && !opts.popover) void shell.onSendRequest((paths) => void this.sendFromFileManager(paths));
 
     const coarse = matchMedia('(pointer: coarse)');
     this.coarsePointer = coarse.matches;
@@ -152,20 +162,28 @@ class AppState {
           break;
         case 'device': {
           const i = this.devices.findIndex((d) => d.id === e.device.id);
+          const was = i >= 0 ? this.devices[i] : undefined;
           if (i >= 0) this.devices[i] = e.device;
           else this.devices = [...this.devices, e.device];
+          if (e.device.reachable && !was?.reachable) this.foundSound();
           break;
         }
         case 'deviceLost':
           this.devices = this.devices.filter((d) => d.id !== e.deviceId);
           break;
         case 'incoming':
-          if (!this.requests.some((r) => r.id === e.request.id)) this.requests = [...this.requests, e.request];
+          if (!this.requests.some((r) => r.id === e.request.id)) {
+            this.requests = [...this.requests, e.request];
+            playSound('incoming');
+          }
           break;
         case 'incomingWithdrawn': {
           const r = this.requests.find((x) => x.id === e.requestId);
           this.requests = this.requests.filter((x) => x.id !== e.requestId);
-          if (r) this.toast(t('incoming.withdrawn', { device: this.deviceName(r.deviceId) }));
+          if (r) {
+            this.toast(t('incoming.withdrawn', { device: this.deviceName(r.deviceId) }));
+            playSound('cancel');
+          }
           break;
         }
         case 'transfer':
@@ -174,6 +192,7 @@ class AppState {
         case 'paired':
           this.sheet = { kind: 'paired', deviceId: e.device.id, via: e.via, check: e.check };
           playHaptic('pairMatched');
+          playSound('matched');
           break;
         case 'code':
           this.code = e.code;
@@ -183,6 +202,9 @@ class AppState {
           break;
         case 'server':
           this.serverProblem = e.problem;
+          break;
+        case 'history':
+          this.history = [e.entry, ...this.history.filter((h) => h.id !== e.entry.id)].sort((a, b) => b.finishedAt - a.finishedAt);
           break;
         case 'snapshot':
           this.applySnapshot(e.snapshot);
@@ -204,6 +226,7 @@ class AppState {
     this.code = s.code;
     if (s.freeSpace !== null) this.freeSpace = s.freeSpace;
     this.serverProblem = s.serverProblem;
+    this.history = s.history;
     void this.loadSelf();
   }
 
@@ -221,6 +244,15 @@ class AppState {
     }
   }
 
+  /** Devices arriving all at once (just after launch, or back on Wi-Fi) make one sound, not many. */
+  private foundQuietUntil = Date.now() + 2500;
+  private foundSound(): void {
+    const now = Date.now();
+    if (now < this.foundQuietUntil) return;
+    this.foundQuietUntil = now + 2000;
+    playSound('found');
+  }
+
   private onTransfer(next: Transfer): void {
     const i = this.transfers.findIndex((x) => x.id === next.id);
     const prev = i >= 0 ? this.transfers[i] : undefined;
@@ -229,15 +261,24 @@ class AppState {
       this.transfers = [next, ...this.transfers];
       if (next.direction === 'receive' && !this.acceptedHere.delete(next.deviceId)) {
         const d = this.devices.find((x) => x.id === next.deviceId);
-        if (d?.autoAccept) this.toast(t('incoming.autoAccepted', { device: d.name }), 'success');
+        if (d?.autoAccept) {
+          this.toast(t('incoming.autoAccepted', { device: d.name }), 'success');
+          playSound('incoming');
+        }
       }
     }
     if (prev?.status === next.status) return;
     if (next.status === 'done') {
       playHaptic('transferDone');
+      playSound('done');
       this.bump(next.deviceId);
-    } else if (next.status === 'failed') playHaptic('transferFailed');
-    else if (next.status === 'declined') playHaptic('decline');
+    } else if (next.status === 'failed') {
+      playHaptic('transferFailed');
+      playSound('failed');
+    } else if (next.status === 'declined') {
+      playHaptic('decline');
+      playSound('decline');
+    } else if (next.status === 'cancelled' && next.cancelledBy === 'peer') playSound('cancel');
     else if (prev?.status === 'reconnecting' && next.status === 'transferring') this.toast(t('transfer.reconnected'), 'success');
   }
 
@@ -264,6 +305,7 @@ class AppState {
     this.devices = [];
     this.transfers = [];
     this.requests = [];
+    this.history = [];
     this.staged = [];
     this.sheet = null;
     this.onboarded = false;
@@ -272,8 +314,9 @@ class AppState {
   }
 
   navigate(to: Screen): void {
-    const order: Screen[] = ['onboarding', 'home', 'settings'];
+    const order: Screen[] = ['onboarding', 'home', 'history', 'settings', 'licenses'];
     this.navDir = order.indexOf(to) >= order.indexOf(this.screen) ? 1 : -1;
+    if (to !== this.screen && to !== 'onboarding' && this.screen !== 'onboarding') playSound(this.navDir > 0 ? 'open' : 'close');
     this.screen = to;
   }
 
@@ -304,6 +347,30 @@ class AppState {
     this.connection = c;
     this.toast(t(c.mode === 'own' ? 'settings.connection.saved.own' : 'settings.connection.saved.public'), 'success');
     return true;
+  }
+
+  /** Turns nearby search on or off; the engine reconnects. False (with a toast) if it couldn't. */
+  async setLanDiscovery(on: boolean): Promise<boolean> {
+    try {
+      await this.engine.setLanDiscovery(on);
+    } catch (e) {
+      this.toast(message(e), 'danger');
+      return false;
+    }
+    this.lanDiscovery = on;
+    this.toast(t(on ? 'settings.network.lan.on' : 'settings.network.lan.off'), 'success');
+    return true;
+  }
+
+  clearHistory(): void {
+    this.engine.clearHistory();
+    this.history = [];
+    this.sheet = null;
+    this.toast(t('history.cleared'), 'success');
+  }
+
+  historyEntry(id: string): HistoryEntry | undefined {
+    return this.history.find((h) => h.id === id);
   }
 
   /** Picks where received files go: the folder picker in the desktop app, pretend folders in the prototype. */
@@ -343,6 +410,7 @@ class AppState {
 
   toast(text: string, tone: Toast['tone'] = 'neutral', action?: Toast['action']): void {
     const toast: Toast = { id: ++this.toastSeq, text, tone, action };
+    if (tone === 'danger') playSound('error');
     this.toasts = [...this.toasts, toast].slice(-2);
     setTimeout(() => this.dismissToast(toast.id), action ? 6000 : 4000);
   }
@@ -411,6 +479,7 @@ class AppState {
     this.staged = [];
     this.bump(deviceId);
     if (this.sheet?.kind === 'send') this.sheet = null;
+    playSound('send');
     this.engine.send(deviceId, sending).catch((e) => {
       // Put the files back so nothing is lost, and say what went wrong.
       if (!this.staged.length) this.staged = sending;

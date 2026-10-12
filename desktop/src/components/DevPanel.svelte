@@ -35,6 +35,7 @@
       [
         ["From Aisyah's laptop", () => e.simIncoming('mixed', 'd-aisyah'), 'in-aisyah'],
         ['From Studio PC', () => e.simIncoming('photos', 'd-studio'), 'in-studio'],
+        ['One video, long name', () => e.simIncoming('longname', 'd-studio'), 'in-longname'],
         ['From Work phone (auto)', () => e.simIncoming('photos', 'd-phone'), 'in-auto'],
         ['48 GB (no space)', () => e.simIncoming('big', 'd-studio'), 'in-big'],
         ['Sender cancels', () => e.simWithdraw(), 'in-withdraw'],

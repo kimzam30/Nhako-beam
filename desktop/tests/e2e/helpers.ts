@@ -45,3 +45,13 @@ export async function drag(page: Page, from: { x: number; y: number }, to: { x: 
   }
   if (opts.release !== false) await page.mouse.up();
 }
+
+/** The sounds played so far, oldest first (lib/sounds.svelte.ts logs every one). Leaves out the
+ *  launch sound and devices showing up, which come on their own schedule. */
+export const soundsPlayed = (page: Page) =>
+  page.evaluate(() =>
+    ((window as any).__nhako.sounds.entries as { name: string }[])
+      .map((e) => e.name)
+      .reverse()
+      .filter((n) => n !== 'intro' && n !== 'found'),
+  );

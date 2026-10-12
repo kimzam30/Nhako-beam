@@ -25,6 +25,8 @@ export interface Device {
   route: Route | null;
   /** Short public key fingerprint shown when pairing, for example "4F2A 91C3". */
   fingerprint: string;
+  /** Not reachable right now, but can be woken up to receive (a phone Android put to sleep). */
+  wakeable: boolean;
 }
 
 export interface FileItem {
@@ -81,6 +83,32 @@ export interface Transfer {
   finishedAt: number | null;
   /** Sender is still waiting after 60 s. */
   waitingLong: boolean;
+  /** Sender: the other device was asleep and has been asked to wake up. */
+  waking: boolean;
+}
+
+/** A transfer that ended, as History lists it. Kept after a restart, and after the device is removed. */
+export interface HistoryEntry {
+  /** The transfer's id. */
+  id: string;
+  direction: TransferDirection;
+  deviceId: string;
+  /** The other device's name when the transfer ended. */
+  deviceName: string;
+  deviceKind: DeviceKind;
+  files: FileItem[];
+  totalBytes: number;
+  doneBytes: number;
+  route: Route;
+  /** Done, failed, cancelled or declined. */
+  status: TransferStatus;
+  error: TransferError | null;
+  cancelledBy: 'me' | 'peer' | null;
+  /** Epoch ms. */
+  startedAt: number;
+  finishedAt: number;
+  /** Bytes per second while bytes were moving (pauses left out). 0 when nothing moved. */
+  averageSpeed: number;
 }
 
 export interface IncomingRequest {
@@ -119,6 +147,8 @@ export interface Snapshot {
   code: PairingCode | null;
   freeSpace: number | null;
   serverProblem: ServerProblem | null;
+  /** Newest first. */
+  history: HistoryEntry[];
 }
 
 /** This device, as the engine knows it. */
@@ -172,6 +202,8 @@ export type EngineEvent =
   | { type: 'freeSpace'; bytes: number }
   /** Your own server's state changed. null when it's fine (always null on public servers). */
   | { type: 'server'; problem: ServerProblem | null }
+  /** A transfer ended and was added to History (or replaced its own entry after a retry). */
+  | { type: 'history'; entry: HistoryEntry }
   /** Redraw from this (the engine restarted, or the window fell behind). Replaces devices and requests. */
   | { type: 'snapshot'; snapshot: Snapshot };
 
@@ -209,4 +241,12 @@ export interface Engine {
   setConnection(c: Connection): Promise<void>;
   /** Checks a server before saving it. Never rejects: problems come back in the result. */
   checkServer(c: Extract<Connection, { mode: 'own' }>): Promise<ServerCheck>;
+
+  /** Whether this device announces itself and looks for others on the local network. */
+  getLanDiscovery(): Promise<boolean>;
+  /** Saves it and reconnects. Rejects with a plain-language message if it can't (transfers still running). */
+  setLanDiscovery(on: boolean): Promise<void>;
+
+  /** Forgets every History entry. Received files stay where they are. */
+  clearHistory(): void;
 }

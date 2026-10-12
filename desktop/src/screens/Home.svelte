@@ -8,6 +8,7 @@
   import Banner from '../components/Banner.svelte';
   import Button from '../components/Button.svelte';
   import FileStack from '../components/FileStack.svelte';
+  import Icon from '../components/Icon.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Radar from '../components/Radar.svelte';
   import TransferCard from '../components/TransferCard.svelte';
@@ -60,7 +61,7 @@
 
   function onPick(deviceId: string) {
     const d = app.device(deviceId);
-    if (!d?.reachable) return;
+    if (!d?.reachable && !d?.wakeable) return;
     if (app.staged.length) app.sendTo(deviceId);
     else pickFiles(deviceId);
   }
@@ -112,7 +113,10 @@
         <h1 class="title">{t('home.title')}</h1>
         <p class="muted sub">{app.selfName || 'This device'}</p>
       </div>
-      <IconButton icon="gear-six" label="Settings" size={24} testid="open-settings" onclick={() => app.navigate('settings')} />
+      <div class="top-actions">
+        <IconButton icon="clock-counter-clockwise" label={t('history.title')} size={24} testid="open-history" onclick={() => app.navigate('history')} />
+        <IconButton icon="gear-six" label={t('settings.title')} size={24} testid="open-settings" onclick={() => app.navigate('settings')} />
+      </div>
     </header>
 
     <div class="banners">
@@ -198,6 +202,9 @@
         <Button variant="secondary" icon="qr-code" testid="send-code" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('home.action.sendCode')}</Button>
         <Button variant="secondary" icon="download-simple" testid="receive-code" onclick={() => (app.sheet = { kind: app.isAndroid ? 'scan' : 'enterCode' })}>{t('home.action.receiveCode')}</Button>
       </div>
+      {#if !app.isAndroid && !app.staged.length}
+        <p class="drop-hint" data-testid="home-drop-hint"><Icon name="download-simple" size={16} />{t('home.dropHint')}</p>
+      {/if}
     </nav>
   </main>
 
@@ -242,6 +249,10 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-4);
+  }
+  .top-actions {
+    display: flex;
+    gap: var(--space-1);
   }
   .title {
     font-size: var(--type-large-title-size);
@@ -330,6 +341,15 @@
     width: 100%;
     max-width: var(--size-content-max-width);
     margin: 0 auto;
+  }
+  .drop-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    font-size: var(--type-footnote-size);
+    color: var(--color-text-tertiary);
+    text-align: center;
   }
   .code-actions {
     display: grid;

@@ -24,13 +24,15 @@ use tracing::{debug, info, warn};
 use crate::{
     codekeys::{KdfCost, fingerprint},
     files,
+    history::{History, Record},
     net::{self, Network},
     pair::HostedCode,
     server::SettingError,
     session::{self, End},
     store::{self, Store, TrustedDevice},
     types::{self, *},
-    wire::{self, Answer, ClientHello, Ctrl, DeclineReason, DeviceInfo, FileMeta, FileState, Intent, Offer, ServerHello, TransferId},
+    wake,
+    wire::{self, Answer, ClientHello, Ctrl, DeclineReason, DeviceInfo, FileMeta, FileState, HelloExt, Intent, Offer, ServerHello, TransferId},
 };
 
 /// How the engine is set up. `EngineConfig::new` gives the real defaults.
@@ -57,6 +59,10 @@ pub struct EngineConfig {
     /// Tests: cap the sender at this many bytes per second, so a pause can land mid-file.
     #[doc(hidden)]
     pub test_rate_limit: Option<u64>,
+    /// The wake service for phones that are asleep (`wake.rs`). `None` turns waking off.
+    pub wake_url: Option<url::Url>,
+    /// How long to keep dialling after asking a device to wake up.
+    pub wake_for: Duration,
 }
 
 impl EngineConfig {
@@ -73,6 +79,8 @@ impl EngineConfig {
             code_lookup_for: Duration::from_secs(20),
             memory_lookup: None,
             test_rate_limit: None,
+            wake_url: wake::default_url(),
+            wake_for: wake::WAKE_FOR,
         }
     }
 }
@@ -96,6 +104,14 @@ pub enum EngineError {
 pub(crate) type FrameRx = mpsc::Receiver<Result<Vec<u8>, wire::WireError>>;
 pub(crate) type CmdTx = mpsc::UnboundedSender<Cmd>;
 pub(crate) type CmdRx = mpsc::UnboundedReceiver<Cmd>;
+
+/// How dialling a device turned out.
+enum Reached {
+    Yes((Connection, SendStream, FrameRx)),
+    No(String),
+    /// The user cancelled while it was being woken up.
+    Cancelled,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Cmd {
@@ -139,6 +155,11 @@ pub(crate) struct Tx {
     pub epoch: u64,
     last_emit: Option<Instant>,
     samples: VecDeque<(Instant, u64)>,
+    /// Milliseconds bytes spent moving, across pauses and reconnects (for History's average speed).
+    moved_ms: u64,
+    /// When the latest session started. A small file can finish before the first progress report,
+    /// so its moving time is the session's.
+    session_start: Option<u64>,
 }
 
 impl Tx {
@@ -166,6 +187,9 @@ impl Tx {
     }
 
     pub fn stop_moving(&mut self) {
+        if let Some(since) = self.t.moving_since {
+            self.moved_ms += now_ms().saturating_sub(since);
+        }
         self.t.speed = 0.0;
         self.t.moving_since = None;
         self.samples.clear();
@@ -203,6 +227,8 @@ pub(crate) struct St {
     pub free_space: Option<u64>,
     /// Your own server's last known state (always `None` on public servers).
     pub server_problem: Option<ServerProblem>,
+    /// The status each transfer's History entry was last written with.
+    recorded: HashMap<TransferId, TransferStatus>,
 }
 
 pub(crate) struct Inner {
@@ -214,6 +240,7 @@ pub(crate) struct Inner {
     pub learned: MemoryLookup,
     pub mdns: Option<iroh_mdns_address_lookup::MdnsAddressLookup>,
     pub store: Mutex<Store>,
+    history: Mutex<History>,
     pub st: Mutex<St>,
     events: broadcast::Sender<EngineEvent>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -267,12 +294,14 @@ impl Engine {
             Some(n) => n.clone(),
             None => Network::from_connection(&store.state.connection)?,
         };
+        // mDNS needs both: the run allowing it (tests and --no-mdns turn it off) and the setting.
+        let mdns = cfg.mdns && store.state.lan_discovery;
         let bound = net::bind(net::EndpointOpts {
             secret: store.secret.clone(),
             alpns: vec![wire::ALPN.to_vec()],
             network: &network,
             relay_only: cfg.relay_only,
-            mdns: cfg.mdns,
+            mdns,
             memory: cfg.memory_lookup.as_ref(),
         })
         .await
@@ -302,11 +331,12 @@ impl Engine {
                 },
             );
         }
-        let discovery = if cfg.mdns && bound.mdns.is_none() {
+        let discovery = if mdns && bound.mdns.is_none() {
             DiscoveryState::Blocked
         } else {
             DiscoveryState::Searching
         };
+        let history = History::open(&cfg.config_dir);
         let inner = Inner {
             cfg,
             network,
@@ -314,6 +344,7 @@ impl Engine {
             learned,
             mdns: bound.mdns,
             store: Mutex::new(store),
+            history: Mutex::new(history),
             st: Mutex::new(St {
                 devices,
                 transfers: HashMap::new(),
@@ -322,6 +353,7 @@ impl Engine {
                 discovery,
                 free_space: None,
                 server_problem: None,
+                recorded: HashMap::new(),
             }),
             events,
             tasks: Mutex::new(Vec::new()),
@@ -418,16 +450,30 @@ impl Engine {
             code: self.current_code(),
             free_space,
             server_problem,
+            history: self.history(),
         }
+    }
+
+    /// Finished transfers, newest first.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        self.history_lock().entries()
+    }
+
+    /// Forgets every History entry. Received files stay where they are.
+    pub fn clear_history(&self) {
+        self.history_lock().clear();
     }
 
     /// Where a received transfer's finished files are on disk (only the ones that arrived and checked out).
     pub fn saved_files(&self, transfer_id: &str) -> Vec<PathBuf> {
         let Some(id) = wire::parse_transfer_id(transfer_id) else { return vec![] };
-        match self.st().transfers.get(&id).map(|t| &t.side) {
-            Some(TxSide::Recv(files)) => files.iter().filter(|f| f.verified).map(|f| f.final_path.clone()).collect(),
-            _ => vec![],
-        }
+        let live = match self.st().transfers.get(&id).map(|t| &t.side) {
+            Some(TxSide::Recv(files)) => Some(files.iter().filter(|f| f.verified).map(|f| f.final_path.clone()).collect()),
+            Some(TxSide::Send(_)) => Some(vec![]),
+            None => None,
+        };
+        // From an earlier run: History remembers where they went.
+        live.unwrap_or_else(|| self.history_lock().saved(transfer_id))
     }
 
     /// Your own server's last known state. Always `None` on public servers.
@@ -520,7 +566,7 @@ impl Engine {
         let mut src = Vec::new();
         let mut items = Vec::new();
         for (i, (p, name)) in files.iter().enumerate() {
-            let meta = std::fs::metadata(p).map_err(|e| EngineError::File {
+            let meta = files::open_to_send(p).and_then(|f| f.metadata()).map_err(|e| EngineError::File {
                 path: p.clone(),
                 reason: e.to_string(),
             })?;
@@ -642,6 +688,7 @@ impl Engine {
                         os: info.os,
                         auto_accept: false,
                         added_at: now_ms(),
+                        wake: None,
                     });
                 }
             } else {
@@ -649,6 +696,27 @@ impl Engine {
             }
             if let Err(e) = s.save() {
                 warn!("couldn't save trusted devices: {e}");
+            }
+        }
+        if !trusted {
+            // An untrusted device is only shown while it's in reach. One that's away goes now,
+            // not at the next restart.
+            let gone = {
+                let mut st = self.st();
+                match st.devices.get_mut(&id) {
+                    Some(d) if d.reachable => {
+                        d.paired = false;
+                        false
+                    }
+                    _ => {
+                        st.devices.remove(&id);
+                        true
+                    }
+                }
+            };
+            if gone {
+                self.emit(EngineEvent::DeviceLost { device_id: device_id(&id) });
+                return;
             }
         }
         self.emit_device(&id);
@@ -699,6 +767,33 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether this device announces itself and looks for others on the local network.
+    pub fn lan_discovery(&self) -> bool {
+        self.store().state.lan_discovery
+    }
+
+    /// Saves the setting. Like the connection setting, it takes effect the next time the engine
+    /// starts, so the app restarts the engine after saving.
+    pub fn set_lan_discovery(&self, on: bool) -> Result<(), EngineError> {
+        let mut s = self.store();
+        s.state.lan_discovery = on;
+        s.save()?;
+        Ok(())
+    }
+
+    /// This device's wake token (Android, from Firebase), or `None` when push isn't available.
+    /// Trusted devices get it in the next hello.
+    pub fn set_wake_token(&self, token: Option<String>) {
+        let token = token.map(|t| t.trim().to_string()).filter(|t| wake::valid_token(t));
+        let mut s = self.store();
+        if s.state.wake_token != token {
+            s.state.wake_token = token;
+            if let Err(e) = s.save() {
+                warn!("couldn't save the wake token: {e}");
+            }
+        }
+    }
+
     pub fn set_save_dir(&self, dir: &Path) {
         let mut s = self.store();
         s.state.save_dir = dir.to_path_buf();
@@ -734,6 +829,10 @@ impl Engine {
 
     pub(crate) fn store(&self) -> MutexGuard<'_, Store> {
         self.inner.store.lock().expect("store lock")
+    }
+
+    fn history_lock(&self) -> MutexGuard<'_, History> {
+        self.inner.history.lock().expect("history lock")
     }
 
     pub(crate) fn emit(&self, e: EngineEvent) {
@@ -776,7 +875,61 @@ impl Engine {
             tx.last_emit = Some(now);
             tx.t.clone()
         };
+        let ended = matches!(
+            snap.status,
+            TransferStatus::Done | TransferStatus::Failed | TransferStatus::Cancelled | TransferStatus::Declined
+        );
+        // History first, so whoever sees the transfer end can already find it there.
+        if ended {
+            self.record(id);
+        }
         self.emit(EngineEvent::Transfer { transfer: snap });
+    }
+
+    /// Writes the transfer's History entry, once per status it ends in.
+    fn record(&self, id: &TransferId) {
+        let peer_and_saved = {
+            let mut st = self.st();
+            let Some(tx) = st.transfers.get(id) else { return };
+            let status = tx.t.status;
+            let saved: Vec<PathBuf> = match &tx.side {
+                TxSide::Recv(files) => files.iter().filter(|f| f.verified).map(|f| f.final_path.clone()).collect(),
+                TxSide::Send(_) => vec![],
+            };
+            let mut moved_ms = tx.moved_ms + tx.t.moving_since.filter(|_| tx.t.speed > 0.0).map(|s| now_ms().saturating_sub(s)).unwrap_or(0);
+            if moved_ms == 0 && tx.t.done_bytes > 0 {
+                moved_ms = tx.session_start.map(|s| now_ms().saturating_sub(s)).unwrap_or(0).max(1);
+            }
+            let snap = (tx.peer, tx.t.clone(), moved_ms, saved);
+            if st.recorded.insert(*id, status) == Some(status) {
+                return;
+            }
+            snap
+        };
+        let (peer, t, moved_ms, saved) = peer_and_saved;
+        let (device_name, device_kind) = self
+            .device_snapshot(&peer)
+            .map(|d| (d.name, d.kind))
+            .unwrap_or_else(|| ("Unknown device".into(), DeviceKind::Laptop));
+        let entry = HistoryEntry {
+            id: t.id,
+            direction: t.direction,
+            device_id: t.device_id,
+            device_name,
+            device_kind,
+            files: t.files,
+            total_bytes: t.total_bytes,
+            done_bytes: t.done_bytes,
+            route: t.route,
+            status: t.status,
+            error: t.error,
+            cancelled_by: t.cancelled_by,
+            started_at: t.started_at,
+            finished_at: t.finished_at.unwrap_or_else(now_ms),
+            average_speed: if moved_ms > 0 { t.done_bytes as f64 * 1000.0 / moved_ms as f64 } else { 0.0 },
+        };
+        self.history_lock().put(Record { entry: entry.clone(), saved });
+        self.emit(EngineEvent::History { entry });
     }
 
     fn send_cmd(&self, transfer_id: &str, cmd: Cmd) {
@@ -803,6 +956,7 @@ impl Engine {
             })
         })?;
         let reachable = dev.is_some_and(|d| d.reachable);
+        let wakeable = !reachable && self.inner.cfg.wake_url.is_some() && trusted.as_ref().is_some_and(|t| t.wake.is_some());
         Some(Device {
             id: device_id(id),
             name: info.name,
@@ -813,6 +967,7 @@ impl Engine {
             reachable,
             route: if reachable { dev.and_then(|d| d.route) } else { None },
             fingerprint: fingerprint(id),
+            wakeable,
         })
     }
 
@@ -852,6 +1007,38 @@ impl Engine {
         }
     }
 
+    /// What this device adds to its hello for `peer`: the wake token, for trusted devices only.
+    pub(crate) fn hello_ext_for(&self, peer: &EndpointId) -> HelloExt {
+        let s = self.store();
+        HelloExt {
+            wake: s.trusted(peer).and(s.state.wake_token.clone()),
+        }
+    }
+
+    /// Remembers (or forgets) a trusted device's wake token from its hello.
+    pub(crate) fn note_wake(&self, peer: &EndpointId, ext: &HelloExt) {
+        let token = ext.wake.clone().filter(|t| wake::valid_token(t));
+        let changed = {
+            let mut s = self.store();
+            let Some(t) = s.trusted_mut(peer) else { return };
+            if t.wake == token {
+                return;
+            }
+            t.wake = token;
+            if let Err(e) = s.save() {
+                warn!("couldn't save a wake token: {e}");
+            }
+            true
+        };
+        if changed {
+            self.emit_device(peer);
+        }
+    }
+
+    fn wake_token_of(&self, peer: &EndpointId) -> Option<String> {
+        self.store().trusted(peer).and_then(|t| t.wake.clone())
+    }
+
     fn peer_allowed(&self, id: &EndpointId, conn: &Connection) -> bool {
         if self.store().trusted(id).is_some() {
             return true;
@@ -862,8 +1049,12 @@ impl Engine {
 
     async fn check_device(self, id: EndpointId) {
         let me = self.me_info();
-        match net::ping(&self.inner.endpoint, id, me, Duration::from_secs(8)).await {
-            Ok((info, route)) => self.note_peer(id, info, route),
+        let ext = self.hello_ext_for(&id);
+        match net::ping(&self.inner.endpoint, id, me, &ext, Duration::from_secs(8)).await {
+            Ok((info, theirs, route)) => {
+                self.note_wake(&id, &theirs);
+                self.note_peer(id, info, route);
+            }
             Err(err) => {
                 debug!(peer = %id.fmt_short(), %err, "device check failed");
                 self.mark_unreachable(&id);
@@ -980,7 +1171,7 @@ impl Engine {
         let peer = conn.remote_id();
         let (mut send, recv) = conn.accept_bi().await.map_err(|e| e.to_string())?;
         let mut frames = spawn_frame_reader(recv);
-        let hello: ClientHello = next_frame(&mut frames, Duration::from_secs(10)).await?;
+        let (hello, ext): (ClientHello, HelloExt) = next_hello(&mut frames, Duration::from_secs(10)).await?;
         if hello.version != wire::VERSION {
             conn.close(wire::close::PROTOCOL, b"version");
             return Err(format!("unsupported version {}", hello.version));
@@ -989,13 +1180,15 @@ impl Engine {
             conn.close(wire::close::NOT_ALLOWED, b"not allowed");
             return Err("not allowed".into());
         }
+        self.note_wake(&peer, &ext);
         self.note_peer(peer, hello.info.clone(), net::route_of(&conn));
-        wire::write_frame(
+        wire::write_hello(
             &mut send,
             &ServerHello {
                 version: wire::VERSION,
                 info: self.me_info(),
             },
+            &self.hello_ext_for(&peer),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -1222,10 +1415,11 @@ impl Engine {
         }) else {
             return;
         };
-        let opened = self.open(peer, Intent::Offer(Offer { id, files: metas })).await;
+        let opened = self.open_or_wake(&id, peer, Intent::Offer(Offer { id, files: metas }), &mut cmd_rx).await;
         let (conn, mut send, mut frames) = match opened {
-            Ok(x) => x,
-            Err(err) => {
+            Reached::Yes(x) => x,
+            Reached::Cancelled => return self.finish(&id, epoch, End::Cancelled(Side::Me)),
+            Reached::No(err) => {
                 debug!(%err, "couldn't reach the receiver");
                 self.mark_unreachable(&peer);
                 return self.fail(&id, TransferError::PeerGone);
@@ -1279,22 +1473,91 @@ impl Engine {
         }
     }
 
+    /// Dials a peer. One that's asleep and can be woken (a phone Android paused) is asked to wake
+    /// up, then dialled again until it answers or `wake_for` passes; the transfer shows `waking`
+    /// meanwhile. Cancelling stops the wait.
+    async fn open_or_wake(&self, id: &TransferId, peer: EndpointId, intent: Intent, cmds: &mut CmdRx) -> Reached {
+        let url = self.inner.cfg.wake_url.clone();
+        let token = url.as_ref().and_then(|_| self.wake_token_of(&peer));
+        let (Some(url), Some(token)) = (url, token) else {
+            return self.open(peer, intent).await.map_or_else(Reached::No, Reached::Yes);
+        };
+        // Known to be away: wake it straight away rather than waiting out a first dial.
+        let asleep = !self.st().devices.get(&peer).is_some_and(|d| d.reachable);
+        if !asleep {
+            match self.open(peer, intent.clone()).await {
+                Ok(x) => return Reached::Yes(x),
+                Err(err) => debug!(%err, "not reached, trying to wake it"),
+            }
+        }
+        self.set_waking(id, true);
+        match wake::send(&url, &token).await {
+            Ok(()) => info!(peer = %peer.fmt_short(), "asked it to wake up"),
+            Err(wake::WakeError::Gone) => {
+                // The app was uninstalled or reset there: stop offering to wake it.
+                self.note_wake(&peer, &HelloExt::default());
+                self.set_waking(id, false);
+                return Reached::No("its wake token is no longer valid".into());
+            }
+            Err(err) => {
+                warn!(%err, "couldn't ask it to wake up");
+                self.set_waking(id, false);
+                return Reached::No(err.to_string());
+            }
+        }
+        let deadline = tokio::time::Instant::now() + self.inner.cfg.wake_for;
+        let result = loop {
+            let attempt = async {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now()).max(Duration::from_secs(1));
+                tokio::time::timeout(left, self.open(peer, intent.clone()))
+                    .await
+                    .unwrap_or_else(|_| Err("timed out".into()))
+            };
+            tokio::select! {
+                r = attempt => match r {
+                    Ok(x) => break Reached::Yes(x),
+                    Err(err) if tokio::time::Instant::now() >= deadline => break Reached::No(err),
+                    Err(_) => {}
+                },
+                cmd = cmds.recv() => if matches!(cmd, Some(Cmd::Cancel) | None) {
+                    break Reached::Cancelled;
+                },
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                cmd = cmds.recv() => if matches!(cmd, Some(Cmd::Cancel) | None) {
+                    break Reached::Cancelled;
+                },
+            }
+        };
+        self.set_waking(id, false);
+        result
+    }
+
+    fn set_waking(&self, id: &TransferId, on: bool) {
+        if self.with_tx(id, |tx| std::mem::replace(&mut tx.t.waking, on) != on).unwrap_or(false) {
+            self.emit_tx(id, true);
+        }
+    }
+
     /// Dials a peer with an intent and reads its hello. Returns the connection and control stream.
     pub(crate) async fn open(&self, peer: EndpointId, intent: Intent) -> Result<(Connection, SendStream, FrameRx), String> {
         let conn = self.connect(peer, Duration::from_secs(20)).await?;
         let (mut send, recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
         let mut frames = spawn_frame_reader(recv);
-        wire::write_frame(
+        wire::write_hello(
             &mut send,
             &ClientHello {
                 version: wire::VERSION,
                 info: self.me_info(),
                 intent,
             },
+            &self.hello_ext_for(&peer),
         )
         .await
         .map_err(|e| e.to_string())?;
-        let hello: ServerHello = next_frame(&mut frames, Duration::from_secs(10)).await?;
+        let (hello, ext): (ServerHello, HelloExt) = next_hello(&mut frames, Duration::from_secs(10)).await?;
+        self.note_wake(&peer, &ext);
         self.note_peer(peer, hello.info, net::route_of(&conn));
         Ok((conn, send, frames))
     }
@@ -1410,6 +1673,7 @@ impl Engine {
     ) {
         let Some(direction) = self.with_tx(&id, |tx| {
             tx.conn = Some(conn.clone());
+            tx.session_start = Some(now_ms());
             tx.t.direction
         }) else {
             return;
@@ -1547,6 +1811,7 @@ fn new_tx(id: TransferId, direction: TransferDirection, peer: EndpointId, files:
             moving_since: None,
             finished_at: None,
             waiting_long: false,
+            waking: false,
         },
         peer,
         side,
@@ -1555,6 +1820,8 @@ fn new_tx(id: TransferId, direction: TransferDirection, peer: EndpointId, files:
         epoch: 0,
         last_emit: None,
         samples: VecDeque::new(),
+        moved_ms: 0,
+        session_start: None,
     }
 }
 
@@ -1587,6 +1854,16 @@ async fn read_raw_frame(recv: &mut RecvStream) -> Result<Vec<u8>, wire::WireErro
     let mut body = vec![0u8; len];
     recv.read_exact(&mut body).await.map_err(|e| wire::WireError::Read(e.to_string()))?;
     Ok(body)
+}
+
+/// The next frame as a hello with its extension.
+pub(crate) async fn next_hello<T: serde::de::DeserializeOwned>(frames: &mut FrameRx, timeout: Duration) -> Result<(T, HelloExt), String> {
+    match tokio::time::timeout(timeout, frames.recv()).await {
+        Err(_) => Err("timed out".into()),
+        Ok(None) => Err("stream closed".into()),
+        Ok(Some(Err(e))) => Err(e.to_string()),
+        Ok(Some(Ok(bytes))) => wire::decode_hello(&bytes).map_err(|e| e.to_string()),
+    }
 }
 
 pub(crate) async fn next_frame<T: serde::de::DeserializeOwned>(frames: &mut FrameRx, timeout: Duration) -> Result<T, String> {

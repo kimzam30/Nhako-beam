@@ -1,0 +1,17 @@
+# The wake service (see README.md). Deploy with: npx wrangler@4.149.0 deploy
+name = "nhako-wake"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# No request logs: the tokens in them identify phones.
+[observability]
+enabled = false
+
+# At most 6 wake-ups a minute per phone, so a token can't be used to drain a battery.
+# If Cloudflare says rate limiting isn't on your plan, delete these five lines; the Worker runs without it.
+[[ratelimits]]
+name = "PER_TOKEN"
+namespace_id = "8001"
+  [ratelimits.simple]
+  limit = 6
+  period = 60

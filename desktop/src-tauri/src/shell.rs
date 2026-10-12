@@ -21,6 +21,7 @@ use tracing::warn;
 use crate::{
     engine::Host,
     filemenu::{self, MenuState},
+    popover,
 };
 
 /// Tells the window there are files from `--send` to pick up with `take_send_paths`.
@@ -105,26 +106,39 @@ pub fn show_window<R: Runtime>(app: &AppHandle<R>) {
 pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Nhako Beam", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = if cfg!(windows) {
+        Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?
+    } else {
+        // Linux panels don't report clicks on the icon, so the popover is in the menu.
+        let quick = MenuItem::with_id(app, "quick", "Quick view", true, None::<&str>)?;
+        Menu::with_items(app, &[&quick, &open, &PredefinedMenuItem::separator(app)?, &quit])?
+    };
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Nhako Beam")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
+            "quick" => {
+                let at = app.cursor_position().unwrap_or_default();
+                popover::toggle(app, at);
+            }
             "open" => show_window(app),
             "quit" => quit_app(app.clone()),
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
-            // Windows and some Linux panels report clicks; others only open the menu.
-            if let TrayIconEvent::Click {
+        .on_tray_icon_event(|tray, event| match event {
+            // Windows: a click opens the popover next to the icon, a double click the window.
+            TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
+                position,
                 ..
-            } = event
-            {
+            } => popover::toggle(tray.app_handle(), position),
+            TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } => {
+                popover::hide(tray.app_handle());
                 show_window(tray.app_handle());
             }
+            _ => {}
         });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -134,6 +148,13 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 }
 
 pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    if window.label() == popover::LABEL {
+        // Like any tray popover: it goes away when you click elsewhere.
+        if matches!(event, WindowEvent::Focused(false)) {
+            let _ = window.hide();
+        }
+        return;
+    }
     let WindowEvent::CloseRequested { api, .. } = event else { return };
     if window.label() != "main" {
         return;
@@ -167,14 +188,60 @@ pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
     });
 }
 
-/// Shows a notification unless the window is open and focused.
-pub fn notify_if_away<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
-    let looking = app
-        .get_webview_window("main")
-        .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) && !w.is_minimized().unwrap_or(false));
-    if !looking {
+fn looking<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.get_webview_window("main")
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+}
+
+/// A notification with buttons, unless the window is open and focused. `on_action` gets the
+/// button's id, or `default` when the notification itself is clicked (Linux). It waits on its own
+/// thread until the notification is answered or closed.
+pub fn notify_with_actions<R: Runtime>(
+    app: &AppHandle<R>,
+    title: &str,
+    body: &str,
+    actions: &[(&str, &str)],
+    on_action: impl FnOnce(&AppHandle<R>, &str) + Send + 'static,
+) {
+    if looking(app) {
+        return;
+    }
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        let mut n = notify_rust::Notification::new();
+        n.appname("Nhako Beam").summary(title).body(body).auto_icon();
+        // The window plays Nhako Beam's own sound for it (sound.rs), so the desktop stays quiet.
+        // Windows toasts are already silent without a sound name.
+        #[cfg(target_os = "linux")]
+        n.hint(notify_rust::Hint::SuppressSound(true));
+        for (id, label) in actions {
+            n.action(id, label);
+        }
+        // Clicking the notification itself (Linux; Windows has no separate event for it).
+        n.action("default", "Open Nhako Beam");
+        #[cfg(windows)]
+        if installed() {
+            n.app_id(&app.config().identifier);
+        }
+        let app = app.clone();
+        std::thread::spawn(move || match n.show() {
+            Ok(handle) => handle.wait_for_action(|action| on_action(&app, action)),
+            Err(e) => warn!("couldn't show a notification: {e}"),
+        });
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = (actions, on_action);
         notify(app, title, body);
     }
+}
+
+/// Windows only shows toasts under the app's own name once it's installed (not from target/).
+#[cfg(windows)]
+fn installed() -> bool {
+    let Ok(exe) = tauri::utils::platform::current_exe() else { return false };
+    let dir = exe.parent().map(|d| d.display().to_string()).unwrap_or_default();
+    !(dir.ends_with("\\target\\debug") || dir.ends_with("\\target\\release"))
 }
 
 fn notify<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
@@ -239,6 +306,16 @@ pub fn set_background(shell: State<'_, Shell>, on: bool) {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     quit_app(app);
+}
+
+/// Opens a web page in the default browser (the licenses screen links to each project).
+#[tauri::command]
+pub fn open_link(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Only web links can be opened.".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

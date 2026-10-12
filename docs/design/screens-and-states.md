@@ -17,7 +17,8 @@ First run ──► Home (radar) ──┬──► Send flow ──► Waiting 
 
 Entry points outside the app:
   D: tray icon, file manager right-click "Send with Nhako Beam", drag onto the window or tray
-  A: system share sheet "Nhako Beam", notification actions, quick settings tile (later)
+  A: system share sheet "Nhako Beam", notification actions, quick settings tile "Receive"
+  Both: a short launch intro (section 11)
 ```
 
 ---
@@ -48,6 +49,7 @@ Skipping is allowed on 1.2 to 1.4; defaults are used.
 | 2.8 | Files waiting to be sent (Android, after picking or share sheet) | | ✓ | P | File stack at the top, orbs breathe as targets. |
 | 2.9 | Many devices (more than 8) | ✓ | ✓ | | Radar shows the 8 closest; a "More devices" list row opens the full list. |
 | 2.10 | Your own server has a problem | ✓ | ✓ | P | Banner: it turned the token down, or it doesn't answer, with a Settings action. The engine checks at start, on every rescan, every 5 minutes, every 30 s while something is wrong, and when a code fails. Added in Phase 5. |
+| 2.11 | A trusted phone is asleep | ✓ | ✓ | P | Phase 8. Android paused the app there, but it can be woken (push wake-up, wake/README.md). Its orb is slightly faded with "Asleep" under it (not "Offline") and can still be picked: the transfer says "Waking {device}" while the engine wakes it and keeps dialling for up to 45 s. |
 
 Layouts: compact = radar full width with actions under it. Expanded = radar on the left, activity (current and recent transfers) on the right.
 
@@ -107,14 +109,16 @@ Can appear on top of any screen. On desktop also as a system notification with A
 | 6.11 | Disk full mid-transfer | ✓ | ✓ | P | Pauses automatically, tells both sides. |
 | 6.12 | App in background | | ✓ | | Foreground service notification with progress, Pause and Cancel actions. |
 
-## 7. History (later in MVP, designed now)
+## 7. History
+
+Built in Phase 8. The engine keeps it in `history.json` (up to 500 entries), so it survives restarts and removed devices. Opened from the clock button next to Settings on Home.
 
 | # | State | D | A | P |
 |---|---|---|---|---|
-| 7.1 | List grouped by day, sent and received | ✓ | ✓ | |
-| 7.2 | Empty | ✓ | ✓ | |
-| 7.3 | Item details (files, device, route, duration, average speed) | ✓ | ✓ | |
-| 7.4 | Clear history | ✓ | ✓ | |
+| 7.1 | List grouped by day (Today, Yesterday, then dates), sent and received, newest first. Failed, cancelled and declined ones say so. | ✓ | ✓ | P |
+| 7.2 | Empty | ✓ | ✓ | P |
+| 7.3 | Item details sheet: how it ended, when, device, route, size (or "X of Y"), how long it took, average speed while moving, the files. Received ones: Open and Show in folder (desktop) or Open and Share (Android). | ✓ | ✓ | P |
+| 7.4 | Clear history, with a confirmation. Files stay where they are. | ✓ | ✓ | P |
 
 ## 8. Settings
 
@@ -122,18 +126,18 @@ Can appear on top of any screen. On desktop also as a system notification with A
 |---|---|---|---|---|---|
 | 8.1 | This device: name, save location | ✓ | ✓ | P | The desktop app uses the system folder picker (Phase 5). On Android (Phase 7) files always go to Download/Nhako Beam, where the Files and Gallery apps find them. |
 | 8.2 | Trusted devices: list, rename, auto-accept toggle, remove | ✓ | ✓ | P | Remove asks for confirmation. |
-| 8.3 | Appearance: theme (System, Light, Dark), motion (System, Full, Reduced) | ✓ | ✓ | P | Motion toggle previews live. |
-| 8.4 | Connection: public servers (n0) or your own (relay address, token, optional lookup address). Check shows each server's result; Save checks first. A wrong token is never saved; a server that doesn't answer can be saved on purpose ("Save anyway"). Switching back to Public saves at once. | ✓ | ✓ | P | Built in Phase 4 on the mock engine. In the desktop app (Phase 5), saving restarts the engine on the new servers, and is refused while transfers are running. LAN discovery on or off is still to come. |
+| 8.3 | Appearance: theme (System, Light, Dark), motion (System, Full, Reduced), sounds (Loud, Soft, Off) | ✓ | ✓ | P | Motion toggle previews live. Sounds came in Phase 9: a click for every tap and a chime for requests, transfers and codes ([design/sounds/README.md](../../design/sounds/README.md)). Soft (40% of Loud) is the default. Choosing a level plays its click at that level; Off is silent. |
+| 8.4 | Connection: public servers (n0) or your own (relay address, token, optional lookup address). Check shows each server's result; Save checks first. A wrong token is never saved; a server that doesn't answer can be saved on purpose ("Save anyway"). Switching back to Public saves at once. | ✓ | ✓ | P | Built in Phase 4 on the mock engine. In the desktop app (Phase 5), saving restarts the engine on the new servers, and is refused while transfers are running. "Find nearby devices" on or off came in Phase 8: off stops announcing this device and looking on the local network (mDNS); trusted devices still connect over the internet. Like the server setting it restarts the engine. |
 | 8.5 | Desktop: start at login, close to tray, right-click menu integration | ✓ | | | Start at login and keep running when closed are in "On this computer" (Phase 5). The file manager menu switch came in Phase 6 (Explorer on Windows, Files on Linux). |
-| 8.6 | About: version, licenses, device fingerprint | ✓ | ✓ | | Version and fingerprint come from the engine (Phase 5). Licenses still to come. |
+| 8.6 | About: version, licenses, device fingerprint | ✓ | ✓ | P | Version and fingerprint come from the engine (Phase 5). Open source licenses (Phase 8): every package the app ships, searchable, each with its license text, from `scripts/licenses.mjs`. Android also shows "Wake-up when closed: On / Not set up". |
 
 ## 9. Desktop extras
 
 | # | Surface | Notes |
 |---|---|---|
-| 9.1 | Tray popover (360 x 520) | Compact home: devices row, current transfer, "Open Nhako Beam". Files can be dropped on the tray icon on Windows. Phase 5 ships a tray menu (Open Nhako Beam, Quit); the popover is still to come. |
+| 9.1 | Tray popover (360 x 520) | Compact home: requests waiting (Accept, Decline), reachable devices (click to pick files, or drop files on one), what's moving, "Open Nhako Beam". Files dropped elsewhere on it go to the main window's "Send to". Phase 8: Windows opens it with a click on the tray icon (a double click opens the window); Linux panels don't report clicks, so it's "Quick view" in the tray menu and opens next to the pointer. It hides when it loses focus. |
 | 9.2 | File manager menu | "Send with Nhako Beam" opens the device chooser directly with the files loaded. Built in Phase 6: Explorer (Windows 11: under Show more options) and Files under Scripts (Linux). A running app takes the files over from the new launch. |
-| 9.3 | System notifications | Incoming request (with actions), transfer done, failed. Phase 5 shows incoming requests and finished transfers while the window is closed or in the background, without action buttons for now. |
+| 9.3 | System notifications | Incoming request (with actions), transfer done, failed. Phase 5 shows incoming requests and finished transfers while the window is closed or in the background. Phase 8 adds buttons: Accept and Decline on a request, Open and Show in folder on files that arrived (Linux and Windows). A request answered elsewhere in the meantime opens the window instead. |
 
 ## 10. Android extras
 
@@ -141,6 +145,16 @@ Can appear on top of any screen. On desktop also as a system notification with A
 |---|---|---|
 | 10.1 | Share sheet target | Opens straight into state 2.8. Built in Phase 7: one file or many, of any kind. |
 | 10.2 | Progress notification | Ongoing, with Pause and Cancel. Collapses to "Sent 4 files to Aisyah's laptop" when done. Phase 7: shown by a foreground service while anything is moving (the newest transfer, with Pause or Resume and Cancel, and "+N" when more are going). It goes away when the last one ends; received files get their own "Got ... from ..." notification while the app is out of sight. |
-| 10.3 | Quick settings tile (later) | "Receive" makes the device visible for 5 minutes. |
+| 10.3 | Quick settings tile | "Receive" makes the device visible for 5 minutes (Phase 8): the engine runs with no screen open, nearby devices can find it, requests come as notifications. A "Ready to receive" notification counts the minutes down and has Stop; tapping the tile again stops it too. Before onboarding, the tile opens the app. |
+| 10.6 | Woken up by another device | Phase 8, with push set up (wake/README.md). A trusted device that can't reach the phone asks the wake service to send it an empty push; the phone keeps itself ready for 90 s ("Ready to receive" notification) and the request arrives as usual. |
 | 10.4 | Request notification | Phase 7: "{device} wants to send you {what}" with Decline and Accept, while the app is out of sight. Removed once the request is answered or withdrawn. |
 | 10.5 | Received files | Phase 7: added to the media index after they arrive, so photos and videos show in the Gallery. "Open" opens one file, or the folder in the Files app for several; "Share" hands them to the system share sheet. |
+
+## 11. Launch intro
+
+Phase 8, both platforms. motion-spec.md section 4.14.
+
+| # | State | D | A | Notes |
+|---|---|---|---|---|
+| 11.1 | Intro | ✓ | ✓ | Brand blue with the bolt (Android: the system splash first, same picture). The bolt presses in and springs back as a ring pulses out, then the blue fades into the app. About 0.8 s. Android: only a fresh launch from the launcher; desktop: each start. |
+| 11.2 | Reduced motion | ✓ | ✓ | The blue fades out in 0.2 s. |

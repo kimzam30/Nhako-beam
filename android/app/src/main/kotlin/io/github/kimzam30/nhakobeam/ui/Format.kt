@@ -32,7 +32,6 @@ fun formatEta(remainingBytes: Long, speed: Double): String? {
     if (speed <= 0 || remainingBytes <= 0) return null
     val s = remainingBytes / speed
     return when {
-        s < 10 -> "a few seconds"
         s < 60 -> "${(ceil(s / 5) * 5).toLong()} sec"
         s < 3600 -> "${(s / 60).roundToLong()} min"
         else -> {
@@ -89,3 +88,43 @@ fun middleTruncate(name: String, max: Int = 28): String {
     val base = if (ext.isNotEmpty()) name.substring(0, dot) else name
     return base.take(head) + "…" + base.takeLast(tail) + ext
 }
+
+/** How long something took: "under a second", "12 sec", "4 min 5 sec", "1 hr 20 min". */
+fun formatDuration(ms: Long): String {
+    val s = Math.round(ms / 1000.0)
+    if (s < 1) return "under a second"
+    if (s < 60) return "$s sec"
+    if (s < 3600) {
+        val m = s / 60
+        val rest = s % 60
+        return if (rest > 0) "$m min $rest sec" else "$m min"
+    }
+    val h = s / 3600
+    val m = Math.round((s % 3600) / 60.0)
+    return if (m > 0) "$h hr $m min" else "$h hr"
+}
+
+/** Local midnight before [at]: the key History groups a day's entries under. */
+fun dayStart(at: Long): Long = java.util.Calendar.getInstance().apply {
+    timeInMillis = at
+    set(java.util.Calendar.HOUR_OF_DAY, 0)
+    set(java.util.Calendar.MINUTE, 0)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+/** "Today", "Yesterday", or a date like "Fri, Oct 9" ("Thu, Oct 9, 2025" in another year), in the phone's own style. */
+fun dayLabel(at: Long, now: Long, today: String, yesterday: String): String {
+    val day = dayStart(at)
+    val start = dayStart(now)
+    if (day == start) return today
+    if (day == dayStart(start - 1)) return yesterday
+    val sameYear = java.util.Calendar.getInstance().apply { timeInMillis = at }.get(java.util.Calendar.YEAR) ==
+        java.util.Calendar.getInstance().apply { timeInMillis = now }.get(java.util.Calendar.YEAR)
+    val pattern = android.text.format.DateFormat.getBestDateTimePattern(java.util.Locale.getDefault(), if (sameYear) "EEEMMMd" else "EEEMMMdyyyy")
+    return java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).format(java.util.Date(at))
+}
+
+/** The time of day, 12 or 24 hour as the phone is set. */
+fun timeOfDay(at: Long, is24Hour: Boolean): String =
+    java.text.SimpleDateFormat(if (is24Hour) "HH:mm" else "h:mm a", java.util.Locale.getDefault()).format(java.util.Date(at))

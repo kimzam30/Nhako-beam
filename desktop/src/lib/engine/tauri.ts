@@ -159,4 +159,16 @@ export class TauriEngine implements Engine {
     const { mode: _mode, ...own } = server;
     return invoke<ServerCheck>('check_server', { server: own });
   }
+
+  getLanDiscovery(): Promise<boolean> {
+    return invoke<boolean>('get_lan_discovery');
+  }
+
+  setLanDiscovery(on: boolean): Promise<void> {
+    return invoke('set_lan_discovery', { on });
+  }
+
+  clearHistory(): void {
+    this.fire('clear_history');
+  }
 }

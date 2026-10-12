@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
 import io.github.kimzam30.nhakobeam.model.Device
@@ -67,6 +68,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -113,6 +115,28 @@ fun SheetHost(app: AppState) {
                 BasicText(t("settings.trusted.remove.confirm", "device" to (d?.name ?: "this device")), style = NhakoType.body.style(Nhako.colors.textSecondary))
             }
         }
+        is Sheet.HistoryItem -> {
+            val e = app.historyEntry(sheet.id)
+            if (e == null) {
+                LaunchedEffect(Unit) { app.sheet = null }
+                return
+            }
+            val canOpen = e.direction == io.github.kimzam30.nhakobeam.model.TransferDirection.Receive && e.status == io.github.kimzam30.nhakobeam.model.TransferStatus.Done
+            NSheet(visible, summarizeFiles(e.files), ::close, footer = if (!canOpen) null else ({
+                Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+                    NButton(t("transfer.done.share"), { app.openPast(e, share = true) }, Modifier.weight(1f), variant = ButtonVariant.Secondary, full = true, icon = "share-network")
+                    NButton(t("transfer.done.open"), { app.openPast(e) }, Modifier.weight(1f), full = true, icon = "arrow-square-out")
+                }
+            })) { HistoryDetails(e) }
+        }
+        Sheet.ConfirmClearHistory -> NSheet(visible, t("history.clear"), ::close, footer = {
+            Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+                NButton(t("common.cancel"), ::close, Modifier.weight(1f), variant = ButtonVariant.Secondary, full = true)
+                NButton(t("history.clear"), { app.clearHistory() }, Modifier.weight(1f), variant = ButtonVariant.Danger, full = true)
+            }
+        }) {
+            BasicText(t("history.clear.confirm"), style = NhakoType.body.style(Nhako.colors.textSecondary))
+        }
     }
 }
 
@@ -149,14 +173,14 @@ private fun DeviceRow(app: AppState, d: Device, order: Int) {
     }
     Row(
         Modifier.fillMaxWidth().graphicsLayer { translationY = (1 - enter.value) * 8.dp.toPx(); alpha = enter.value.coerceIn(0f, 1f) }
-            .clip(RoundedCornerShape(NhakoRadius.md)).clickable(enabled = d.reachable, role = Role.Button) { app.sendTo(d.id) }
-            .alpha(if (d.reachable) 1f else 0.5f).padding(vertical = NhakoSpace.s2),
+            .clip(RoundedCornerShape(NhakoRadius.md)).clickable(enabled = d.reachable || d.wakeable, role = Role.Button, onClick = withTap { app.sendTo(d.id) })
+            .alpha(if (d.reachable || d.wakeable) 1f else 0.5f).padding(vertical = NhakoSpace.s2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         DeviceOrb(d, 40.dp, showName = false)
         Spacer(Modifier.width(NhakoSpace.s3))
         BasicText(d.name, Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        d.route?.let { RouteBadge(it) } ?: BasicText(t("home.orb.offline"), style = NhakoType.footnote.style(c.textTertiary))
+        d.route?.let { RouteBadge(it) } ?: BasicText(t(if (d.wakeable) "home.orb.asleep" else "home.orb.offline"), style = NhakoType.footnote.style(c.textTertiary))
     }
 }
 
@@ -191,6 +215,7 @@ private fun EnterCodeSheet(app: AppState, visible: Boolean, close: () -> Unit) {
             checking = false
             if (r.ok) return@launch // the 'paired' event opens the paired sheet
             NhakoHaptic.Decline.perform(view)
+            app.sound(NhakoSound.Error)
             when (r.reason) {
                 "unknownWord" -> {
                     error = t("code.enter.unknownWord")

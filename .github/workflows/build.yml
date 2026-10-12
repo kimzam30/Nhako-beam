@@ -17,6 +17,9 @@ env:
   CARGO_TERM_COLOR: always
   # Smaller debug info keeps the test builds within the runners' disk space.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  # Push wake-up (wake/README.md): set the repository variable NHAKO_WAKE_URL to your wake service.
+  # Empty means the apps are built without it.
+  NHAKO_WAKE_URL: ${{ vars.NHAKO_WAKE_URL }}
 
 jobs:
   linux:
@@ -29,7 +32,7 @@ jobs:
       - name: GTK and WebKit libraries for Tauri
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev libssl-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -133,8 +136,14 @@ jobs:
     timeout-minutes: 60
     env:
       NDK_VERSION: 29.0.14206865
+      # Your Firebase project's google-services.json, as the repository secret GOOGLE_SERVICES_JSON.
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Firebase config for push wake-up
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
 
       - uses: actions/setup-java@v4
         with:
@@ -162,14 +171,14 @@ jobs:
       - name: Unit and screenshot tests
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest
-      - name: Build the .apk for arm64, arm32 and x86_64 phones
+      - name: Build an .apk for each of arm64, arm32 and x86_64 phones
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleRelease
 
       - uses: actions/upload-artifact@v4
         with:
           name: nhako-beam-android-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4

@@ -18,6 +18,7 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 nhako-core = { path = "../../core" }
+rodio = { version = "0.23", default-features = false, features = ["playback"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tauri = { version = "2.12", features = ["tray-icon"] }
@@ -33,6 +34,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Windows: the Explorer "Send with Nhako Beam" menu entry (src/filemenu.rs).
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
+
+# Notifications with Accept and Decline buttons (src/shell.rs). The notification plugin uses the
+# same crate but can't add buttons on desktop.
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+notify-rust = "4.18"
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }

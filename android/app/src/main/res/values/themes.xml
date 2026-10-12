@@ -3,6 +3,12 @@
     <style name="Theme.Nhako" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/canvas</item>
     </style>
+    <!-- Cold start: brand blue and the bolt, then MainActivity switches to Theme.Nhako. -->
+    <style name="Theme.Nhako.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/icon_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_bolt</item>
+        <item name="postSplashScreenTheme">@style/Theme.Nhako</item>
+    </style>
     <color name="canvas">#F4F5F7</color>
-    <color name="icon_background">#2457F5</color>
+    <color name="icon_background">#2F8FFF</color>
 </resources>

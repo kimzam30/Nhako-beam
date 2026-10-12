@@ -6,6 +6,8 @@ import android.os.Bundle
 import io.github.kimzam30.nhakobeam.engine.RealEngine
 import io.github.kimzam30.nhakobeam.platform.Background
 import io.github.kimzam30.nhakobeam.platform.Notifier
+import io.github.kimzam30.nhakobeam.platform.Push
+import io.github.kimzam30.nhakobeam.platform.Sounds
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.SharedPrefs
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +28,8 @@ class NhakoApplication : Application() {
         private set
     lateinit var background: Background
         private set
+    lateinit var sounds: Sounds
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -33,9 +37,12 @@ class NhakoApplication : Application() {
         app = AppState(RealEngine(this, scope), prefs, scope)
         notifier = Notifier(this)
         background = Background(this, app, notifier, scope)
+        sounds = Sounds(this, prefs) { background.foreground }
+        app.sound = sounds::play
         app.afterEvent = background::onEvent
         registerActivityLifecycleCallbacks(Visibility())
         app.init()
+        Push.start(this)
     }
 
     /** Counts our started screens to know whether the app is in sight. */

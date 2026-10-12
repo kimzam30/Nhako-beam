@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The system splash screen icon: the brand bolt on a 288dp canvas, centred. The Compose intro (SplashIntro.kt) draws the same bolt in the same place, so the hand-over doesn't jump. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp" android:height="288dp"
+    android:viewportWidth="288" android:viewportHeight="288">
+    <group android:scaleX="0.2226" android:scaleY="0.2226" android:translateX="30" android:translateY="30">
+        <path android:fillColor="#1A6FE0" android:strokeColor="#1A6FE0" android:strokeWidth="12" android:strokeLineJoin="round" android:pathData="M666.8,242 L794.8,310.8 L610.8,494.8 L722.8,526.8 L265.2,826 L466.8,586 L354.8,554 Z" />
+        <path android:fillColor="#FFD23F" android:strokeColor="#FFD23F" android:strokeWidth="12" android:strokeLineJoin="round" android:pathData="M648.8,220 L776.8,288.8 L592.8,472.8 L704.8,504.8 L247.2,804 L448.8,564 L336.8,532 Z" />
+    </group>
+</vector>

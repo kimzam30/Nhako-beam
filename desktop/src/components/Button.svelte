@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { SoundName } from '../lib/sounds.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -13,6 +14,8 @@
     type?: 'button' | 'submit';
     label?: string;
     testid?: string;
+    /** Its own sound instead of the tap (lib/sounds.svelte.ts). */
+    sound?: SoundName;
     onclick?: (e: MouseEvent) => void;
     children?: Snippet;
   }
@@ -28,6 +31,7 @@
     type = 'button',
     label,
     testid,
+    sound,
     onclick,
     children,
   }: Props = $props();
@@ -42,6 +46,7 @@
   aria-busy={loading || undefined}
   aria-label={label}
   data-testid={testid}
+  data-sound={sound}
   {onclick}
 >
   <span class="inner">

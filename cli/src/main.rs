@@ -716,6 +716,7 @@ fn placeholder() -> Transfer {
         moving_since: None,
         finished_at: None,
         waiting_long: false,
+        waking: false,
     }
 }
 

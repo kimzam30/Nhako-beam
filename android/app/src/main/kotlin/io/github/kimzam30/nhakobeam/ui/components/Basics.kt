@@ -70,12 +70,15 @@ import androidx.compose.ui.unit.sp
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
+import io.github.kimzam30.nhakobeam.ui.LocalSound
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 
 /** Scales down a touch while pressed (press spring), like every tappable thing in the app. */
 @Composable
@@ -101,9 +104,12 @@ fun NButton(
     loading: Boolean = false,
     full: Boolean = false,
     padding: Dp = size.padding,
+    /** Its sound when pressed (desktop: the `sound` prop of Button.svelte). */
+    sound: NhakoSound = NhakoSound.Tap,
 ) {
     val c = Nhako.colors
     val interaction = remember { MutableInteractionSource() }
+    val play = LocalSound.current
     val (bg, fg) = when (variant) {
         ButtonVariant.Primary -> c.accent to c.onAccent
         ButtonVariant.Secondary -> c.fill to c.textPrimary
@@ -119,7 +125,10 @@ fun NButton(
             .alpha(if (enabled) 1f else 0.45f)
             .clip(RoundedCornerShape(NhakoRadius.full))
             .background(bg)
-            .clickable(interaction, indication = null, enabled = active, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, enabled = active, role = Role.Button) {
+                play(sound)
+                onClick()
+            }
             .padding(horizontal = padding),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -144,14 +153,18 @@ fun NButton(
 }
 
 @Composable
-fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Nhako.colors.textSecondary, size: Dp = 22.dp, weight: IconWeight = IconWeight.Duotone, enabled: Boolean = true) {
+fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Nhako.colors.textSecondary, size: Dp = 22.dp, weight: IconWeight = IconWeight.Duotone, enabled: Boolean = true, sound: NhakoSound = NhakoSound.Tap) {
     val interaction = remember { MutableInteractionSource() }
+    val play = LocalSound.current
     Box(
         modifier
             .size(48.dp)
             .pressScale(interaction, 0.9f)
             .clip(CircleShape)
-            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button) {
+                play(sound)
+                onClick()
+            }
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
@@ -174,6 +187,7 @@ fun Spinner(color: Color, size: Dp = 18.dp) {
 fun NToggle(checked: Boolean, label: String, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, hint: String? = null) {
     val c = Nhako.colors
     val view = LocalView.current
+    val play = LocalSound.current
     val x by animateDpAsState(if (checked) 22.dp else 2.dp, NhakoMotion.snappy.spec(), label = "thumb")
     val track by animateColorAsState(if (checked) c.accent else c.fillPressed, tween(NhakoMotion.Duration.fast), label = "track")
     Row(
@@ -183,6 +197,8 @@ fun NToggle(checked: Boolean, label: String, onChange: (Boolean) -> Unit, modifi
             .toggleable(checked, role = Role.Switch) {
                 (if (it) NhakoHaptic.ToggleOn else NhakoHaptic.ToggleOff).perform(view)
                 onChange(it)
+                // After the change, so turning Sounds itself off is silent.
+                play(if (it) NhakoSound.ToggleOn else NhakoSound.ToggleOff)
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -203,6 +219,7 @@ data class SegmentOption<T>(val value: T, val label: String, val icon: String? =
 @Composable
 fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> Unit, modifier: Modifier = Modifier) {
     val c = Nhako.colors
+    val play = LocalSound.current
     val index = options.indexOfFirst { it.value == value }.coerceAtLeast(0)
     BoxWithConstraints(modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.fill).padding(3.dp)) {
         val w = maxWidth / options.size
@@ -213,7 +230,10 @@ fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> U
             options.forEachIndexed { i, o ->
                 val on = i == index
                 Row(
-                    Modifier.weight(1f).height(h).selectable(on, role = Role.RadioButton) { onChange(o.value) },
+                    Modifier.weight(1f).height(h).selectable(on, role = Role.RadioButton) {
+                        play(NhakoSound.Tap)
+                        onChange(o.value)
+                    },
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -247,7 +267,7 @@ fun NBanner(text: String, modifier: Modifier = Modifier, icon: String = "warning
         BasicText(text, Modifier.weight(1f), style = NhakoType.callout.style(fg))
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.width(NhakoSpace.s3))
-            BasicText(actionLabel, Modifier.clickable(role = Role.Button, onClick = onAction).padding(NhakoSpace.s2), style = NhakoType.callout.style(fg).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)))
+            BasicText(actionLabel, Modifier.clickable(role = Role.Button, onClick = withTap(onAction)).padding(NhakoSpace.s2), style = NhakoType.callout.style(fg).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)))
         }
     }
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app, prettyPath } from '../lib/state/app.svelte';
   import { fileMenu as fileMenuSetting, keepRunning as keepRunningSetting, startAtLogin as startAtLoginSetting, type FileMenu } from '../lib/shell';
-  import { prefs, type MotionPref, type ThemePref } from '../lib/state/prefs.svelte';
+  import { prefs, type MotionPref, type SoundPref, type ThemePref } from '../lib/state/prefs.svelte';
   import { t } from '../lib/copy';
   import { springIn, quickOut, springFlip, stagger } from '../lib/motion/transitions';
   import DeviceOrb from '../components/DeviceOrb.svelte';
@@ -90,6 +90,17 @@
 
     <section class="group" in:springIn={{ delay: stagger(2) }}>
       <h2>{t('settings.section.connection')}</h2>
+      <div class="card lan">
+        <Toggle
+          checked={app.lanDiscovery}
+          label={t('settings.network.lan')}
+          hint={t('settings.network.lan.hint')}
+          testid="lan-discovery"
+          onchange={async (on) => {
+            if (!(await app.setLanDiscovery(on))) app.lanDiscovery = !on;
+          }}
+        />
+      </div>
       <div class="card stack">
         <ConnectionSettings />
       </div>
@@ -160,6 +171,21 @@
           />
           <span class="hint">{t('settings.appearance.motion.hint')}</span>
         </div>
+        <div class="field col">
+          <span>{t('settings.appearance.sounds')}</span>
+          <Segmented
+            label={t('settings.appearance.sounds')}
+            testid="sounds"
+            bind:value={prefs.sounds}
+            onchange={() => prefs.save()}
+            options={[
+              { value: 'loud' as SoundPref, label: t('settings.appearance.sounds.loud'), icon: 'speaker-high' },
+              { value: 'soft' as SoundPref, label: t('settings.appearance.sounds.soft'), icon: 'speaker-low' },
+              { value: 'off' as SoundPref, label: t('settings.appearance.sounds.off'), icon: 'speaker-slash' },
+            ]}
+          />
+          <span class="hint">{t('settings.appearance.sounds.hint')}</span>
+        </div>
       </div>
     </section>
 
@@ -171,6 +197,11 @@
           <div class="sep"></div>
           <div class="field"><span>{t('settings.about.fingerprint')}</span><span class="muted tabular" data-testid="fingerprint">{app.fingerprint}</span></div>
         {/if}
+        <div class="sep"></div>
+        <button class="field link" onclick={() => app.navigate('licenses')} data-testid="open-licenses">
+          <span>{t('settings.about.licenses')}</span>
+          <Icon name="caret-right" size={16} />
+        </button>
       </div>
     </section>
   </div>
@@ -209,6 +240,17 @@
     border-radius: var(--radius-lg);
     background: var(--color-surface);
     box-shadow: var(--elevation-1);
+  }
+  .card.lan {
+    margin-bottom: var(--space-4);
+  }
+  .field.link {
+    width: 100%;
+    color: inherit;
+    text-align: left;
+  }
+  .field.link :global(svg) {
+    color: var(--color-text-tertiary);
   }
   .card.stack {
     display: grid;

@@ -54,6 +54,8 @@ data class Device(
     val reachable: Boolean = false,
     val route: Route? = null,
     val fingerprint: String = "",
+    /** Not reachable right now, but can be woken up to receive (a phone Android put to sleep). */
+    val wakeable: Boolean = false,
 )
 
 @Serializable
@@ -118,6 +120,30 @@ data class Transfer(
     val movingSince: Long? = null,
     val finishedAt: Long? = null,
     val waitingLong: Boolean = false,
+    /** Sender: the other device was asleep and has been asked to wake up. */
+    val waking: Boolean = false,
+)
+
+/** A transfer that ended, as History lists it. Kept after a restart, and after the device is removed. */
+@Serializable
+data class HistoryEntry(
+    val id: String,
+    val direction: TransferDirection,
+    val deviceId: String,
+    val deviceName: String,
+    val deviceKind: DeviceKind = DeviceKind.Laptop,
+    val files: List<FileItem>,
+    val totalBytes: Long,
+    val doneBytes: Long = 0,
+    val route: Route = Route.Relayed,
+    /** Done, failed, cancelled or declined. */
+    val status: TransferStatus,
+    val error: TransferError? = null,
+    val cancelledBy: Side? = null,
+    val startedAt: Long = 0,
+    val finishedAt: Long,
+    /** Bytes per second while bytes were moving (pauses left out). 0 when nothing moved. */
+    val averageSpeed: Double = 0.0,
 )
 
 @Serializable
@@ -159,6 +185,8 @@ data class Snapshot(
     val code: PairingCode? = null,
     val freeSpace: Long? = null,
     val serverProblem: ServerProblem? = null,
+    /** Newest first. */
+    val history: List<HistoryEntry> = emptyList(),
 )
 
 @Serializable
@@ -226,6 +254,10 @@ sealed interface EngineEvent {
 
     @Serializable @SerialName("server")
     data class Server(val problem: ServerProblem? = null) : EngineEvent
+
+    /** A transfer ended and was added to History (or replaced its own entry after a retry). */
+    @Serializable @SerialName("history")
+    data class History(val entry: HistoryEntry) : EngineEvent
 
     @Serializable @SerialName("snapshot")
     data class SnapshotEvent(val snapshot: Snapshot) : EngineEvent

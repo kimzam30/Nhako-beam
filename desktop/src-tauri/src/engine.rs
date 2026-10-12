@@ -20,7 +20,7 @@ use nhako_core::{
     store::{self, Store},
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
+use tauri::{AppHandle, Emitter, Manager, State, async_runtime::JoinHandle};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::warn;
@@ -93,6 +93,30 @@ impl Host {
         self.stop_locked().await;
     }
 
+    /// Saves a setting that only takes effect when the engine starts, then restarts it (refused
+    /// while transfers are running). Without a running engine, it's written to disk for next time.
+    async fn save_and_restart(
+        &self,
+        app: &AppHandle,
+        running: impl FnOnce(&Engine) -> Result<(), String>,
+        stored: impl FnOnce(&mut Store),
+    ) -> Result<(), String> {
+        let _g = self.lifecycle.lock().await;
+        let Some(engine) = self.running() else {
+            let mut s = self.store()?;
+            stored(&mut s);
+            return s.save().map_err(|e| e.to_string());
+        };
+        if engine.transfers().iter().any(|t| !t.status.is_final()) {
+            return Err("Wait for the transfers in progress to finish (or cancel them), then save again.".into());
+        }
+        running(&engine)?;
+        self.stop_locked().await;
+        let engine = self.start(app).await?;
+        let _ = app.emit(RESYNC, engine.snapshot());
+        Ok(())
+    }
+
     async fn stop_locked(&self) {
         if let Some(task) = self.forward.lock().expect("forward lock").take() {
             task.abort();
@@ -132,23 +156,57 @@ fn notify(app: &AppHandle, engine: &Engine, event: &EngineEvent, notified: &mut 
             .unwrap_or_else(|| "A device".into())
     };
     match event {
-        EngineEvent::Incoming { request } => shell::notify_if_away(
-            app,
-            &incoming_title(&name(&request.device_id), request),
-            "Open Nhako Beam to accept or decline.",
-        ),
+        EngineEvent::Incoming { request } => {
+            let id = request.id.clone();
+            shell::notify_with_actions(
+                app,
+                &incoming_title(&name(&request.device_id), request),
+                "Accept to save it in your Nhako Beam folder.",
+                &[("accept", "Accept"), ("decline", "Decline")],
+                move |app, action| answer_from_notification(app, &id, action),
+            );
+        }
         // Once per transfer: a finished transfer can be reported more than once.
         EngineEvent::Transfer { transfer }
             if transfer.direction == TransferDirection::Receive && transfer.status == TransferStatus::Done && notified.insert(transfer.id.clone()) =>
         {
             let what = files_phrase(transfer.files.len(), transfer.files.first().map(|f| f.name.as_str()));
-            shell::notify_if_away(
+            let id = transfer.id.clone();
+            shell::notify_with_actions(
                 app,
                 &format!("Got {what} from {}", name(&transfer.device_id)),
                 "Saved to your Nhako Beam folder.",
+                &[("open", "Open"), ("reveal", "Show in folder")],
+                move |app, action| match action {
+                    "open" | "reveal" => {
+                        if let Some(engine) = app.state::<Host>().running()
+                            && let Err(e) = open_saved(app, &engine, &id, action == "reveal")
+                        {
+                            warn!("{e}");
+                            shell::show_window(app);
+                        }
+                    }
+                    "default" => shell::show_window(app),
+                    _ => {}
+                },
             );
         }
         _ => {}
+    }
+}
+
+/// Accept or Decline on a request's notification. A request that was already answered, withdrawn
+/// or timed out opens the window instead, so nothing happens silently.
+fn answer_from_notification(app: &AppHandle, request_id: &str, action: &str) {
+    let engine = app.state::<Host>().running();
+    let pending = engine.as_ref().is_some_and(|e| e.requests().iter().any(|r| r.id == request_id));
+    match (action, engine) {
+        ("accept", Some(e)) if pending => {
+            e.accept(request_id, false, false);
+        }
+        ("decline", Some(e)) if pending => e.decline(request_id),
+        ("__closed", _) => {}
+        _ => shell::show_window(app),
     }
 }
 
@@ -300,7 +358,11 @@ fn display_name(p: &Path) -> String {
 /// or the folder with the file selected when `reveal` is set.
 #[tauri::command]
 pub async fn open_received(app: AppHandle, host: State<'_, Host>, transfer_id: String, reveal: bool) -> Result<(), String> {
-    let saved: Vec<PathBuf> = host.engine()?.saved_files(&transfer_id).into_iter().filter(|p| p.exists()).collect();
+    open_saved(&app, &host.engine()?, &transfer_id, reveal)
+}
+
+fn open_saved(app: &AppHandle, engine: &Engine, transfer_id: &str, reveal: bool) -> Result<(), String> {
+    let saved: Vec<PathBuf> = engine.saved_files(transfer_id).into_iter().filter(|p| p.exists()).collect();
     let Some(first) = saved.first() else {
         return Err("The files aren't there any more. They may have been moved or deleted.".into());
     };
@@ -436,19 +498,29 @@ pub async fn get_connection(host: State<'_, Host>) -> Result<Connection, String>
 #[tauri::command]
 pub async fn set_connection(app: AppHandle, host: State<'_, Host>, connection: Connection) -> Result<(), String> {
     Network::from_connection(&connection).map_err(|e| e.to_string())?;
-    let _g = host.lifecycle.lock().await;
-    let Some(engine) = host.running() else {
-        let mut s = host.store()?;
-        s.state.connection = connection;
-        return s.save().map_err(|e| e.to_string());
-    };
-    if engine.transfers().iter().any(|t| !t.status.is_final()) {
-        return Err("Wait for the transfers in progress to finish (or cancel them), then save again.".into());
-    }
-    engine.set_connection(connection).map_err(|e| e.to_string())?;
-    host.stop_locked().await;
-    let engine = host.start(&app).await?;
-    let _ = app.emit(RESYNC, engine.snapshot());
+    host.save_and_restart(
+        &app,
+        |e| e.set_connection(connection.clone()).map_err(|e| e.to_string()),
+        |s| s.state.connection = connection.clone(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn get_lan_discovery(host: State<'_, Host>) -> Result<bool, String> {
+    host.settings(|e| e.lan_discovery(), |s| Ok(s.state.lan_discovery)).await
+}
+
+/// Turns looking for nearby devices on or off. Like the server setting, the engine restarts.
+#[tauri::command]
+pub async fn set_lan_discovery(app: AppHandle, host: State<'_, Host>, on: bool) -> Result<(), String> {
+    host.save_and_restart(&app, |e| e.set_lan_discovery(on).map_err(|e| e.to_string()), |s| s.state.lan_discovery = on)
+        .await
+}
+
+#[tauri::command]
+pub async fn clear_history(host: State<'_, Host>) -> Result<(), String> {
+    host.engine()?.clear_history();
     Ok(())
 }
 

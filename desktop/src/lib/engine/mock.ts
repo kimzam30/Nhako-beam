@@ -9,6 +9,7 @@ import type {
   Engine,
   EngineEvent,
   FileItem,
+  HistoryEntry,
   IncomingRequest,
   PairingCode,
   RedeemResult,
@@ -23,12 +24,15 @@ import { isWord, randomWords } from './words';
 import { parseLookup, parseRelay, parseToken } from './server';
 
 export type SendOutcome = 'accept' | 'decline' | 'ignore' | 'unreachable';
-export type SampleKind = 'photos' | 'video' | 'mixed' | 'big';
+export type SampleKind = 'photos' | 'video' | 'longname' | 'mixed' | 'big';
 
 const TICK_MS = 100;
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
 const ROUTE_SPEED: Record<Route, number> = { nearby: 92e6, direct: 31e6, relayed: 11e6 };
 const CONNECTION_STORE = 'nhako.mock.connection';
+const LAN_STORE = 'nhako.mock.lan';
+const ENDED = new Set(['done', 'failed', 'cancelled', 'declined']);
+const HOUR = 3_600_000;
 /** How long a pretend server check takes. */
 export const CHECK_MS = 900;
 const ACTIVE = new Set(['waiting', 'connecting', 'transferring', 'paused', 'reconnecting']);
@@ -48,6 +52,16 @@ function mockCheckOne(address: string, token: string | null | undefined, kind: '
   return { status: 'ok', ms: kind === 'relay' ? 14 : 6 };
 }
 
+function loadLan(): boolean {
+  try {
+    const raw = localStorage.getItem(LAN_STORE);
+    if (raw) return JSON.parse(raw) === true;
+  } catch {
+    // Blocked storage or no window (tests): on.
+  }
+  return true;
+}
+
 function loadConnection(): Connection {
   try {
     const raw = localStorage.getItem(CONNECTION_STORE);
@@ -63,23 +77,51 @@ interface Seed extends Device {
 }
 
 const SEED: Seed[] = [
-  { id: 'd-aisyah', name: "Aisyah's laptop", kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '4F2A 91C3', appearMs: 700 },
-  { id: 'd-phone', name: 'Work phone', kind: 'phone', os: 'android', trusted: true, autoAccept: true, reachable: true, route: 'nearby', fingerprint: 'B7E0 22D9', appearMs: 1300 },
-  { id: 'd-studio', name: 'Studio PC', kind: 'desktop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '0C5D E81A', appearMs: 2100 },
-  { id: 'd-tablet', name: "Mei Ling's tablet", kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '6A19 C4F0', appearMs: 2900 },
-  { id: 'd-office', name: 'Office laptop', kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: false, route: null, fingerprint: 'D3B8 0E57', appearMs: 400 },
+  { id: 'd-aisyah', name: "Aisyah's laptop", kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '4F2A 91C3', wakeable: false, appearMs: 700 },
+  { id: 'd-phone', name: 'Work phone', kind: 'phone', os: 'android', trusted: true, autoAccept: true, reachable: true, route: 'nearby', fingerprint: 'B7E0 22D9', wakeable: false, appearMs: 1300 },
+  { id: 'd-studio', name: 'Studio PC', kind: 'desktop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '0C5D E81A', wakeable: false, appearMs: 2100 },
+  { id: 'd-tablet', name: "Mei Ling's tablet", kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '6A19 C4F0', wakeable: false, appearMs: 2900 },
+  { id: 'd-office', name: 'Office laptop', kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: false, route: null, fingerprint: 'D3B8 0E57', wakeable: false, appearMs: 400 },
 ];
 
 const EXTRA: Omit<Device, 'id'>[] = [
-  { name: "Ravi's desktop", kind: 'desktop', os: 'windows', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '91AE 3B70' },
-  { name: 'Living room tablet', kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '27CC F104' },
-  { name: "Daniel's phone", kind: 'phone', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: 'E05B 6D92' },
-  { name: 'Lab laptop', kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '5F81 A2C6' },
+  { name: "Ravi's desktop", kind: 'desktop', os: 'windows', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '91AE 3B70', wakeable: false },
+  { name: 'Living room tablet', kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '27CC F104', wakeable: false },
+  { name: "Daniel's phone", kind: 'phone', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: 'E05B 6D92', wakeable: false },
+  { name: 'Lab laptop', kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '5F81 A2C6', wakeable: false },
 ];
 
-const PAIR_DEVICE: Omit<Device, 'id'> = { name: "Nadia's laptop", kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'direct', fingerprint: '8C4E 17B2' };
+const PAIR_DEVICE: Omit<Device, 'id'> = { name: "Nadia's laptop", kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'direct', fingerprint: '8C4E 17B2', wakeable: false };
 /** What both screens show after pairing with a code (the real engine derives it from both device keys). */
 const PAIR_CHECK = '5D19 E04A';
+
+/** A few earlier transfers, so History has something to show in the prototype. */
+function seedHistory(now: number): HistoryEntry[] {
+  const at = (hoursAgo: number) => now - hoursAgo * HOUR;
+  const entry = (e: Partial<HistoryEntry> & Pick<HistoryEntry, 'id' | 'direction' | 'deviceId' | 'deviceName' | 'deviceKind' | 'files'>, hoursAgo: number, seconds: number): HistoryEntry => {
+    const total = e.files.reduce((n, x) => n + x.size, 0);
+    const done = e.doneBytes ?? total;
+    return {
+      totalBytes: total,
+      doneBytes: done,
+      route: 'nearby',
+      status: 'done',
+      error: null,
+      cancelledBy: null,
+      startedAt: at(hoursAgo) - seconds * 1000,
+      finishedAt: at(hoursAgo),
+      averageSpeed: seconds > 0 ? done / seconds : 0,
+      ...e,
+    };
+  };
+  return [
+    entry({ id: 'h1', direction: 'receive', deviceId: 'd-phone', deviceName: 'Work phone', deviceKind: 'phone', files: [f('IMG_1180.jpg', 3_400_000, 'image/jpeg'), f('IMG_1181.jpg', 3_100_000, 'image/jpeg')] }, 2, 1.4),
+    entry({ id: 'h2', direction: 'send', deviceId: 'd-aisyah', deviceName: "Aisyah's laptop", deviceKind: 'laptop', files: [f('Quarterly report.pdf', 2_200_000, 'application/pdf')] }, 5, 0.6),
+    entry({ id: 'h3', direction: 'send', deviceId: 'd-studio', deviceName: 'Studio PC', deviceKind: 'desktop', files: [f('Raw footage day 2.mov', 6_800_000_000, 'video/quicktime')], status: 'cancelled', cancelledBy: 'peer', doneBytes: 2_100_000_000 }, 27, 92),
+    entry({ id: 'h4', direction: 'receive', deviceId: 'd-office', deviceName: 'Office laptop', deviceKind: 'laptop', files: [f('Slides.key', 48_000_000, 'application/octet-stream')], route: 'relayed' }, 30, 5.2),
+    entry({ id: 'h5', direction: 'send', deviceId: 'd-tablet', deviceName: "Mei Ling's tablet", deviceKind: 'tablet', files: [f('Recipe.txt', 4_000, 'text/plain')], status: 'declined', doneBytes: 0 }, 75, 0),
+  ];
+}
 
 let fileSeq = 0;
 const f = (name: string, size: number, mime: string): FileItem => ({ id: `f${++fileSeq}`, name, size, mime });
@@ -95,6 +137,8 @@ export function sampleFiles(kind: SampleKind): FileItem[] {
       ];
     case 'video':
       return [f('Beach trip 4K.mov', 1_400_000_000, 'video/quicktime')];
+    case 'longname':
+      return [f('20260429_203821 family trip to Langkawi, day two.mp4', 790_000_000, 'video/mp4')];
     case 'mixed':
       return [
         f('IMG_3310.jpg', 3_800_000, 'image/jpeg'),
@@ -130,6 +174,10 @@ export class MockEngine implements Engine {
   private connection: Connection = loadConnection();
   private serverProblem: ServerProblem | null = null;
   private saveDir = 'Downloads/Nhako Beam';
+  private lan = loadLan();
+  private history: HistoryEntry[] | null = null;
+  /** The status each transfer's History entry was written with. */
+  private recorded = new Map<string, string>();
 
   /** What the next send to an untrusted device does. */
   nextSendOutcome: SendOutcome = 'accept';
@@ -157,7 +205,9 @@ export class MockEngine implements Engine {
 
   start(): void {
     this.emit({ type: 'freeSpace', bytes: this.freeSpace });
-    this.scan(SEED);
+    this.history ??= seedHistory(this.now());
+    for (const entry of [...this.history].reverse()) this.emit({ type: 'history', entry: { ...entry } });
+    this.scan(this.seeds());
     this.tickTimer = setInterval(() => this.tick(TICK_MS), TICK_MS);
   }
 
@@ -171,6 +221,11 @@ export class MockEngine implements Engine {
   private setDiscovery(state: DiscoveryState): void {
     this.discovery = state;
     this.emit({ type: 'discovery', state });
+  }
+
+  /** With nearby search off, only trusted devices (reached over the internet) show up. */
+  private seeds(list: Seed[] = SEED): Seed[] {
+    return this.lan ? list : list.filter((d) => d.trusted).map((d) => ({ ...d, route: d.reachable ? 'direct' : null }));
   }
 
   private scan(seeds: Seed[]): void {
@@ -195,7 +250,7 @@ export class MockEngine implements Engine {
       this.devices.delete(d.id);
       this.emit({ type: 'deviceLost', deviceId: d.id });
     }
-    this.scan(known.length ? known : SEED);
+    this.scan(known.length ? this.seeds(known) : this.seeds());
   }
 
   getDevice(id: string): Device | undefined {
@@ -233,6 +288,7 @@ export class MockEngine implements Engine {
       movingSince: null,
       finishedAt: null,
       waitingLong: false,
+      waking: false,
       outcome: trustedPeer ? 'accept' : this.nextSendOutcome,
       answerAt: trustedPeer ? null : now + 2200,
       connectAt: trustedPeer ? now + 700 : null,
@@ -247,6 +303,42 @@ export class MockEngine implements Engine {
   private push(t: Internal): void {
     const { outcome: _o, answerAt: _a, connectAt: _c, reconnectAt: _r, noise: _n, ...pub } = t;
     this.emit({ type: 'transfer', transfer: { ...pub, fileBytes: { ...pub.fileBytes } } });
+    if (ENDED.has(t.status) && this.recorded.get(t.id) !== t.status) this.record(t);
+  }
+
+  /** Like the engine: a transfer gets its History entry when it ends, replaced if it ends again. */
+  private record(t: Internal): void {
+    this.recorded.set(t.id, t.status);
+    const d = this.devices.get(t.deviceId);
+    const finishedAt = t.finishedAt ?? this.now();
+    const seconds = Math.max(0.001, (finishedAt - t.startedAt) / 1000);
+    const entry: HistoryEntry = {
+      id: t.id,
+      direction: t.direction,
+      deviceId: t.deviceId,
+      deviceName: d?.name ?? 'Unknown device',
+      deviceKind: d?.kind ?? 'laptop',
+      files: t.files.map((x) => ({ ...x })),
+      totalBytes: t.totalBytes,
+      doneBytes: t.doneBytes,
+      route: t.route,
+      status: t.status,
+      error: t.error,
+      cancelledBy: t.cancelledBy,
+      startedAt: t.startedAt,
+      finishedAt,
+      averageSpeed: t.doneBytes ? t.doneBytes / seconds : 0,
+    };
+    this.history = [entry, ...(this.history ?? []).filter((h) => h.id !== t.id)];
+    this.emit({ type: 'history', entry: { ...entry } });
+  }
+
+  clearHistory(): void {
+    this.history = [];
+  }
+
+  getHistory(): HistoryEntry[] {
+    return [...(this.history ?? [])];
   }
 
   private find(id: string): Internal | undefined {
@@ -343,6 +435,7 @@ export class MockEngine implements Engine {
       movingSince: null,
       finishedAt: null,
       waitingLong: false,
+      waking: false,
       outcome: 'accept',
       answerAt: null,
       connectAt: now + 500,
@@ -403,6 +496,12 @@ export class MockEngine implements Engine {
     if (!d) return;
     d.trusted = trusted;
     if (!trusted) d.autoAccept = false;
+    // Like the engine: an untrusted device that's away leaves the list at once.
+    if (!trusted && !d.reachable) {
+      this.devices.delete(deviceId);
+      this.emit({ type: 'deviceLost', deviceId });
+      return;
+    }
     this.emit({ type: 'device', device: { ...d } });
   }
 
@@ -460,6 +559,28 @@ export class MockEngine implements Engine {
     const before = this.discovery;
     this.setDiscovery('searching');
     this.later(1200, () => this.setDiscovery(before === 'searching' ? 'idle' : before));
+  }
+
+  async getLanDiscovery(): Promise<boolean> {
+    return this.lan;
+  }
+
+  async setLanDiscovery(on: boolean): Promise<void> {
+    if ([...this.transfers.values()].some((t) => ACTIVE.has(t.status))) {
+      throw new Error('Wait for the transfers in progress to finish (or cancel them), then save again.');
+    }
+    this.lan = on;
+    try {
+      localStorage.setItem(LAN_STORE, JSON.stringify(on));
+    } catch {
+      // Not saved across reloads; fine for the prototype.
+    }
+    // The real engine restarts here: everything is looked for again, nearby devices only if on.
+    for (const d of [...this.devices.values()]) {
+      this.devices.delete(d.id);
+      this.emit({ type: 'deviceLost', deviceId: d.id });
+    }
+    this.scan(this.seeds());
   }
 
   checkServer(c: Extract<Connection, { mode: 'own' }>): Promise<ServerCheck> {

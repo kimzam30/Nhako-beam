@@ -4,6 +4,7 @@
 import { magnet, type MagnetTarget } from './motion/physics';
 import { app } from './state/app.svelte';
 import { playHaptic } from './haptics.svelte';
+import { playSound } from './sounds.svelte';
 
 function targets(): MagnetTarget[] {
   const out: MagnetTarget[] = [];
@@ -17,7 +18,10 @@ function targets(): MagnetTarget[] {
 
 export function beginDrag(source: 'os' | 'stack', x: number, y: number, count: number): void {
   app.drag = { source, x, y, count, nearId: null, snappedId: null };
-  if (source === 'stack') playHaptic('dragStart');
+  if (source === 'stack') {
+    playHaptic('dragStart');
+    playSound('lift');
+  }
   moveDrag(x, y);
 }
 
@@ -25,7 +29,10 @@ export function moveDrag(x: number, y: number, count?: number): void {
   const d = app.drag;
   if (!d) return;
   const r = magnet({ x, y }, targets(), d.snappedId);
-  if (r.snappedId && r.snappedId !== d.snappedId) playHaptic('magnetSnap');
+  if (r.snappedId && r.snappedId !== d.snappedId) {
+    playHaptic('magnetSnap');
+    playSound('snap');
+  }
   if (!r.snappedId && d.snappedId) playHaptic('thresholdDeactivate');
   app.drag = { ...d, x, y, count: count ?? d.count, nearId: r.nearId, snappedId: r.snappedId };
 }

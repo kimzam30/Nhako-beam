@@ -7,6 +7,7 @@ import io.github.kimzam30.nhakobeam.model.DeviceKind
 import io.github.kimzam30.nhakobeam.model.DiscoveryState
 import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
+import io.github.kimzam30.nhakobeam.model.HistoryEntry
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
 import io.github.kimzam30.nhakobeam.model.OsPlatform
 import io.github.kimzam30.nhakobeam.model.PairVia
@@ -16,6 +17,7 @@ import io.github.kimzam30.nhakobeam.model.Route
 import io.github.kimzam30.nhakobeam.model.SelfInfo
 import io.github.kimzam30.nhakobeam.model.ServerCheck
 import io.github.kimzam30.nhakobeam.model.ServerProblem
+import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.Snapshot
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
@@ -39,6 +41,9 @@ class FakeEngine : Engine {
         Device("d-office", "Office laptop", DeviceKind.Laptop, OsPlatform.Windows, trusted = true, fingerprint = "D3B8 0E57"),
     )
     var discovery = DiscoveryState.Idle
+    var lanDiscovery = true
+    /** Earlier transfers, the same as the desktop prototype's. */
+    var history = sampleHistory(System.currentTimeMillis())
     var connection: Connection = Connection.Public
     var name = "Hakim's phone"
     /** The code "the other device" shows, for entering a code. */
@@ -51,7 +56,7 @@ class FakeEngine : Engine {
 
     override suspend fun start(name: String?): Snapshot {
         if (name != null) this.name = name
-        return Snapshot(discovery, devices, emptyList(), emptyList(), freeSpace = 32_000_000_000)
+        return Snapshot(discovery, devices, emptyList(), emptyList(), freeSpace = 32_000_000_000, history = history)
     }
 
     override fun stop() {}
@@ -91,7 +96,15 @@ class FakeEngine : Engine {
         return RedeemResult(ok = true, device = d)
     }
 
-    override fun setTrusted(deviceId: String, trusted: Boolean) = update(deviceId) { it.copy(trusted = trusted, autoAccept = it.autoAccept && trusted) }
+    override fun setTrusted(deviceId: String, trusted: Boolean) {
+        // Like the engine: an untrusted device that's away leaves the list at once.
+        if (!trusted && devices.any { it.id == deviceId && !it.reachable }) {
+            devices = devices.filter { it.id != deviceId }
+            emit(EngineEvent.DeviceLost(deviceId))
+            return
+        }
+        update(deviceId) { it.copy(trusted = trusted, autoAccept = it.autoAccept && trusted) }
+    }
     override fun setAutoAccept(deviceId: String, on: Boolean) = update(deviceId) { it.copy(autoAccept = on) }
     override suspend fun renameSelf(name: String) {
         this.name = name
@@ -113,6 +126,15 @@ class FakeEngine : Engine {
     }
 
     override suspend fun savedFiles(transferId: String) = emptyList<String>()
+
+    override suspend fun getLanDiscovery() = lanDiscovery
+    override suspend fun setLanDiscovery(on: Boolean) {
+        lanDiscovery = on
+    }
+
+    override fun clearHistory() {
+        history = emptyList()
+    }
 
     private fun update(id: String, change: (Device) -> Device) {
         devices = devices.map { if (it.id == id) change(it).also { d -> emit(EngineEvent.DeviceChanged(d)) } else it }
@@ -157,5 +179,23 @@ class FakeEngine : Engine {
         return r
     }
     fun simDiscovery(state: DiscoveryState) = emit(EngineEvent.Discovery(state))
+    fun simHistory(entry: HistoryEntry) = emit(EngineEvent.History(entry))
     fun simServer(problem: ServerProblem?) = emit(EngineEvent.Server(problem))
+
+    private fun sampleHistory(now: Long): List<HistoryEntry> {
+        val hour = 3_600_000L
+        fun entry(id: String, dir: TransferDirection, device: String, name: String, kind: DeviceKind, files: List<FileItem>, hoursAgo: Long, seconds: Double, status: TransferStatus = TransferStatus.Done, done: Long? = null, route: Route = Route.Nearby, cancelledBy: Side? = null): HistoryEntry {
+            val total = files.sumOf { it.size }
+            val moved = done ?: total
+            val at = now - hoursAgo * hour
+            return HistoryEntry(id, dir, device, name, kind, files, total, moved, route, status, null, cancelledBy, at - (seconds * 1000).toLong(), at, if (seconds > 0) moved / seconds else 0.0)
+        }
+        return listOf(
+            entry("h1", TransferDirection.Receive, "d-aisyah", "Aisyah's laptop", DeviceKind.Laptop, listOf(file("IMG_1180.jpg", 3_400_000, "image/jpeg"), file("IMG_1181.jpg", 3_100_000, "image/jpeg")), 2, 1.4),
+            entry("h2", TransferDirection.Send, "d-aisyah", "Aisyah's laptop", DeviceKind.Laptop, listOf(file("Quarterly report.pdf", 2_200_000, "application/pdf")), 5, 0.6),
+            entry("h3", TransferDirection.Send, "d-studio", "Studio PC", DeviceKind.Desktop, listOf(file("Raw footage day 2.mov", 6_800_000_000, "video/quicktime")), 27, 92.0, TransferStatus.Cancelled, 2_100_000_000, cancelledBy = Side.Peer),
+            entry("h4", TransferDirection.Receive, "d-office", "Office laptop", DeviceKind.Laptop, listOf(file("Slides.key", 48_000_000, "application/octet-stream")), 30, 5.2, route = Route.Relayed),
+            entry("h5", TransferDirection.Send, "d-tablet", "Mei Ling's tablet", DeviceKind.Tablet, listOf(file("Recipe.txt", 4_000, "text/plain")), 75, 0.0, TransferStatus.Declined, 0),
+        )
+    }
 }

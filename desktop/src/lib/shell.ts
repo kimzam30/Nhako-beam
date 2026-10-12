@@ -102,3 +102,8 @@ export function onFileDrop(h: DropHandlers): Promise<() => void> {
     }
   });
 }
+
+/** Opens a web page in the default browser. */
+export function openLink(url: string): Promise<void> {
+  return invoke('open_link', { url });
+}

@@ -125,7 +125,9 @@ async fn join_pump(pump: &mut Option<Pump>) -> (PumpEnd, Option<HashCache>) {
 }
 
 fn unchanged(f: &SrcFile) -> bool {
-    std::fs::metadata(&f.path).is_ok_and(|m| m.len() == f.size && m.modified().ok() == f.modified)
+    files::open_to_send(&f.path)
+        .and_then(|file| file.metadata())
+        .is_ok_and(|m| m.len() == f.size && m.modified().ok() == f.modified)
 }
 
 async fn hash_prefix(file: &mut tokio::fs::File, len: u64, buf: &mut [u8]) -> std::io::Result<blake3::Hasher> {
@@ -164,7 +166,7 @@ async fn pump(
         if !unchanged(f) {
             return (PumpEnd::FileChanged, None);
         }
-        let Ok(mut file) = tokio::fs::File::open(&f.path).await else {
+        let Ok(mut file) = files::open_to_send(&f.path).map(tokio::fs::File::from_std) else {
             return (PumpEnd::FileChanged, None);
         };
         let mut hasher = match cache.take().filter(|c| c.file == i && c.pos == off) {

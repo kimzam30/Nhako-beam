@@ -1,0 +1,12 @@
+{
+  "name": "nhako-wake",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Nhako Beam wake service: wakes a sleeping phone with an empty Firebase Cloud Messaging push.",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "npx wrangler@4.149.0 deploy"
+  }
+}

@@ -6,6 +6,7 @@
   import { SpringValue } from '../lib/motion/springs';
   import { app } from '../lib/state/app.svelte';
   import Icon from './Icon.svelte';
+  import { t } from '../lib/copy';
 
   interface Props {
     device?: Device;
@@ -27,7 +28,9 @@
   const kindIcon: Record<DeviceKind, string> = { laptop: 'laptop', desktop: 'desktop-tower', phone: 'device-mobile', tablet: 'device-tablet' };
   const icon = $derived(self ? (app.isAndroid ? 'device-mobile' : 'laptop') : kindIcon[device?.kind ?? 'laptop']);
   const name = $derived(self ? selfName || 'This device' : (device?.name ?? ''));
-  const offline = $derived(!self && device ? !device.reachable : false);
+  /** A phone Android put to sleep: it can still be sent to, it's woken up first. */
+  const asleep = $derived(!self && !!device && !device.reachable && device.wakeable);
+  const offline = $derived(!self && device ? !device.reachable && !device.wakeable : false);
   const ringR = $derived(size / 2 + 5);
   const ringC = $derived(2 * Math.PI * ringR);
 
@@ -54,7 +57,7 @@
     if (!register || !device || !circle) return;
     const id = device.id;
     const el = circle;
-    if (device.reachable) app.orbEls.set(id, el);
+    if (device.reachable || device.wakeable) app.orbEls.set(id, el);
     else app.orbEls.delete(id);
     return () => {
       if (app.orbEls.get(id) === el) app.orbEls.delete(id);
@@ -62,7 +65,7 @@
   });
 
   const status = $derived(
-    self ? 'This device' : offline ? 'offline' : progress !== null ? `${Math.round(progress * 100)} percent` : waiting ? 'waiting' : device?.trusted ? 'trusted device, ready' : 'ready',
+    self ? 'This device' : offline ? 'offline' : asleep ? 'asleep, sending wakes it up' : progress !== null ? `${Math.round(progress * 100)} percent` : waiting ? 'waiting' : device?.trusted ? 'trusted device, ready' : 'ready',
   );
 </script>
 
@@ -71,6 +74,7 @@
   class:target
   class:snapped
   class:offline
+  class:asleep
   class:self
   style:--size="{size}px"
   disabled={self || offline || !onclick}
@@ -106,7 +110,7 @@
   </span>
   {#if showName}
     <span class="name">{name}</span>
-    {#if offline}<span class="sub">Offline</span>{/if}
+    {#if offline}<span class="sub">{t('home.orb.offline')}</span>{:else if asleep}<span class="sub">{t('home.orb.asleep')}</span>{/if}
   {/if}
 </button>
 
@@ -172,6 +176,9 @@
   }
   .offline {
     opacity: 0.4;
+  }
+  .asleep .circle {
+    opacity: 0.7;
   }
   .trusted {
     position: absolute;

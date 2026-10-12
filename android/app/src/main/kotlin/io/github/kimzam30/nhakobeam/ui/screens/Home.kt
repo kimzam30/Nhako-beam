@@ -62,7 +62,7 @@ fun HomeScreen(app: AppState) {
 
     fun pick(deviceId: String) {
         val d = app.device(deviceId) ?: return
-        if (!d.reachable) return
+        if (!d.reachable && !d.wakeable) return
         if (app.staged.isNotEmpty()) app.sendTo(deviceId) else {
             app.pickTarget = deviceId
             app.platform.pickFiles()
@@ -79,6 +79,7 @@ fun HomeScreen(app: AppState) {
                 BasicText(t("home.title"), style = NhakoType.largeTitle.style(c.textPrimary))
                 BasicText(app.selfName.ifBlank { t("home.orb.you") }, style = NhakoType.callout.style(c.textSecondary))
             }
+            NIconButton("clock-counter-clockwise", t("history.title"), { app.navigate(Screen.History) }, size = 24.dp)
             NIconButton("gear-six", t("settings.title"), { app.navigate(Screen.Settings) }, size = 24.dp)
         }
 

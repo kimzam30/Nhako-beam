@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.IntentCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import io.github.kimzam30.nhakobeam.platform.ActivityPlatform
 import io.github.kimzam30.nhakobeam.state.PlatformHooks
@@ -20,8 +21,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var platform: ActivityPlatform
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The system splash (Theme.Nhako.Splash) shows until the first frame; the Compose intro
+        // draws the same picture, so it's removed at once rather than faded.
+        installSplashScreen().setOnExitAnimationListener { it.remove() }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Only a fresh launch from the launcher plays the intro. Shared files go straight to the
+        // device picker, and a screen rotation or coming back from the background shows nothing.
+        val intro = savedInstanceState == null && intent?.action == Intent.ACTION_MAIN
         val app = nhako.app
         val prefs = nhako.prefs
         platform = ActivityPlatform(this, app)
@@ -39,7 +46,7 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = !dark
                 }
             }
-            NhakoBeamApp(app, prefs)
+            NhakoBeamApp(app, prefs, intro)
         }
         if (savedInstanceState == null) receiveShared(intent)
     }

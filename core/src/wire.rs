@@ -60,6 +60,16 @@ pub struct ServerHello {
     pub info: DeviceInfo,
 }
 
+/// Fields added after version 1 shipped, written straight after a `ClientHello` or `ServerHello`
+/// in the same frame. Older builds decode the hello and ignore the bytes after it; a hello from an
+/// older build has nothing after it, which reads as the default. docs/protocol/nhako-1.md, section 3.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelloExt {
+    /// Where a wake-up push reaches this device (its Firebase Cloud Messaging token), for a phone
+    /// that Android has put to sleep. Only sent to trusted devices.
+    pub wake: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Intent {
     Ping,
@@ -167,7 +177,35 @@ pub enum WireError {
 }
 
 pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result<(), WireError> {
-    let body = postcard::to_stdvec(msg)?;
+    write_body(send, postcard::to_stdvec(msg)?).await
+}
+
+/// A hello followed by its extension (left out entirely when it's empty).
+pub async fn write_hello<T: Serialize>(send: &mut SendStream, hello: &T, ext: &HelloExt) -> Result<(), WireError> {
+    write_body(send, encode_hello(hello, ext)?).await
+}
+
+pub fn encode_hello<T: Serialize>(hello: &T, ext: &HelloExt) -> Result<Vec<u8>, WireError> {
+    let mut body = postcard::to_stdvec(hello)?;
+    if *ext != HelloExt::default() {
+        body.extend(postcard::to_stdvec(ext)?);
+    }
+    Ok(body)
+}
+
+/// A hello and whatever extension came after it. An extension that can't be read counts as empty,
+/// so a newer peer adding fields never breaks the hello itself.
+pub fn decode_hello<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, HelloExt), WireError> {
+    let (hello, rest) = postcard::take_from_bytes::<T>(bytes)?;
+    let ext = if rest.is_empty() {
+        HelloExt::default()
+    } else {
+        postcard::from_bytes(rest).unwrap_or_default()
+    };
+    Ok((hello, ext))
+}
+
+async fn write_body(send: &mut SendStream, body: Vec<u8>) -> Result<(), WireError> {
     if body.len() > MAX_FRAME {
         return Err(WireError::TooLong(body.len()));
     }
@@ -179,6 +217,15 @@ pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result
 
 /// Reads one frame. Returns `Closed` if the stream ended cleanly before a new frame started.
 pub async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T, WireError> {
+    Ok(postcard::from_bytes(&read_raw(recv).await?)?)
+}
+
+/// Reads a hello frame with its extension.
+pub async fn read_hello<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<(T, HelloExt), WireError> {
+    decode_hello(&read_raw(recv).await?)
+}
+
+async fn read_raw(recv: &mut RecvStream) -> Result<Vec<u8>, WireError> {
     let mut len = [0u8; 4];
     match recv.read_exact(&mut len).await {
         Ok(()) => {}
@@ -191,7 +238,7 @@ pub async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T,
     }
     let mut body = vec![0u8; len];
     recv.read_exact(&mut body).await.map_err(|e| WireError::Read(e.to_string()))?;
-    Ok(postcard::from_bytes(&body)?)
+    Ok(body)
 }
 
 #[cfg(test)]
@@ -227,6 +274,33 @@ mod tests {
             let bytes = postcard::to_stdvec(&c).unwrap();
             assert_eq!(postcard::from_bytes::<Ctrl>(&bytes).unwrap(), c);
         }
+    }
+
+    #[test]
+    fn hello_extension_works_both_ways_with_version_1() {
+        let hello = ServerHello {
+            version: VERSION,
+            info: DeviceInfo {
+                name: "Phone".into(),
+                kind: DeviceKind::Phone,
+                os: OsPlatform::Android,
+            },
+        };
+        let ext = HelloExt {
+            wake: Some("fcm-token".into()),
+        };
+        let bytes = encode_hello(&hello, &ext).unwrap();
+        // A version 1 build reads the hello and stops.
+        assert_eq!(postcard::from_bytes::<ServerHello>(&bytes).unwrap(), hello);
+        assert_eq!(decode_hello::<ServerHello>(&bytes).unwrap(), (hello.clone(), ext));
+        // A hello from a version 1 build has no extension.
+        let old = postcard::to_stdvec(&hello).unwrap();
+        assert_eq!(decode_hello::<ServerHello>(&old).unwrap(), (hello.clone(), HelloExt::default()));
+        assert_eq!(encode_hello(&hello, &HelloExt::default()).unwrap(), old, "an empty extension isn't written");
+        // Bytes a later version might add that this one can't read: the hello still counts.
+        let mut later = old.clone();
+        later.extend([0xff, 0xff, 0xff]);
+        assert_eq!(decode_hello::<ServerHello>(&later).unwrap().0, hello);
     }
 
     #[test]

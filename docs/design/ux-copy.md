@@ -79,6 +79,7 @@ Words we use and avoid:
 | `home.drop.noTarget` | Drop on a device |
 | `home.staged.hint` | Tap a device to send |
 | `home.staged.hint.pointer` | Click or drag onto a device to send |
+| `home.dropHint` | Or drop files here. Drop them on a device to send right away. |
 | `home.activity` | Activity |
 | `home.activity.empty` | Transfers will show up here. |
 
@@ -227,6 +228,11 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `settings.appearance.motion.full` | Full |
 | `settings.appearance.motion.reduced` | Reduced |
 | `settings.appearance.motion.hint` | Reduced swaps movement for gentle fades. |
+| `settings.appearance.sounds` | Sounds |
+| `settings.appearance.sounds.loud` | Loud |
+| `settings.appearance.sounds.soft` | Soft |
+| `settings.appearance.sounds.off` | Off |
+| `settings.appearance.sounds.hint` | A click when you tap, and a chime when files arrive or finish. |
 | `settings.network.lan` | Find nearby devices |
 | `settings.section.connection` | Connection |
 | `settings.connection.servers` | Servers |
@@ -357,6 +363,7 @@ Written by the desktop app itself (not in `copy.ts`):
 | `code.scan.openSettings` | Open settings |
 | `notify.channel.requests` | File requests |
 | `notify.channel.transfers` | Transfers |
+| `notify.channel.received` | Files received |
 | `notify.request.title` | {device} wants to send you {what} |
 | `notify.request.body` | Tap to accept or decline. |
 | `notify.done.title` | Got {what} from {device} |
@@ -365,3 +372,57 @@ Written by the desktop app itself (not in `copy.ts`):
 
 The Android app reads every string from `copy.ts` (generated into `Copy.kt` by `android/tools/shared-assets.mjs`); a unit test fails if the two drift apart.
 
+## 13. Added in Phase 8
+
+History, the licenses screen, the "Find nearby devices" switch, phones that can be woken up, the
+tray popover (desktop) and the Quick Settings tile (Android).
+
+| Key | Text |
+|---|---|
+| `home.orb.asleep` | Asleep |
+| `transfer.waking` | Waking {device} |
+| `settings.network.lan.hint` | Lets devices on the same Wi-Fi see this one, and finds them. Turn it off on a network you don't trust. Trusted devices can still reach you over the internet. |
+| `settings.network.lan.on` | Looking for nearby devices again |
+| `settings.network.lan.off` | Nearby search is off |
+| `settings.about.wake` | Wake-up when closed |
+| `settings.about.wake.on` | On |
+| `settings.about.wake.on.hint` | Your trusted devices can wake this phone to send it files, even with Nhako Beam closed. |
+| `settings.about.wake.off` | Not set up |
+| `settings.about.wake.off.hint` | Keep Nhako Beam open to receive. Wake-up needs Google Play services and a build with push set up (see wake/README.md). |
+| `history.cleared` | History cleared |
+| `history.sent` | To {device} |
+| `history.received` | From {device} |
+| `history.status.failed` | Didn't finish |
+| `history.status.cancelled` | Cancelled |
+| `history.status.declined` | Declined |
+| `history.detail.when` | When |
+| `history.detail.device` | Device |
+| `history.detail.route` | Connection |
+| `history.detail.size` | Size |
+| `history.detail.duration` | Took |
+| `history.detail.speed` | Average speed |
+| `history.detail.partial` | {done} of {total} |
+| `popover.devices` | Your devices |
+| `popover.devices.hint` | Click a device to send files, or drop files on it. |
+| `popover.quiet` | Nothing moving right now. |
+| `popover.open` | Open Nhako Beam |
+| `popover.finishSetup` | Open Nhako Beam to finish setting up. |
+| `licenses.title` | Open source licenses |
+| `licenses.intro` | Nhako Beam is built on these open source projects. Thank you to everyone who made them. |
+| `licenses.count` | {count} packages |
+| `licenses.search` | Search packages |
+| `notify.ready.title` | Ready to receive |
+| `notify.ready.body` | Your devices can find this phone for {minutes} more min. |
+| `notify.ready.stop` | Stop |
+| `notify.woken.title` | Ready to receive |
+| `notify.woken.body` | One of your devices woke Nhako Beam to send you something. |
+| `tile.receive` | Receive |
+| `tile.receive.on` | For 5 minutes |
+
+Strings in the desktop app's Rust side (`desktop/src-tauri`), which notifications and the tray use:
+
+| Where | Text |
+|---|---|
+| Tray menu (Linux) | Quick view / Open Nhako Beam / Quit |
+| Notification, file request (buttons) | Accept / Decline. Body: Accept to save it in your Nhako Beam folder. |
+| Notification, files arrived (buttons) | Open / Show in folder |

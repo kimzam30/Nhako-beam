@@ -23,17 +23,22 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 | `desktop/` | Svelte 5 UI. In a Tauri 2 window (`src-tauri/`) it's the Windows and Linux app; in a browser it's a prototype with a pretend engine |
 | `android/` | Kotlin and Jetpack Compose app on the same engine ([android/README.md](android/README.md)) |
 | `relay/` | Docker setup for your own relay and lookup server |
+| `wake/` | The wake service for phones (Cloudflare Worker, Firebase push), optional ([wake/README.md](wake/README.md)) |
 | `design/tokens/` | Colors, type, spacing, motion: one source, built into CSS, TS and Kotlin |
+| `design/sounds/` | Every sound, made from scratch by `build.mjs` into WAVs both apps use ([design/sounds/README.md](design/sounds/README.md)) |
 | `docs/design/` | Design system, motion spec, every screen and state, all UI copy |
 | `docs/brand/` | The brand kit: logo (SVG, PNG), posters, launch videos |
-| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)) |
+| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)); `licenses.mjs` for About > Open source licenses |
 
 ## Things that must stay in step
 
 - **The JSON contract:** `core/src/types.rs` = `desktop/src/lib/engine/types.ts` = `android/.../model/Contract.kt`. Change all three together. `RealEngineTest` (Android) and the desktop tests catch drift.
 - **UI strings:** `desktop/src/lib/copy.ts` is the only source. After editing it, run `node android/tools/shared-assets.mjs` (regenerates `Copy.kt`, `Words.kt` and the icon drawables) and list new keys in `docs/design/ux-copy.md`. `SharedCopyTest` fails if Android is out of date.
 - **Design tokens:** edit `design/tokens/tokens.json`, then `npm run tokens` in `desktop/`. The build output in `design/tokens/build/` is committed.
+- **Sounds:** edit `design/sounds/build.mjs`, then `npm run sounds` in `desktop/`. `design/sounds/build/` is committed. Where each sound plays is twinned too: `desktop/src/lib/state/app.svelte.ts` and `AppState.kt` play the same ones on the same events.
 - **Behavior:** `desktop/src/lib/state/app.svelte.ts` and `android/.../state/AppState.kt` are twins. A change in one usually belongs in the other.
+- **Licenses:** after changing dependencies (Cargo.lock, `desktop/package-lock.json`, `android/gradle/libs.versions.toml`), run `node scripts/licenses.mjs` and commit its two JSON files.
+- **Icons on Android:** `shared-assets.mjs` only copies icons the Kotlin code names as a string, so run it after using a new one.
 
 ## Checks
 

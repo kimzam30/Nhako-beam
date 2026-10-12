@@ -50,8 +50,21 @@ interface Engine {
     /** Never throws: problems come back in the result. */
     suspend fun checkServer(c: Connection.Own): ServerCheck
 
-    /** Where a received transfer's files are, to open or share them. */
+    /** Where a received transfer's files are, to open or share them (also from History). */
     suspend fun savedFiles(transferId: String): List<String>
+
+    /** Whether this device announces itself and looks for others on the local network. */
+    suspend fun getLanDiscovery(): Boolean
+    /** Saves it and reconnects. Throws [EngineException] if it can't (transfers still running). */
+    suspend fun setLanDiscovery(on: Boolean)
+
+    /** Forgets every History entry. Received files stay where they are. */
+    fun clearHistory()
+
+    /** This phone's wake token from Firebase (null when push isn't set up), shared with trusted devices. */
+    fun setWakeToken(token: String?) {}
+    /** Whether other devices can wake this one: a wake service was built in. */
+    val wakeAvailable: Boolean get() = false
 }
 
 /** Files ready to send, and how many shared items couldn't be read. */

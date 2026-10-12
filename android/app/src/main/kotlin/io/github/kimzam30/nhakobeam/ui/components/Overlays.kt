@@ -21,9 +21,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -60,6 +62,7 @@ import io.github.kimzam30.nhakobeam.design.NhakoGesture
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
 import io.github.kimzam30.nhakobeam.model.FileItem
@@ -75,6 +78,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlinx.coroutines.launch
@@ -138,6 +142,7 @@ fun IncomingCard(app: AppState, request: IncomingRequest, modifier: Modifier = M
         if (leaving) return
         leaving = true
         (if (accept) NhakoHaptic.Accept else NhakoHaptic.Decline).perform(view)
+        app.sound(if (accept) NhakoSound.Accept else NhakoSound.Decline)
         scope.launch {
             if (!reduced) x.animateTo((if (accept) 1 else -1) * widthPx * 1.4f, NhakoMotion.settle.spec(), initialVelocity = velocity)
             if (accept) app.accept(request.id, autoAccept = always) else app.decline(request.id)
@@ -180,6 +185,7 @@ fun IncomingCard(app: AppState, request: IncomingRequest, modifier: Modifier = M
                     val nowPast = abs(x.value + dx) > widthPx * NhakoGesture.swipeCommitFraction
                     if (nowPast != past) {
                         (if (nowPast) NhakoHaptic.ThresholdActivate else NhakoHaptic.ThresholdDeactivate).perform(view)
+                        if (nowPast) app.sound(NhakoSound.Tick)
                         past = nowPast
                     }
                 }
@@ -282,7 +288,8 @@ fun NSheet(
                 }
                 .clip(RoundedCornerShape(topStart = NhakoRadius.xl, topEnd = NhakoRadius.xl))
                 .background(c.surfaceRaised)
-                .windowInsetsPadding(WindowInsets.navigationBars),
+                // Above the keyboard when a field in the sheet has focus (the code words, a name).
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
         ) {
             // The handle: drag down to close.
             Box(
@@ -381,7 +388,7 @@ private fun ToastView(toast: Toast, leaving: Boolean, onGone: () -> Unit, onDism
         Spacer(Modifier.width(NhakoSpace.s3))
         BasicText(toast.text, Modifier.weight(1f), style = NhakoType.callout.style(c.textPrimary))
         if (toast.actionLabel != null && toast.action != null) {
-            BasicText(toast.actionLabel, Modifier.clickable(role = Role.Button) { toast.action.invoke(); onDismiss() }.padding(NhakoSpace.s2), style = NhakoType.callout.style(c.accentText).copy(fontWeight = FontWeight(600)))
+            BasicText(toast.actionLabel, Modifier.clickable(role = Role.Button, onClick = withTap { toast.action.invoke(); onDismiss() }).padding(NhakoSpace.s2), style = NhakoType.callout.style(c.accentText).copy(fontWeight = FontWeight(600)))
         }
     }
 }

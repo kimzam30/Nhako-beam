@@ -1,0 +1,36 @@
+{
+  // Terminal > Run Task... in VS Code. The same scripts as docs/building.md.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Android APK (arm64, quick)",
+      "detail": "No tests, arm64 only: out/nhako-beam-arm64-v8a.apk",
+      "type": "shell",
+      "command": "scripts/build-android.sh --fast",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Android APK (all phones, with tests)",
+      "detail": "Tests and screenshots first, then one .apk per kind of phone in out/",
+      "type": "shell",
+      "command": "scripts/build-android.sh",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Linux app (.deb)",
+      "type": "shell",
+      "command": "scripts/build-linux.sh",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Install APK on the phone (USB)",
+      "detail": "Needs USB debugging on (docs/building.md)",
+      "type": "shell",
+      "command": "\"${env:HOME}/Android/Sdk/platform-tools/adb\" install -r out/nhako-beam-arm64-v8a.apk",
+      "problemMatcher": []
+    }
+  ]
+}

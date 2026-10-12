@@ -61,6 +61,8 @@ pub struct Device {
     pub reachable: bool,
     pub route: Option<Route>,
     pub fingerprint: String,
+    /// Not reachable right now, but can be woken up to receive (a phone Android put to sleep).
+    pub wakeable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +146,34 @@ pub struct Transfer {
     pub moving_since: Option<u64>,
     pub finished_at: Option<u64>,
     pub waiting_long: bool,
+    /// Sender: the other device was asleep and has been asked to wake up.
+    pub waking: bool,
+}
+
+/// A transfer that ended, as History lists it. Kept after a restart, and after the device is removed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    /// The transfer's id.
+    pub id: String,
+    pub direction: TransferDirection,
+    pub device_id: String,
+    /// The other device's name when the transfer ended.
+    pub device_name: String,
+    pub device_kind: DeviceKind,
+    pub files: Vec<FileItem>,
+    pub total_bytes: u64,
+    pub done_bytes: u64,
+    pub route: Route,
+    /// Done, failed, cancelled or declined.
+    pub status: TransferStatus,
+    pub error: Option<TransferError>,
+    pub cancelled_by: Option<Side>,
+    /// Epoch milliseconds.
+    pub started_at: u64,
+    pub finished_at: u64,
+    /// Bytes per second while bytes were moving (pauses left out). 0 when nothing moved.
+    pub average_speed: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,6 +342,10 @@ pub enum EngineEvent {
     Server {
         problem: Option<ServerProblem>,
     },
+    /// A transfer ended and was added to History (or replaced its own entry after a retry).
+    History {
+        entry: HistoryEntry,
+    },
 }
 
 /// Everything the app needs to draw itself, for when its window (re)loads after the engine started.
@@ -325,6 +359,8 @@ pub struct Snapshot {
     pub code: Option<PairingCode>,
     pub free_space: Option<u64>,
     pub server_problem: Option<ServerProblem>,
+    /// Newest first.
+    pub history: Vec<HistoryEntry>,
 }
 
 #[cfg(test)]
@@ -399,6 +435,7 @@ mod tests {
             moving_since: None,
             finished_at: None,
             waiting_long: false,
+            waking: false,
         };
         let v = serde_json::to_value(&t).unwrap();
         for key in [

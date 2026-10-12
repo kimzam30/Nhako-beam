@@ -2,20 +2,28 @@
   import type { TransitionConfig } from 'svelte/transition';
   import { app } from './lib/state/app.svelte';
   import { prefs } from './lib/state/prefs.svelte';
+  import { listenForTaps } from './lib/sounds.svelte';
   import { springEasing } from './lib/motion/physics';
   import { beginDrag, endDrag, moveDrag } from './lib/drag';
   import { onFileDrop } from './lib/shell';
   import Onboarding from './screens/Onboarding.svelte';
   import Home from './screens/Home.svelte';
   import Settings from './screens/Settings.svelte';
+  import History from './screens/History.svelte';
+  import Licenses from './screens/Licenses.svelte';
   import DragLayer from './components/DragLayer.svelte';
   import IncomingLayer from './components/IncomingLayer.svelte';
   import Sheets from './components/Sheets.svelte';
   import Toasts from './components/Toasts.svelte';
   import DevPanel from './components/DevPanel.svelte';
+  import SplashIntro from './components/SplashIntro.svelte';
 
   prefs.init();
   app.init();
+  $effect(() => listenForTaps());
+
+  /** The launch intro plays once, over the first screen. */
+  let intro = $state(true);
 
   let dragLayer: ReturnType<typeof DragLayer> | undefined = $state();
   $effect(() => {
@@ -87,8 +95,11 @@
     };
   });
 
+  // ---------- Browser prototype: files dragged in, through the browser's own drag events ----------
+  // The desktop app ignores these. WebKit sends them too, without the files (Tauri has those), and
+  // its drop came before Tauri's and ended the drag, so dropped files went nowhere.
   let depth = 0;
-  const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  const hasFiles = (e: DragEvent) => !app.native && !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
 
   function dragenter(e: DragEvent) {
     if (!hasFiles(e) || !canDrop()) return;
@@ -97,13 +108,13 @@
     if (!app.drag) beginDrag('os', e.clientX, e.clientY, e.dataTransfer?.items.length || 1);
   }
   function dragover(e: DragEvent) {
-    if (!app.drag || app.drag.source !== 'os') return;
+    if (app.native || !app.drag || app.drag.source !== 'os') return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     moveDrag(e.clientX, e.clientY, e.dataTransfer?.items.length || undefined);
   }
   function dragleave(e: DragEvent) {
-    if (!app.drag || app.drag.source !== 'os') return;
+    if (app.native || !app.drag || app.drag.source !== 'os') return;
     depth = Math.max(0, depth - 1);
     if (depth === 0) {
       endDrag();
@@ -111,7 +122,7 @@
     }
   }
   async function drop(e: DragEvent) {
-    if (!app.drag || app.drag.source !== 'os') return;
+    if (app.native || !app.drag || app.drag.source !== 'os') return;
     e.preventDefault();
     depth = 0;
     const target = endDrag();
@@ -136,6 +147,10 @@
         <Onboarding />
       {:else if app.screen === 'settings'}
         <Settings />
+      {:else if app.screen === 'history'}
+        <History />
+      {:else if app.screen === 'licenses'}
+        <Licenses />
       {:else}
         <Home />
       {/if}
@@ -148,6 +163,7 @@
 <Sheets />
 <Toasts />
 {#if app.mock}<DevPanel mock={app.mock} />{/if}
+{#if intro}<SplashIntro ondone={() => (intro = false)} />{/if}
 
 <style>
   /* Window height rather than 100%: while two screens swap they share this grid cell, and WebKit

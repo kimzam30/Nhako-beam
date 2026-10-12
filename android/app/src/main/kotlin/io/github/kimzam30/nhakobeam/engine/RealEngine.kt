@@ -51,6 +51,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
     private val sources = ConcurrentHashMap<String, Uri>()
     /** Transfer id -> handles kept open while it runs. */
     private val openFiles = ConcurrentHashMap<String, List<ParcelFileDescriptor>>()
+    /** Copies of shared files that came as a stream, not a file (see [send]); deleted when done. */
+    private val copies = ConcurrentHashMap<String, File>()
     private val seq = AtomicLong()
 
     private fun onEngineEvent(json: String) {
@@ -59,6 +61,7 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
             val s = event.transfer.status
             if (s == TransferStatus.Done || s == TransferStatus.Cancelled || s == TransferStatus.Declined) {
                 openFiles.remove(event.transfer.id)?.forEach { runCatching { it.close() } }
+                copies.remove(event.transfer.id)?.deleteRecursively()
             }
         }
         _events.tryEmit(event)
@@ -127,21 +130,37 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         )
     }
 
+    /**
+     * The engine reads each file through the descriptor Android opened for us (`/proc/self/fd/<n>`,
+     * see core/src/files.rs `open_to_send`); it stays open until the transfer ends. A few apps share
+     * a stream rather than a file, which can't be resumed, so those are copied to the cache first.
+     */
     override suspend fun send(deviceId: String, files: List<FileItem>): String = withContext(Dispatchers.IO) {
         val handles = mutableListOf<ParcelFileDescriptor>()
+        val copyDir = File(context.cacheDir, "outgoing/${seq.incrementAndGet()}")
         try {
             val list = files.map { item ->
                 val uri = sources[item.id] ?: throw EngineException("${item.name} can't be found any more. Add it again.")
                 val pfd = context.contentResolver.openFileDescriptor(uri, "r")
                     ?: throw EngineException("Couldn't open ${item.name}.")
-                handles += pfd
-                SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name)
+                if (pfd.statSize >= 0) {
+                    handles += pfd
+                    SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name)
+                } else {
+                    pfd.close()
+                    val copy = File(copyDir, "${handles.size}-${item.name.replace('/', '_')}").also { it.parentFile?.mkdirs() }
+                    context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
+                        ?: throw EngineException("Couldn't open ${item.name}.")
+                    SendFile(path = copy.path, name = item.name)
+                }
             }
             val id = call { send(deviceId, list) }
             openFiles[id] = handles
+            if (copyDir.exists()) copies[id] = copyDir
             id
         } catch (e: Exception) {
             handles.forEach { runCatching { it.close() } }
+            copyDir.deleteRecursively()
             throw if (e is EngineException) e else EngineException(e.message ?: "Couldn't send.")
         }
     }
@@ -170,6 +189,13 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         ContractJson.decodeFromString(call { checkServer(ContractJson.encodeToString(Connection.Own.serializer(), c)) })
 
     override suspend fun savedFiles(transferId: String): List<String> = call { savedFiles(transferId) }
+
+    override suspend fun getLanDiscovery(): Boolean = call { getLanDiscovery() }
+    override suspend fun setLanDiscovery(on: Boolean) = call { setLanDiscovery(on) }
+    override fun clearHistory() = fire { clearHistory() }
+
+    override fun setWakeToken(token: String?) = fire { setWakeToken(token) }
+    override val wakeAvailable: Boolean by lazy { runCatching { native.wakeAvailable() }.getOrDefault(false) }
 
     companion object {
         /** Download/Nhako Beam: where people look for files, and visible in the Files app. */

@@ -60,6 +60,18 @@ struct Offer { id: TransferId /* 16 random bytes */, files: Vec<FileMeta> }
 struct FileMeta { name: String, size: u64 }
 ```
 
+### Hello extension (added in Phase 8)
+
+Right after a `ClientHello` or `ServerHello`, in the same frame, a device may add a `HelloExt`:
+
+```rust
+struct HelloExt { wake: Option<String> }
+```
+
+- `wake` is the device's wake token (a Firebase Cloud Messaging token), sent only to devices it trusts. A trusted device that later can't reach it asks the wake service to push an empty "wake up" to that token, then keeps dialling for up to 45 s (`core/src/wake.rs`, `wake/`).
+- An empty extension isn't written at all, so a hello with nothing to add is byte for byte the version 1 hello.
+- Builds from before Phase 8 decode the hello and ignore what follows it. A hello from one of them has nothing after it, which reads as an empty extension. Bytes after the hello that can't be read as a `HelloExt` (a later version adding fields) count as empty too. So `version` stays 1 and old and new builds talk to each other.
+
 File names are the base name only. The receiver strips any path parts, control characters and names Windows can't store, and picks `name (1).ext` if the name is taken.
 
 After `ServerHello`, the side holding the files waits for an `Answer`:

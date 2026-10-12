@@ -1,5 +1,6 @@
 <script lang="ts">
   import { playHaptic } from '../lib/haptics.svelte';
+  import { playSound } from '../lib/sounds.svelte';
 
   interface Props {
     checked: boolean;
@@ -15,6 +16,7 @@
   function flip() {
     checked = !checked;
     playHaptic(checked ? 'toggleOn' : 'toggleOff');
+    playSound(checked ? 'toggleOn' : 'toggleOff');
     onchange?.(checked);
   }
 </script>

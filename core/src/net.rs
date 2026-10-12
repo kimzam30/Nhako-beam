@@ -13,7 +13,7 @@ use iroh_relay::RelayQuicConfig;
 use crate::{
     server::{self, OwnNetwork, SettingError},
     types::{Connection, Route},
-    wire::{self, ClientHello, DeviceInfo, Intent, ServerHello},
+    wire::{self, ClientHello, DeviceInfo, HelloExt, Intent, ServerHello},
 };
 
 /// mDNS service name, so we only see other Nhako Beam devices.
@@ -189,28 +189,35 @@ pub enum PingError {
     Refused,
 }
 
-/// Connects, swaps `DeviceInfo`, and reports the route.
-pub async fn ping(endpoint: &Endpoint, peer: EndpointId, me: DeviceInfo, timeout: Duration) -> Result<(DeviceInfo, Route), PingError> {
+/// Connects, swaps `DeviceInfo` (and the hello extension), and reports the route.
+pub async fn ping(
+    endpoint: &Endpoint,
+    peer: EndpointId,
+    me: DeviceInfo,
+    ext: &HelloExt,
+    timeout: Duration,
+) -> Result<(DeviceInfo, HelloExt, Route), PingError> {
     tokio::time::timeout(timeout, async {
         let conn = endpoint.connect(peer, wire::ALPN).await.map_err(|e| PingError::Connect(e.to_string()))?;
         let (mut send, mut recv) = conn.open_bi().await.map_err(|e| PingError::Connect(e.to_string()))?;
-        wire::write_frame(
+        wire::write_hello(
             &mut send,
             &ClientHello {
                 version: wire::VERSION,
                 info: me,
                 intent: Intent::Ping,
             },
+            ext,
         )
         .await?;
-        let hello: ServerHello = match wire::read_frame(&mut recv).await {
+        let (hello, their_ext): (ServerHello, HelloExt) = match wire::read_hello(&mut recv).await {
             Ok(h) => h,
             Err(wire::WireError::Closed) => return Err(PingError::Refused),
             Err(e) => return Err(e.into()),
         };
         let route = route_of(&conn);
         conn.close(wire::close::DONE, b"");
-        Ok((hello.info, route))
+        Ok((hello.info, their_ext, route))
     })
     .await
     .map_err(|_| PingError::Timeout)?

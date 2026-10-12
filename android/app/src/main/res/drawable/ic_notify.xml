@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status bar icon: the app icon's two devices and beam. -->
+<!-- Status bar icon: the brand bolt, white only (the system tints it). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
-    android:viewportWidth="740" android:viewportHeight="740">
-    <group android:translateX="-142" android:translateY="-162">
-        <path android:fillColor="#FFFFFF" android:pathData="M170,700 a130,130 0 1,0 260,0 a130,130 0 1,0 -260,0 Z" />
-        <path android:fillColor="#FFFFFF" android:pathData="M634,324 a90,90 0 1,0 180,0 a90,90 0 1,0 -180,0 Z" />
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="64" android:strokeLineCap="round" android:pathData="M442.2,573.9 L494.5,527.5" />
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="64" android:strokeLineCap="round" android:pathData="M546.9,481.0 L584.3,447.9" />
+    android:viewportWidth="640" android:viewportHeight="640">
+    <group android:translateX="-192" android:translateY="-192">
+        <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="12" android:strokeLineJoin="round" android:pathData="M648.8,220 L776.8,288.8 L592.8,472.8 L704.8,504.8 L247.2,804 L448.8,564 L336.8,532 Z" />
     </group>
 </vector>

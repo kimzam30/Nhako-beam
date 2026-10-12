@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { center, closePanel, drag, haptics, ready, sim } from './helpers';
+import { center, closePanel, drag, haptics, ready, sim, soundsPlayed } from './helpers';
 
 test.describe('onboarding', () => {
   test('walks through to the radar', async ({ page }, info) => {
@@ -490,5 +490,158 @@ test.describe('reduced motion', () => {
     await page.getByTestId('accept').click();
     await expect(page.getByTestId('incoming-card')).toBeHidden();
     await expect(page.locator('[data-testid^="transfer-"]').first()).toContainText('Studio PC');
+  });
+});
+
+test.describe('phase 8', () => {
+  test('history lists earlier transfers, shows details, adds new ones and clears', async ({ page }) => {
+    await ready(page, { speed: 8 });
+    await page.getByTestId('open-history').click();
+    await expect(page.getByTestId('history')).toBeVisible();
+    await expect(page.getByTestId('history-row-h1')).toContainText('From Work phone');
+    await expect(page.getByTestId('history-row-h3')).toContainText('Cancelled');
+    await page.getByTestId('history-row-h1').click();
+    await expect(page.getByTestId('sheet-history')).toContainText('Received from Work phone');
+    await expect(page.getByTestId('sheet-history')).toContainText('Average speed');
+    await expect(page.getByTestId('history-open')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('sheet-history')).toBeHidden();
+
+    // A new transfer lands at the top once it ends.
+    await page.getByTestId('history-back').click();
+    await sim(page, 'stage-photos');
+    await closePanel(page);
+    await page.getByTestId('orb-d-aisyah').click();
+    await expect(page.locator('[data-testid^="transfer-"]').first()).toContainText('Sent to', { timeout: 15_000 });
+    await page.getByTestId('open-history').click();
+    await expect(page.locator('[data-testid^="history-row-"]').first()).toContainText("To Aisyah's laptop");
+
+    await page.getByTestId('history-clear').click();
+    await page.getByTestId('confirm-clear-history').click();
+    await expect(page.getByTestId('history-empty')).toBeVisible();
+  });
+
+  test('open source licenses: searchable, each with its text', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('open-licenses').click();
+    await expect(page.getByTestId('licenses')).toBeVisible();
+    await page.getByTestId('licenses-search').fill('svelte');
+    const row = page.getByRole('button', { name: /^svelte/ }).first();
+    await row.click();
+    await expect(page.getByTestId('licenses').locator('pre').first()).toContainText(/MIT|Permission/);
+    await page.getByTestId('licenses-back').click();
+    await expect(page.getByTestId('settings')).toBeVisible();
+  });
+
+  test('finding nearby devices can be turned off and on', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    const lan = page.getByTestId('lan-discovery');
+    await expect(lan).toHaveAttribute('aria-checked', 'true');
+    await lan.click();
+    await expect(lan).toHaveAttribute('aria-checked', 'false');
+    await page.getByTestId('settings-back').click();
+    // Only trusted devices, reached over the internet, are left.
+    await expect(page.getByTestId('orb-d-aisyah')).toBeVisible();
+    await expect(page.getByTestId('orb-d-studio')).toBeHidden();
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('lan-discovery').click();
+    await page.getByTestId('settings-back').click();
+    await expect(page.getByTestId('orb-d-studio')).toBeVisible();
+  });
+
+  test('the launch intro plays once and lets clicks through', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.intro')).toHaveCount(1);
+    await expect(page.locator('.intro')).toHaveCount(0, { timeout: 3000 });
+  });
+
+  test('the tray popover shows your devices and opens the app', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('nhako.app.v1', JSON.stringify({ onboarded: true, selfName: 'Test device', saveLocation: 'Downloads/Nhako Beam' }));
+    });
+    await page.setViewportSize({ width: 360, height: 520 });
+    await page.goto('/?view=popover');
+    await expect(page.getByTestId('popover')).toBeVisible();
+    await expect(page.getByTestId('pop-device-d-aisyah')).toBeVisible();
+    await expect(page.getByTestId('pop-open')).toBeVisible();
+    const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(r.sw).toBeLessThanOrEqual(r.cw);
+  });
+});
+
+test.describe('found on real devices after phase 8', () => {
+  test('a removed trusted device that is away leaves the radar at once', async ({ page }) => {
+    await ready(page);
+    await expect(page.getByTestId('orb-d-office')).toBeVisible();
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('remove-d-office').click();
+    await page.getByTestId('confirm-remove').click();
+    await page.getByTestId('settings-back').click();
+    await expect(page.getByTestId('home')).toBeVisible();
+    await expect(page.getByTestId('orb-d-office')).toHaveCount(0);
+  });
+
+  test('settings scrolls with the mouse wheel', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'the wheel is for the desktop window');
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('settings')).toBeVisible();
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 2000);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  });
+
+  test('a long file name stays inside the request card', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'in-longname');
+    await closePanel(page);
+    const card = page.getByTestId('incoming-card');
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId('accept')).toBeVisible();
+    const spill = await card.evaluate((el) => {
+      const edge = el.getBoundingClientRect().right;
+      return [...el.querySelectorAll('*')]
+        .filter((n) => !n.closest('.edge') && n.getBoundingClientRect().width > 0)
+        .map((n) => n.getBoundingClientRect().right - edge)
+        .filter((over) => over > 0.5).length;
+    });
+    expect(spill).toBe(0);
+  });
+});
+
+test.describe('sounds', () => {
+  test('taps, screens, and Loud, Soft and Off', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('theme').getByRole('radio').nth(2).click();
+    await expect.poll(() => soundsPlayed(page)).toEqual(['open', 'tap']);
+
+    const level = page.getByTestId('sounds').getByRole('radio');
+    await expect(level.nth(1)).toHaveAttribute('aria-checked', 'true'); // Soft by default
+    await level.nth(2).click(); // Off: this click is silent, and so is the next
+    await page.getByTestId('theme').getByRole('radio').nth(1).click();
+    await page.waitForTimeout(100);
+    expect(await soundsPlayed(page)).toEqual(['open', 'tap']);
+
+    await level.nth(0).click(); // Loud
+    await page.getByTestId('settings-back').click();
+    await expect.poll(() => soundsPlayed(page)).toEqual(['open', 'tap', 'tap', 'close']);
+    // The choice stays after a reload.
+    await page.reload();
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('sounds').getByRole('radio').nth(0)).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a request, accepting it and the transfer finishing', async ({ page }) => {
+    await ready(page, { speed: 40 });
+    await sim(page, 'in-studio');
+    await closePanel(page);
+    await expect(page.getByTestId('incoming-card')).toBeVisible();
+    await page.getByTestId('accept').click();
+    await expect.poll(() => soundsPlayed(page), { timeout: 15_000 }).toContain('done');
+    const heard = (await soundsPlayed(page)).filter((n) => n !== 'tap');
+    expect(heard).toEqual(['incoming', 'accept', 'done']);
   });
 });

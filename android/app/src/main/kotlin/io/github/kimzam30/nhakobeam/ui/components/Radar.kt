@@ -56,6 +56,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
+import io.github.kimzam30.nhakobeam.ui.withTap
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -107,7 +108,9 @@ fun DeviceOrb(
 ) {
     val c = Nhako.colors
     val reduced = Nhako.reducedMotion
-    val offline = !self && device != null && !device.reachable
+    /** A phone Android put to sleep: it can still be sent to, it's woken up first. */
+    val asleep = !self && device != null && !device.reachable && device.wakeable
+    val offline = !self && device != null && !device.reachable && !device.wakeable
     val name = if (self) selfName.ifBlank { t("home.orb.you") } else device?.name.orEmpty()
     val icon = if (self) "device-mobile" else kindIcon(device?.kind ?: DeviceKind.Laptop)
 
@@ -125,6 +128,7 @@ fun DeviceOrb(
     val status = when {
         self -> t("home.orb.you")
         offline -> t("home.orb.offline")
+        asleep -> t("home.orb.asleep")
         progress != null -> "${(progress * 100).toInt()} percent"
         waiting -> "waiting"
         else -> "ready"
@@ -132,9 +136,9 @@ fun DeviceOrb(
 
     Column(
         modifier
-            .alpha(if (offline) 0.5f else 1f)
+            .alpha(if (offline) 0.5f else if (asleep) 0.8f else 1f)
             .semantics { contentDescription = "$name, $status" }
-            .then(if (onClick != null && !offline) Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick) else Modifier),
+            .then(if (onClick != null && !offline) Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = withTap(onClick)) else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(size + 16.dp).graphicsLayer { scaleX = bump.value; scaleY = bump.value }.pressScale(interaction, 0.94f), contentAlignment = Alignment.Center) {
@@ -178,8 +182,8 @@ fun DeviceOrb(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (offline) {
-                BasicText(t("home.orb.offline"), style = NhakoType.caption.style(c.textTertiary))
+            if (offline || asleep) {
+                BasicText(t(if (offline) "home.orb.offline" else "home.orb.asleep"), style = NhakoType.caption.style(c.textTertiary))
             }
         }
     }
@@ -249,7 +253,7 @@ fun Radar(app: AppState, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit,
             BasicText(
                 t("home.moreDevices", "count" to extra),
                 Modifier.align(Alignment.BottomCenter).clip(RoundedCornerShape(NhakoRadius.full)).background(c.fill)
-                    .clickable(role = Role.Button, onClick = onMore).padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
+                    .clickable(role = Role.Button, onClick = withTap(onMore)).padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
                 style = NhakoType.footnote.style(c.textPrimary),
             )
         }

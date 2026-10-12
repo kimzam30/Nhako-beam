@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.engine.Engine
 import io.github.kimzam30.nhakobeam.engine.EngineException
 import io.github.kimzam30.nhakobeam.model.Connection
@@ -14,10 +15,12 @@ import io.github.kimzam30.nhakobeam.model.Device
 import io.github.kimzam30.nhakobeam.model.DiscoveryState
 import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
+import io.github.kimzam30.nhakobeam.model.HistoryEntry
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
 import io.github.kimzam30.nhakobeam.model.PairVia
 import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.ServerProblem
+import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.Snapshot
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
@@ -29,7 +32,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class Screen { Onboarding, Home, Settings }
+/** In order of depth: going to a later one slides forward, an earlier one back. */
+enum class Screen { Onboarding, Home, History, Settings, Licenses }
 
 sealed interface Sheet {
     data object Send : Sheet
@@ -39,6 +43,8 @@ sealed interface Sheet {
     data class Paired(val deviceId: String, val via: PairVia, val check: String) : Sheet
     data class TransferDetails(val id: String) : Sheet
     data class ConfirmRemove(val deviceId: String) : Sheet
+    data class HistoryItem(val id: String) : Sheet
+    data object ConfirmClearHistory : Sheet
 }
 
 enum class ToastTone { Neutral, Success, Warning, Danger }
@@ -47,8 +53,9 @@ data class Toast(val id: Long, val text: String, val tone: ToastTone, val action
 
 /** What the Android platform does for the app (open files, share, permissions). Tests use the defaults. */
 interface PlatformHooks {
-    fun openReceived(transfer: Transfer, paths: List<String>) {}
-    fun shareReceived(transfer: Transfer, paths: List<String>) {}
+    /** Opens received files (several: their folder in the Files app). */
+    fun openFiles(paths: List<String>) {}
+    fun shareFiles(paths: List<String>) {}
     fun haptic(h: NhakoHaptic) {}
     /** Pick files with the system picker; the app gets them back through [AppState.stageUris]. */
     fun pickFiles() {}
@@ -62,6 +69,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var platform: PlatformHooks = object : PlatformHooks {}
     /** Called after each engine event has been applied (notifications, the transfer service). */
     var afterEvent: (EngineEvent) -> Unit = {}
+    /** Plays one of the app's sounds (platform/Sounds.kt decides whether it's heard). */
+    var sound: (NhakoSound) -> Unit = {}
 
     var screen by mutableStateOf(if (prefs.onboarded) Screen.Home else Screen.Onboarding)
     /** 1 when moving forward (deeper), -1 when going back: screens slide the matching way. */
@@ -79,7 +88,16 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var freeSpace by mutableLongStateOf(0L)
     var code by mutableStateOf<PairingCode?>(null)
     var staged by mutableStateOf(listOf<FileItem>())
-    var sheet by mutableStateOf<Sheet?>(null)
+    private var sheetState by mutableStateOf<Sheet?>(null)
+    /** The open sheet. Sliding one up or away has a sound; the paired sheet has its own (Matched). */
+    var sheet: Sheet?
+        get() = sheetState
+        set(v) {
+            val was = sheetState
+            sheetState = v
+            if (v != null && v !is Sheet.Paired && v::class != was?.let { it::class }) sound(NhakoSound.Open)
+            else if (v == null && was != null) sound(NhakoSound.Close)
+        }
     var toasts by mutableStateOf(listOf<Toast>())
     /** Bumped to make a device orb play its bouncy pulse. */
     var pulse by mutableStateOf(mapOf<String, Int>())
@@ -87,6 +105,12 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var dismissed by mutableStateOf(setOf<String>())
     var connection by mutableStateOf<Connection>(Connection.Public)
     var serverProblem by mutableStateOf<ServerProblem?>(null)
+    /** Finished transfers, newest first (kept by the engine across restarts). */
+    var history by mutableStateOf(listOf<HistoryEntry>())
+    /** Announce this device and look for others on the local network (saved by the engine). */
+    var lanDiscovery by mutableStateOf(true)
+    /** Other devices can wake this phone while the app is closed (push is set up and has a token). */
+    var wakeReady by mutableStateOf(false)
     /** The device tapped before any files were chosen: send to it once they're picked. */
     var pickTarget: String? = null
     /** Reached the engine at least once (the radar shows "starting" before). */
@@ -112,6 +136,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         eventsJob = scope.launch { engine.events.collect { onEvent(it) } }
         scope.launch {
             runCatching { connection = engine.getConnection() }
+            runCatching { lanDiscovery = engine.getLanDiscovery() }
             loadSelf()
             if (onboarded) startEngine()
         }
@@ -140,22 +165,34 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     fun onEvent(e: EngineEvent) {
         when (e) {
             is EngineEvent.Discovery -> discovery = e.state
-            is EngineEvent.DeviceChanged -> devices = devices.filter { it.id != e.device.id } + e.device
+            is EngineEvent.DeviceChanged -> {
+                val was = device(e.device.id)
+                devices = devices.filter { it.id != e.device.id } + e.device
+                if (e.device.reachable && was?.reachable != true) foundSound()
+            }
             is EngineEvent.DeviceLost -> devices = devices.filter { it.id != e.deviceId }
-            is EngineEvent.Incoming -> if (requests.none { it.id == e.request.id }) requests = requests + e.request
+            is EngineEvent.Incoming -> if (requests.none { it.id == e.request.id }) {
+                requests = requests + e.request
+                sound(NhakoSound.Incoming)
+            }
             is EngineEvent.IncomingWithdrawn -> {
                 val r = requests.find { it.id == e.requestId }
                 requests = requests.filter { it.id != e.requestId }
-                if (r != null) toast(t("incoming.withdrawn", "device" to deviceName(r.deviceId)))
+                if (r != null) {
+                    toast(t("incoming.withdrawn", "device" to deviceName(r.deviceId)))
+                    sound(NhakoSound.Cancel)
+                }
             }
             is EngineEvent.TransferChanged -> onTransfer(e.transfer)
             is EngineEvent.Paired -> {
                 sheet = Sheet.Paired(e.device.id, e.via, e.check)
                 platform.haptic(NhakoHaptic.PairMatched)
+                sound(NhakoSound.Matched)
             }
             is EngineEvent.Code -> code = e.code
             is EngineEvent.FreeSpace -> freeSpace = e.bytes
             is EngineEvent.Server -> serverProblem = e.problem
+            is EngineEvent.History -> history = (listOf(e.entry) + history.filter { it.id != e.entry.id }).sortedByDescending { it.finishedAt }
             is EngineEvent.SnapshotEvent -> applySnapshot(e.snapshot)
         }
         afterEvent(e)
@@ -172,6 +209,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         code = s.code
         s.freeSpace?.let { freeSpace = it }
         serverProblem = s.serverProblem
+        history = s.history
     }
 
     private fun onTransfer(next: Transfer) {
@@ -182,17 +220,28 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             transfers = listOf(next) + transfers
             if (next.direction == TransferDirection.Receive && !acceptedHere.remove(next.deviceId)) {
                 val d = device(next.deviceId)
-                if (d?.autoAccept == true) toast(t("incoming.autoAccepted", "device" to d.name), ToastTone.Success)
+                if (d?.autoAccept == true) {
+                    toast(t("incoming.autoAccepted", "device" to d.name), ToastTone.Success)
+                    sound(NhakoSound.Incoming)
+                }
             }
         }
         if (prev?.status == next.status) return
         when {
             next.status == TransferStatus.Done -> {
                 platform.haptic(NhakoHaptic.TransferDone)
+                sound(NhakoSound.Done)
                 bump(next.deviceId)
             }
-            next.status == TransferStatus.Failed -> platform.haptic(NhakoHaptic.TransferFailed)
-            next.status == TransferStatus.Declined -> platform.haptic(NhakoHaptic.Decline)
+            next.status == TransferStatus.Failed -> {
+                platform.haptic(NhakoHaptic.TransferFailed)
+                sound(NhakoSound.Failed)
+            }
+            next.status == TransferStatus.Declined -> {
+                platform.haptic(NhakoHaptic.Decline)
+                sound(NhakoSound.Decline)
+            }
+            next.status == TransferStatus.Cancelled && next.cancelledBy == Side.Peer -> sound(NhakoSound.Cancel)
             prev?.status == TransferStatus.Reconnecting && next.status == TransferStatus.Transferring ->
                 toast(t("transfer.reconnected"), ToastTone.Success)
         }
@@ -202,7 +251,17 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
 
     fun navigate(to: Screen) {
         navDir = if (to.ordinal >= screen.ordinal) 1 else -1
+        if (to != screen && to != Screen.Onboarding && screen != Screen.Onboarding) sound(if (navDir > 0) NhakoSound.Open else NhakoSound.Close)
         screen = to
+    }
+
+    /** Devices arriving all at once (just after launch, or back on Wi-Fi) make one sound, not many. */
+    private var foundQuietUntil = System.currentTimeMillis() + 2500
+    private fun foundSound() {
+        val now = System.currentTimeMillis()
+        if (now < foundQuietUntil) return
+        foundQuietUntil = now + 2000
+        sound(NhakoSound.Found)
     }
 
     fun finishOnboarding() {
@@ -224,6 +283,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
 
     fun toast(text: String, tone: ToastTone = ToastTone.Neutral, actionLabel: String? = null, action: (() -> Unit)? = null) {
         val toast = Toast(++toastSeq, text, tone, actionLabel, action)
+        if (tone == ToastTone.Danger) sound(NhakoSound.Error)
         toasts = (toasts + toast).takeLast(2)
         scope.launch {
             delay(if (action != null) 6000 else 4000)
@@ -276,6 +336,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         staged = emptyList()
         bump(deviceId)
         if (sheet == Sheet.Send) sheet = null
+        sound(NhakoSound.Send)
         scope.launch {
             try {
                 engine.send(deviceId, sending)
@@ -318,7 +379,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
                 toast(t("transfer.openFailed"), ToastTone.Danger)
                 return@launch
             }
-            if (share) platform.shareReceived(transfer, paths) else platform.openReceived(transfer, paths)
+            if (share) platform.shareFiles(paths) else platform.openFiles(paths)
         }
     }
 
@@ -333,6 +394,40 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     fun renameSelf(name: String) {
         selfName = name
         scope.launch { runCatching { engine.renameSelf(name) } }
+    }
+
+    /** Turns nearby search on or off; the engine reconnects. False (with a toast) if it couldn't. */
+    suspend fun setLanDiscovery(on: Boolean): Boolean {
+        try {
+            engine.setLanDiscovery(on)
+        } catch (e: EngineException) {
+            toast(e.message ?: "Couldn't save.", ToastTone.Danger)
+            return false
+        }
+        lanDiscovery = on
+        toast(t(if (on) "settings.network.lan.on" else "settings.network.lan.off"), ToastTone.Success)
+        return true
+    }
+
+    fun clearHistory() {
+        engine.clearHistory()
+        history = emptyList()
+        sheet = null
+        toast(t("history.cleared"), ToastTone.Success)
+    }
+
+    fun historyEntry(id: String) = history.find { it.id == id }
+
+    /** Opens or shares what a History entry received (the engine remembers where it saved them). */
+    fun openPast(entry: HistoryEntry, share: Boolean = false) {
+        scope.launch {
+            val paths = runCatching { engine.savedFiles(entry.id) }.getOrDefault(emptyList())
+            if (paths.isEmpty()) {
+                toast(t("transfer.openFailed"), ToastTone.Danger)
+                return@launch
+            }
+            if (share) platform.shareFiles(paths) else platform.openFiles(paths)
+        }
     }
 
     /** Saves the server setting; the engine reconnects through it. False (with a toast) if it couldn't. */

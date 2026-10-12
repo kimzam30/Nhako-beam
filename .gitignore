@@ -1,2 +1,7 @@
 /target
 /out
+
+# Yours, from Firebase (see wake/README.md). Not secret, but not part of the project either.
+/android/app/google-services.json
+/wake/node_modules
+/wake/.wrangler

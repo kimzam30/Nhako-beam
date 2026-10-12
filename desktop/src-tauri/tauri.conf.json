@@ -21,6 +21,7 @@
         "minHeight": 560,
         "center": true,
         "visible": false,
+        "backgroundColor": "#2F8FFF",
         "dragDropEnabled": true
       }
     ],
@@ -51,6 +52,13 @@
     "license": "MIT OR Apache-2.0",
     "shortDescription": "Send files between your devices",
     "longDescription": "Nhako Beam sends files straight between your Windows, Linux and Android devices: nearby over Wi-Fi, or across the internet, encrypted end to end.",
-    "homepage": "https://github.com/kimzam30/Nhako-beam"
+    "homepage": "https://github.com/kimzam30/Nhako-beam",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2t64 | libasound2"
+        ]
+      }
+    }
   }
 }

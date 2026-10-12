@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nhako Beam</string>
+    <!-- The Quick Settings tile's name before the app sets it; the same as tile.receive in copy.ts. -->
+    <string name="tile_receive">Receive</string>
 </resources>

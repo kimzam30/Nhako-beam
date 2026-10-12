@@ -13,7 +13,13 @@ Kotlin and Jetpack Compose, running the same Rust engine as the desktop app (`co
 - **Received files** go to `Download/Nhako Beam` and are added to the media index, so photos and videos show up in the Gallery. Open and Share hand them to other apps.
 - **Nearby devices:** a Wi-Fi multicast lock while the app is on screen or files are moving, so devices on the same Wi-Fi find each other.
 
-Not yet: staying reachable for new requests while the app is closed (Android pauses apps in the background, so for now open the app to receive), a Quick Settings tile, and a Play Store release.
+- **History** of everything sent and received (Phase 8), kept across restarts.
+- **"Receive" Quick Settings tile** (Phase 8): ready to receive for 5 minutes without opening the app.
+- **Wake-up while closed** (Phase 8, optional): with push set up ([wake/README.md](../wake/README.md)), your trusted devices can wake the phone to send it files. It needs Google Play services; Settings > About says whether it's on.
+- **Launch intro** (Phase 8): the system splash, then a short animated intro, or a fade with reduced motion.
+- **One .apk per kind of phone** (Phase 8), so each only carries its own copy of the engine.
+
+Not yet: a Play Store release.
 
 ## Permissions
 

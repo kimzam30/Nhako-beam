@@ -8,12 +8,14 @@
 pub mod codekeys;
 mod engine;
 pub mod files;
+mod history;
 pub mod net;
 mod pair;
 pub mod server;
 mod session;
 pub mod store;
 pub mod types;
+pub mod wake;
 pub mod wire;
 pub mod words;
 

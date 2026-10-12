@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fill, formatBytes, formatEta, formatSpeed, middleTruncate, percent, summarizeFiles } from './format';
+import { dayLabel, fill, formatBytes, formatDuration, formatEta, formatSpeed, middleTruncate, percent, summarizeFiles } from './format';
 import { isWord, splitCode, suggest, WORDS } from './engine/words';
 
 describe('formatBytes', () => {
@@ -20,7 +20,8 @@ describe('formatEta', () => {
     expect(formatEta(0, 100)).toBeNull();
   });
   it('rounds to friendly units', () => {
-    expect(formatEta(5, 1)).toBe('a few seconds');
+    expect(formatEta(5, 1)).toBe('5 sec');
+    expect(formatEta(2, 1)).toBe('5 sec');
     expect(formatEta(42, 1)).toBe('45 sec');
     expect(formatEta(130, 1)).toBe('2 min');
     expect(formatEta(3600 * 2 + 60 * 15, 1)).toBe('2 hr 15 min');
@@ -69,4 +70,24 @@ describe('words', () => {
   });
   it('suggests by prefix', () => expect(suggest('lan')).toContain('lantern'));
   it('splits pasted codes', () => expect(splitCode('River-lantern  seven')).toEqual(['river', 'lantern', 'seven']));
+});
+
+describe('History formatting', () => {
+  it('formatDuration reads naturally', () => {
+    expect(formatDuration(200)).toBe('under a second');
+    expect(formatDuration(12_000)).toBe('12 sec');
+    expect(formatDuration(245_000)).toBe('4 min 5 sec');
+    expect(formatDuration(180_000)).toBe('3 min');
+    expect(formatDuration(4_800_000)).toBe('1 hr 20 min');
+  });
+
+  it('dayLabel says Today and Yesterday, then dates', () => {
+    const now = new Date(2026, 9, 12, 9, 30).getTime();
+    expect(dayLabel(new Date(2026, 9, 12, 0, 5).getTime(), now, 'Today', 'Yesterday')).toBe('Today');
+    expect(dayLabel(new Date(2026, 9, 11, 23, 59).getTime(), now, 'Today', 'Yesterday')).toBe('Yesterday');
+    const older = dayLabel(new Date(2026, 9, 9, 12).getTime(), now, 'Today', 'Yesterday');
+    expect(older).not.toBe('Yesterday');
+    expect(older).toMatch(/9/);
+    expect(dayLabel(new Date(2025, 9, 9, 12).getTime(), now, 'Today', 'Yesterday')).toMatch(/2025/);
+  });
 });

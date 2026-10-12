@@ -163,7 +163,7 @@
     stroke-width: 1;
   }
   .finder-inner {
-    fill: #2457f5;
+    fill: #1a6fe0;
   }
   .expired .qr {
     opacity: 0.12;

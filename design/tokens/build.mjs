@@ -93,6 +93,9 @@ function colorVars(theme) {
 function css() {
   const root = [];
   const px = (v) => (v === 0 ? '0' : `${v}px`);
+  for (const [k, v] of Object.entries(t.brand)) {
+    if (k !== 'note') root.push(`  --brand-${kebab(k)}: ${v};`);
+  }
   root.push(`  --font-sans: ${t.font.sans.map((f) => (f.includes(' ') ? `"${f}"` : f)).join(', ')};`);
   root.push(`  --font-mono: ${t.font.mono.map((f) => (f.includes(' ') ? `"${f}"` : f)).join(', ')};`);
   for (const [k, v] of Object.entries(t.type)) {
@@ -194,6 +197,7 @@ function jsData() {
   const haptic = Object.fromEntries(Object.entries(strip(t.haptic)));
   return {
     color: t.color,
+    brand: strip(t.brand),
     font: { sans: t.font.sans, mono: t.font.mono },
     type: t.type,
     space: t.space,
@@ -307,6 +311,11 @@ import androidx.compose.ui.unit.sp
 data class NhakoColors(
 ${colorNames.map((k) => `    val ${k}: Color,`).join('\n')}
 )
+
+/** The logo's colors, the same in light and dark (icon, splash, beam glow). */
+object NhakoBrand {
+${Object.entries(t.brand).filter(([k]) => k !== 'note').map(([k, v]) => `    val ${k} = ${ktColor(v)}`).join('\n')}
+}
 
 object NhakoPalette {
     val Light = NhakoColors(

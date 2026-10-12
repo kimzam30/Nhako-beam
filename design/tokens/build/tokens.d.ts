@@ -13,10 +13,10 @@ export declare const color: {
     readonly textSecondary: "#545B69";
     readonly textTertiary: "#686F7D";
     readonly textDisabled: "#A4A9B3";
-    readonly accent: "#2457F5";
-    readonly accentPressed: "#1B46D1";
-    readonly accentSubtle: "#E8EEFF";
-    readonly accentText: "#2050E6";
+    readonly accent: "#1A6FE0";
+    readonly accentPressed: "#1559B8";
+    readonly accentSubtle: "#E6F1FF";
+    readonly accentText: "#1560C8";
     readonly onAccent: "#FFFFFF";
     readonly success: "#14794A";
     readonly successSubtle: "#E3F4EA";
@@ -25,11 +25,11 @@ export declare const color: {
     readonly danger: "#C42727";
     readonly dangerSubtle: "#FDE8E8";
     readonly onDanger: "#FFFFFF";
-    readonly focusRing: "#2457F5";
+    readonly focusRing: "#1A6FE0";
     readonly scrim: "#0A0C1066";
-    readonly beamCore: "#2457F5";
-    readonly beamGlow: "#2457F540";
-    readonly beamTrack: "#2457F51F";
+    readonly beamCore: "#1F7AF0";
+    readonly beamGlow: "#2F8FFF40";
+    readonly beamTrack: "#2F8FFF1F";
   };
   readonly dark: {
     readonly canvas: "#0D0E11";
@@ -43,10 +43,10 @@ export declare const color: {
     readonly textSecondary: "#A6ACB8";
     readonly textTertiary: "#8F96A3";
     readonly textDisabled: "#555B66";
-    readonly accent: "#3866F5";
-    readonly accentPressed: "#2E58DB";
-    readonly accentSubtle: "#1A2440";
-    readonly accentText: "#8AA8FF";
+    readonly accent: "#1A6FE0";
+    readonly accentPressed: "#1559B8";
+    readonly accentSubtle: "#12263F";
+    readonly accentText: "#7DB8FF";
     readonly onAccent: "#FFFFFF";
     readonly success: "#4CC487";
     readonly successSubtle: "#12271C";
@@ -55,12 +55,18 @@ export declare const color: {
     readonly danger: "#FF6B6B";
     readonly dangerSubtle: "#2E1414";
     readonly onDanger: "#1A0505";
-    readonly focusRing: "#8AA8FF";
+    readonly focusRing: "#7DB8FF";
     readonly scrim: "#000000A3";
-    readonly beamCore: "#5B86FF";
-    readonly beamGlow: "#5B86FF4D";
-    readonly beamTrack: "#5B86FF24";
+    readonly beamCore: "#4DA0FF";
+    readonly beamGlow: "#4DA0FF4D";
+    readonly beamTrack: "#4DA0FF24";
   };
+};
+
+export declare const brand: {
+  readonly blue: "#2F8FFF";
+  readonly navy: "#1A6FE0";
+  readonly yellow: "#FFD23F";
 };
 
 export declare const font: {

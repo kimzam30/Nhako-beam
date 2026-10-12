@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,41 +28,53 @@ import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.Prefs
 import io.github.kimzam30.nhakobeam.state.Screen
 import io.github.kimzam30.nhakobeam.ui.components.IncomingLayer
+import io.github.kimzam30.nhakobeam.ui.components.SplashIntro
 import io.github.kimzam30.nhakobeam.ui.components.ToastHost
+import io.github.kimzam30.nhakobeam.ui.screens.HistoryScreen
 import io.github.kimzam30.nhakobeam.ui.screens.HomeScreen
+import io.github.kimzam30.nhakobeam.ui.screens.LicensesScreen
 import io.github.kimzam30.nhakobeam.ui.screens.OnboardingScreen
 import io.github.kimzam30.nhakobeam.ui.screens.SettingsScreen
 import io.github.kimzam30.nhakobeam.ui.screens.SheetHost
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.NhakoTheme
 
-/** The whole app: the current screen, and the layers on top (incoming request, sheets, toasts). */
+/**
+ * The whole app: the current screen, and the layers on top (incoming request, sheets, toasts).
+ * [intro]: play the launch intro over it once (a cold start from the launcher).
+ */
 @Composable
-fun NhakoBeamApp(app: AppState, prefs: Prefs) {
+fun NhakoBeamApp(app: AppState, prefs: Prefs, intro: Boolean = false) {
+    var showIntro by rememberSaveable { mutableStateOf(intro) }
     NhakoTheme(prefs.theme, prefs.motion) {
-        val reduced = Nhako.reducedMotion
-        Box(Modifier.fillMaxSize().background(Nhako.colors.canvas)) {
-            // Forward slides in from the right on the gentle spring while the old screen shifts a
-            // little the other way and fades; back is the mirror image.
-            AnimatedContent(
-                app.screen,
-                transitionSpec = {
-                    val d = app.navDir
-                    if (reduced) fadeIn(tween(150)) togetherWith fadeOut(tween(120))
-                    else (slideInHorizontally(NhakoMotion.gentle.spec()) { d * it / 16 } + fadeIn(tween(NhakoMotion.Duration.base))) togetherWith
-                        (slideOutHorizontally(tween(NhakoMotion.Duration.fast)) { -d * it / 48 } + fadeOut(tween(NhakoMotion.Duration.fast)))
-                },
-                label = "screen",
-            ) { screen ->
-                when (screen) {
-                    Screen.Onboarding -> OnboardingScreen(app)
-                    Screen.Home -> HomeScreen(app)
-                    Screen.Settings -> SettingsScreen(app, prefs)
+        CompositionLocalProvider(LocalSound provides app.sound) {
+            val reduced = Nhako.reducedMotion
+            Box(Modifier.fillMaxSize().background(Nhako.colors.canvas)) {
+                // Forward slides in from the right on the gentle spring while the old screen shifts a
+                // little the other way and fades; back is the mirror image.
+                AnimatedContent(
+                    app.screen,
+                    transitionSpec = {
+                        val d = app.navDir
+                        if (reduced) fadeIn(tween(150)) togetherWith fadeOut(tween(120))
+                        else (slideInHorizontally(NhakoMotion.gentle.spec()) { d * it / 16 } + fadeIn(tween(NhakoMotion.Duration.base))) togetherWith
+                            (slideOutHorizontally(tween(NhakoMotion.Duration.fast)) { -d * it / 48 } + fadeOut(tween(NhakoMotion.Duration.fast)))
+                    },
+                    label = "screen",
+                ) { screen ->
+                    when (screen) {
+                        Screen.Onboarding -> OnboardingScreen(app)
+                        Screen.Home -> HomeScreen(app)
+                        Screen.Settings -> SettingsScreen(app, prefs)
+                        Screen.History -> HistoryScreen(app)
+                        Screen.Licenses -> LicensesScreen(app)
+                    }
                 }
+                IncomingLayer(app)
+                SheetHost(app)
+                ToastHost(app, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 136.dp))
+                if (showIntro) SplashIntro(onDone = { showIntro = false })
             }
-            IncomingLayer(app)
-            SheetHost(app)
-            ToastHost(app, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 136.dp))
         }
     }
 }

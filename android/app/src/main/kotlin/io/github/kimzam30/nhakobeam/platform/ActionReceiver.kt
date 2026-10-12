@@ -11,6 +11,7 @@ class ActionReceiver : BroadcastReceiver() {
         val nhako = context.applicationContext as NhakoApplication
         val id = intent.getStringExtra(EXTRA_ID) ?: return
         val app = nhako.app
+        if (intent.action == STOP_READY) return nhako.background.stopReceiving()
         when (intent.action) {
             ACCEPT -> {
                 app.accept(id)
@@ -33,5 +34,6 @@ class ActionReceiver : BroadcastReceiver() {
         const val PAUSE = "io.github.kimzam30.nhakobeam.PAUSE"
         const val RESUME = "io.github.kimzam30.nhakobeam.RESUME"
         const val CANCEL = "io.github.kimzam30.nhakobeam.CANCEL"
+        const val STOP_READY = "io.github.kimzam30.nhakobeam.STOP_READY"
     }
 }

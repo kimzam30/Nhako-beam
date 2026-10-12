@@ -3,8 +3,9 @@
   import { message } from '../lib/engine/tauri';
   import type { RedeemResult } from '../lib/engine/types';
   import { t } from '../lib/copy';
-  import { formatBytes, middleTruncate, percent, summarizeFiles } from '../lib/format';
+  import { formatBytes, formatDuration, formatSpeed, middleTruncate, percent, summarizeFiles, timeOfDay, dayLabel } from '../lib/format';
   import { playHaptic } from '../lib/haptics.svelte';
+  import { playSound } from '../lib/sounds.svelte';
   import { SpringValue, wait } from '../lib/motion/springs';
   import { springIn, stagger } from '../lib/motion/transitions';
   import Button from './Button.svelte';
@@ -17,6 +18,16 @@
   import QrScanner from './QrScanner.svelte';
   import Sheet from './Sheet.svelte';
   import Toggle from './Toggle.svelte';
+
+  // A sheet sliding up or away has a sound. The paired sheet has its own (`matched`, app state).
+  let shownKind: string | null = null;
+  $effect(() => {
+    const kind = app.sheet?.kind ?? null;
+    if (kind === shownKind) return;
+    if (kind && kind !== 'paired') playSound('open');
+    else if (!kind && shownKind) playSound('close');
+    shownKind = kind;
+  });
 
   const close = () => {
     if (app.sheet?.kind === 'showCode') app.engine.cancelCode();
@@ -61,6 +72,7 @@
     checking = false;
     if (r.ok) return; // the engine's 'paired' event opens the paired sheet
     playHaptic('decline');
+    playSound('error');
     if (r.reason === 'unknownWord') {
       codeError = t('code.enter.unknownWord');
       codeInput?.shakeSlot(r.index);
@@ -113,9 +125,29 @@
   // ---------- Transfer details ----------
   const detail = $derived(app.sheet?.kind === 'transfer' ? app.transfers.find((x) => x.id === (app.sheet as { id: string }).id) : undefined);
 
+  // ---------- History item ----------
+  const past = $derived(app.sheet?.kind === 'historyItem' ? app.historyEntry(app.sheet.id) : undefined);
+  const pastStatus = $derived.by(() => {
+    if (!past) return '';
+    if (past.status === 'done') return t(past.direction === 'send' ? 'transfer.done.sent' : 'transfer.done.received', { device: past.deviceName });
+    if (past.status === 'declined') return t('send.declined', { device: past.deviceName });
+    if (past.status === 'cancelled') {
+      return past.cancelledBy === 'peer' ? t('transfer.cancelled.byOther', { device: past.deviceName }) : t('transfer.cancelled.byYou');
+    }
+    return t('history.status.failed');
+  });
+
   // ---------- Confirm remove ----------
   const removing = $derived(app.sheet?.kind === 'confirmRemove' ? app.device(app.sheet.deviceId) : undefined);
 </script>
+
+{#snippet openPast()}
+  {#if past}
+    {@const id = past.id}
+    <Button variant="secondary" full icon="folder-open" testid="history-reveal" onclick={() => app.openReceived(id, true)}>{t('transfer.done.showInFolder')}</Button>
+    <Button full icon="arrow-square-out" testid="history-open" onclick={() => app.openReceived(id, false)}>{t('transfer.done.open')}</Button>
+  {/if}
+{/snippet}
 
 {#if app.sheet?.kind === 'send'}
   <Sheet title={t('send.choose.title')} onclose={close} testid="sheet-send">
@@ -131,10 +163,10 @@
         <ul class="list">
           {#each group.list as d, i (d.id)}
             <li in:springIn={{ delay: stagger(i), y: 8 }}>
-              <button class="row" disabled={!d.reachable} onclick={() => app.sendTo(d.id)} data-testid="send-row-{d.id}">
+              <button class="row" disabled={!d.reachable && !d.wakeable} onclick={() => app.sendTo(d.id)} data-testid="send-row-{d.id}">
                 <DeviceOrb device={d} size={40} showName={false} />
                 <span class="name">{d.name}</span>
-                {#if d.route}<ConnectionBadge route={d.route} />{:else}<span class="muted small">{t('home.orb.offline')}</span>{/if}
+                {#if d.route}<ConnectionBadge route={d.route} />{:else}<span class="muted small">{t(d.wakeable ? 'home.orb.asleep' : 'home.orb.offline')}</span>{/if}
               </button>
             </li>
           {/each}
@@ -204,6 +236,70 @@
     </ul>
     <p class="muted small">{summarizeFiles(detail.files)} · {formatBytes(detail.totalBytes)}</p>
   </Sheet>
+{:else if app.sheet?.kind === 'historyItem' && past}
+  <Sheet
+    title={summarizeFiles(past.files)}
+    onclose={close}
+    testid="sheet-history"
+    wide
+    footer={past.direction === 'receive' && past.status === 'done' ? openPast : undefined}
+  >
+    <p class="past-status" class:bad={past.status !== 'done'}>
+      <Icon name={past.status === 'done' ? 'check-circle' : past.status === 'failed' ? 'warning-circle' : 'x-circle'} size={18} weight="fill" />
+      {pastStatus}
+    </p>
+    <dl class="facts">
+      <div in:springIn={{ delay: stagger(0), y: 8 }}>
+        <dt>{t('history.detail.when')}</dt>
+        <dd class="tabular">{dayLabel(past.finishedAt, Date.now(), t('history.today'), t('history.yesterday'))}, {timeOfDay(past.finishedAt)}</dd>
+      </div>
+      <div in:springIn={{ delay: stagger(1), y: 8 }}>
+        <dt>{t('history.detail.device')}</dt>
+        <dd>{past.deviceName}</dd>
+      </div>
+      <div in:springIn={{ delay: stagger(2), y: 8 }}>
+        <dt>{t('history.detail.route')}</dt>
+        <dd><ConnectionBadge route={past.route} /></dd>
+      </div>
+      <div in:springIn={{ delay: stagger(3), y: 8 }}>
+        <dt>{t('history.detail.size')}</dt>
+        <dd class="tabular">
+          {past.doneBytes < past.totalBytes
+            ? t('history.detail.partial', { done: formatBytes(past.doneBytes), total: formatBytes(past.totalBytes) })
+            : formatBytes(past.totalBytes)}
+        </dd>
+      </div>
+      {#if past.doneBytes > 0}
+        <div in:springIn={{ delay: stagger(4), y: 8 }}>
+          <dt>{t('history.detail.duration')}</dt>
+          <dd class="tabular">{formatDuration(past.finishedAt - past.startedAt)}</dd>
+        </div>
+      {/if}
+      {#if past.averageSpeed > 0}
+        <div in:springIn={{ delay: stagger(5), y: 8 }}>
+          <dt>{t('history.detail.speed')}</dt>
+          <dd class="tabular">{formatSpeed(past.averageSpeed)}</dd>
+        </div>
+      {/if}
+    </dl>
+    <h3 class="group">{t('transfer.files')}</h3>
+    <ul class="files">
+      {#each past.files as f, i (f.id)}
+        <li in:springIn={{ delay: stagger(i), y: 8 }}>
+          <span class="fname" title={f.name}>{middleTruncate(f.name, 34)}</span>
+          <span class="fsize tabular">{formatBytes(f.size)}</span>
+        </li>
+      {/each}
+    </ul>
+  </Sheet>
+{:else if app.sheet?.kind === 'confirmClearHistory'}
+  <Sheet title={t('history.clear')} onclose={close} testid="sheet-clear-history">
+    <p class="lede">{t('history.clear.confirm')}</p>
+    {#snippet footer()}
+      <Button variant="secondary" full onclick={close}>{t('common.cancel')}</Button>
+      <Button variant="danger" full testid="confirm-clear-history" onclick={() => app.clearHistory()}>{t('history.clear')}</Button>
+    {/snippet}
+  </Sheet>
 {:else if app.sheet?.kind === 'confirmRemove' && removing}
   <Sheet title={t('settings.trusted.remove')} onclose={close} testid="sheet-remove">
     <p class="lede">{t('settings.trusted.remove.confirm', { device: removing.name })}</p>
@@ -223,6 +319,40 @@
 {/if}
 
 <style>
+  .past-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    font-weight: 500;
+    color: var(--color-success);
+  }
+  .past-status.bad {
+    color: var(--color-text-secondary);
+  }
+  .facts {
+    display: grid;
+    margin: 0 0 var(--space-5);
+  }
+  .facts div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-height: var(--size-control-md);
+    border-bottom: 1px solid var(--color-separator);
+  }
+  .facts dt {
+    color: var(--color-text-secondary);
+  }
+  .facts dd {
+    margin: 0;
+    text-align: right;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .lede {
     color: var(--color-text-secondary);
     margin-bottom: var(--space-6);

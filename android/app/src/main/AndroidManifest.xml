@@ -40,6 +40,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:theme="@style/Theme.Nhako.Splash"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -67,6 +68,30 @@
         <receiver
             android:name=".platform.ActionReceiver"
             android:exported="false" />
+
+        <!-- "Receive" in Quick Settings: ready to receive for 5 minutes without opening the app. -->
+        <service
+            android:name=".platform.ReceiveTile"
+            android:exported="true"
+            android:icon="@drawable/ic_notify"
+            android:label="@string/tile_receive"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <!-- Wake-up pushes from your other devices (wake/README.md). Idle without Firebase set up. -->
+        <service
+            android:name=".platform.WakeMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- Hands received files to other apps (open, share). -->
         <provider

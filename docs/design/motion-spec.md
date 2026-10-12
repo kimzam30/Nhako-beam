@@ -188,6 +188,18 @@ Reduced motion: check fades in, no collapse animation.
 | Pull to refresh (Android device list) | Rubber banded pull, radar ring spins with pull distance, release triggers a new scan |
 | Focus ring | Appears instantly (no animation), so keyboard users are never kept waiting |
 
+### 4.14 Launch intro (Phase 8)
+Plays once on a fresh launch: from the launcher on Android, on every start of the desktop app. Not after a rotation, not when files are shared into the app (they go straight to the device picker), and never twice in one run.
+
+- **Frame 0** is the system splash on Android (brand blue, the bolt from `splash_bolt.xml`) and the window's background color on desktop. The intro draws the same picture in the same place, so the hand-over doesn't move.
+- **Press, 0 to 180 ms:** the bolt scales to 0.94 and its dark blue shadow tucks under it (`standard` easing).
+- **Pop, from 180 ms:** the bolt springs back to 1 and the shadow slides out again on `bouncy`. A thin white ring (45% opacity) grows from 64 to 168 around the bolt and fades out over 520 ms (`enter` easing).
+- **Hand-over, 580 to 820 ms:** the blue fades to 0 while the bolt shrinks to 0.82 (`exit` easing, 240 ms). The app underneath is already drawn and live.
+- **Total about 820 ms**, inside Android's guidance of 1 second at most for splash animations. No haptic: a launch isn't a decision.
+- Android holds touches until it's gone (under a second). On desktop it lets clicks and keys through.
+
+Reduced motion: the blue fades out over 200 ms. Nothing moves.
+
 ---
 
 ## 5. Haptics map (Android)

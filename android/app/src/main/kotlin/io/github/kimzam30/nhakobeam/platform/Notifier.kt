@@ -7,13 +7,17 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import io.github.kimzam30.nhakobeam.MainActivity
 import io.github.kimzam30.nhakobeam.R
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
@@ -32,15 +36,22 @@ class Notifier(private val context: Context) {
     private val manager = NotificationManagerCompat.from(context)
 
     init {
+        // A channel's sound is fixed once it exists, so the channels with Nhako Beam's own sounds
+        // have new ids and the one from before them goes.
+        manager.deleteNotificationChannel(OLD_CHANNEL_REQUESTS)
         manager.createNotificationChannelsCompat(
             listOf(
                 NotificationChannelCompat.Builder(CHANNEL_REQUESTS, NotificationManagerCompat.IMPORTANCE_HIGH)
-                    .setName(t("notify.channel.requests")).build(),
+                    .setName(t("notify.channel.requests")).setSound(soundUri(NhakoSound.Incoming), SOUND_ATTRIBUTES).build(),
+                NotificationChannelCompat.Builder(CHANNEL_RECEIVED, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+                    .setName(t("notify.channel.received")).setSound(soundUri(NhakoSound.Done), SOUND_ATTRIBUTES).build(),
                 NotificationChannelCompat.Builder(CHANNEL_TRANSFERS, NotificationManagerCompat.IMPORTANCE_LOW)
                     .setName(t("notify.channel.transfers")).setShowBadge(false).build(),
             ),
         )
     }
+
+    private fun soundUri(sound: NhakoSound): Uri = "android.resource://${context.packageName}/${sound.res}".toUri()
 
     private val canPost: Boolean
         get() = manager.areNotificationsEnabled() &&
@@ -129,10 +140,29 @@ class Notifier(private val context: Context) {
 
     fun updateProgress(n: Notification) = post(PROGRESS_ID, n)
 
+    // ---------- Ready to receive ----------
+
+    /** The foreground notification while nothing moves but the phone is kept ready: from the Quick
+     *  Settings tile ([woken] false, a few minutes), or after another device woke it up. */
+    fun ready(woken: Boolean, minutesLeft: Int): Notification =
+        NotificationCompat.Builder(context, CHANNEL_TRANSFERS)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(ACCENT)
+            .setContentTitle(t(if (woken) "notify.woken.title" else "notify.ready.title"))
+            .setContentText(if (woken) t("notify.woken.body") else t("notify.ready.body", "minutes" to minutesLeft.coerceAtLeast(1)))
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(openApp())
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .addAction(action(ActionReceiver.STOP_READY, "ready", t("notify.ready.stop")))
+            .build()
+
     // ---------- Done ----------
 
     fun showReceived(tr: Transfer, deviceName: String) {
-        val n = NotificationCompat.Builder(context, CHANNEL_TRANSFERS)
+        val n = NotificationCompat.Builder(context, CHANNEL_RECEIVED)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(ACCENT)
             .setContentTitle(t("notify.done.title", "device" to deviceName, "what" to summarizeFiles(tr.files)))
@@ -144,10 +174,18 @@ class Notifier(private val context: Context) {
     }
 
     companion object {
-        const val CHANNEL_REQUESTS = "requests"
+        /** File requests, with the incoming chime (design/sounds/). */
+        const val CHANNEL_REQUESTS = "requests.chime"
+        /** "Got files", with the done chime. */
+        const val CHANNEL_RECEIVED = "received"
+        private const val OLD_CHANNEL_REQUESTS = "requests"
+        private val SOUND_ATTRIBUTES = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         const val CHANNEL_TRANSFERS = "transfers"
         const val PROGRESS_ID = 1
-        private const val ACCENT = 0xFF2457F5.toInt()
+        private const val ACCENT = 0xFF1A6FE0.toInt()
 
         fun requestId(id: String) = 1000 + (id.hashCode() and 0xFFFFF)
         fun doneId(id: String) = 2_000_000 + (id.hashCode() and 0xFFFFF)

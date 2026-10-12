@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { SoundName } from '../lib/sounds.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -8,13 +9,15 @@
     size?: number;
     tone?: 'neutral' | 'accent' | 'danger';
     testid?: string;
+    /** Its own sound instead of the tap (lib/sounds.svelte.ts). */
+    sound?: SoundName;
     onclick?: (e: MouseEvent) => void;
   }
 
-  let { icon, label, weight, size = 20, tone = 'neutral', testid, onclick }: Props = $props();
+  let { icon, label, weight, size = 20, tone = 'neutral', testid, sound, onclick }: Props = $props();
 </script>
 
-<button class="ib {tone}" aria-label={label} title={label} data-testid={testid} {onclick}>
+<button class="ib {tone}" aria-label={label} title={label} data-testid={testid} data-sound={sound} {onclick}>
   <Icon name={icon} weight={weight ?? (icon.startsWith('caret-') ? 'bold' : undefined)} {size} />
 </button>
 
