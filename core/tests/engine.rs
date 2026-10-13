@@ -1038,12 +1038,19 @@ struct Meter {
 }
 
 /// CPU seconds this process has used so far.
+#[cfg(unix)]
 fn cpu_secs() -> f64 {
     // SAFETY: getrusage only writes into the struct it's given.
     let mut u: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
     let t = |v: libc::timeval| v.tv_sec as f64 + v.tv_usec as f64 / 1e6;
     t(u.ru_utime) + t(u.ru_stime)
+}
+
+/// Not measured off Unix (libc is a Unix-only dependency): the benchmarks print "CPU NaN s".
+#[cfg(not(unix))]
+fn cpu_secs() -> f64 {
+    f64::NAN
 }
 
 impl Meter {
