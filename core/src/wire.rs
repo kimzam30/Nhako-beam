@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::types::{DeviceKind, OsPlatform};
 
 pub const ALPN: &[u8] = b"nhako/1";
-pub const PAIR_ALPN: &[u8] = b"nhako-pair/1";
+/// 2: four-word codes (Phase 11). A build on 1 can't pair with one on 2, and says "no match".
+pub const PAIR_ALPN: &[u8] = b"nhako-pair/2";
 pub const VERSION: u16 = 1;
 
 /// Longest control frame we accept.
@@ -62,12 +63,132 @@ pub struct ServerHello {
 
 /// Fields added after version 1 shipped, written straight after a `ClientHello` or `ServerHello`
 /// in the same frame. Older builds decode the hello and ignore the bytes after it; a hello from an
-/// older build has nothing after it, which reads as the default. docs/protocol/nhako-1.md, section 3.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// older build has nothing after it, which reads as the default. docs/protocol/nhako-1.md, section 4.
+///
+/// On the wire it's the wake token (Phase 8), then a list of records (Phase 14), each a kind and
+/// its own postcard bytes, so a build that doesn't know a kind skips just that one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HelloExt {
     /// Where a wake-up push reaches this device (its Firebase Cloud Messaging token), for a phone
     /// that Android has put to sleep. Only sent to trusted devices.
     pub wake: Option<String>,
+    /// With an `Offer`: the folder each file goes in (Phase 14). Builds without it save every file
+    /// straight in the save folder.
+    pub folders: Option<Folders>,
+    /// With an `Offer`: this is text, not a file (Phase 14). The offer still lists one file, the
+    /// text as UTF-8, so builds without it save it as a `.txt` file.
+    pub text: Option<String>,
+    /// With a `Ping`: asks the other device to trust this one, and this one it (Phase 14). It's
+    /// the commitment to the asker's random number (`codekeys::trust_commit`). See [`TrustMsg`].
+    pub trust: Option<[u8; 32]>,
+}
+
+/// Which folder each offered file goes in, relative to where received files are saved, with `/`
+/// between folder names. `of[i]` is file `i`'s: 0 for none, otherwise `dirs[of[i] - 1]`. A folder
+/// is listed once however many files it holds, so an offer of thousands stays well under a frame.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Folders {
+    pub dirs: Vec<String>,
+    pub of: Vec<u32>,
+}
+
+impl Folders {
+    /// The folder of file `i`, if it has one.
+    pub fn of(&self, i: usize) -> Option<&str> {
+        let k = *self.of.get(i)? as usize;
+        self.dirs.get(k.checked_sub(1)?).map(String::as_str)
+    }
+}
+
+/// Frames after the `ServerHello` of a trust ask. The asked device sends `Nonce` (or `Answer(Busy)`),
+/// the asker `Reveal`, then the asked device `Answer` once the person there decides. A build
+/// without trust asks sends nothing and closes the stream, which reads as "needs a newer version".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustMsg {
+    /// The asked device's random number.
+    Nonce([u8; 32]),
+    /// The asker's random number, matching the commitment in its hello.
+    Reveal([u8; 32]),
+    Answer(TrustAnswer),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustAnswer {
+    Yes,
+    No,
+    /// Already answering an ask, or asked too often.
+    Busy,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExtV1 {
+    wake: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Record {
+    kind: u16,
+    body: Vec<u8>,
+}
+
+mod record {
+    pub const FOLDERS: u16 = 1;
+    pub const TEXT: u16 = 2;
+    pub const TRUST: u16 = 3;
+}
+
+impl HelloExt {
+    fn records(&self) -> Result<Vec<Record>, postcard::Error> {
+        let mut out = vec![];
+        if let Some(f) = &self.folders {
+            out.push(Record {
+                kind: record::FOLDERS,
+                body: postcard::to_stdvec(f)?,
+            });
+        }
+        if let Some(t) = &self.text {
+            out.push(Record {
+                kind: record::TEXT,
+                body: postcard::to_stdvec(t)?,
+            });
+        }
+        if let Some(c) = &self.trust {
+            out.push(Record {
+                kind: record::TRUST,
+                body: postcard::to_stdvec(c)?,
+            });
+        }
+        Ok(out)
+    }
+
+    fn encode(&self) -> Result<Vec<u8>, postcard::Error> {
+        let mut out = postcard::to_stdvec(&ExtV1 { wake: self.wake.clone() })?;
+        let records = self.records()?;
+        if !records.is_empty() {
+            out.extend(postcard::to_stdvec(&records)?);
+        }
+        Ok(out)
+    }
+
+    /// Reads what it can: a part that's missing or can't be read counts as empty.
+    fn decode(bytes: &[u8]) -> Self {
+        let Ok((v1, rest)) = postcard::take_from_bytes::<ExtV1>(bytes) else {
+            return Self::default();
+        };
+        let mut ext = Self {
+            wake: v1.wake,
+            ..Self::default()
+        };
+        for r in postcard::from_bytes::<Vec<Record>>(rest).unwrap_or_default() {
+            match r.kind {
+                record::FOLDERS => ext.folders = postcard::from_bytes(&r.body).ok(),
+                record::TEXT => ext.text = postcard::from_bytes(&r.body).ok(),
+                record::TRUST => ext.trust = postcard::from_bytes(&r.body).ok(),
+                _ => {}
+            }
+        }
+        ext
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,7 +309,7 @@ pub async fn write_hello<T: Serialize>(send: &mut SendStream, hello: &T, ext: &H
 pub fn encode_hello<T: Serialize>(hello: &T, ext: &HelloExt) -> Result<Vec<u8>, WireError> {
     let mut body = postcard::to_stdvec(hello)?;
     if *ext != HelloExt::default() {
-        body.extend(postcard::to_stdvec(ext)?);
+        body.extend(ext.encode()?);
     }
     Ok(body)
 }
@@ -197,12 +318,7 @@ pub fn encode_hello<T: Serialize>(hello: &T, ext: &HelloExt) -> Result<Vec<u8>, 
 /// so a newer peer adding fields never breaks the hello itself.
 pub fn decode_hello<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, HelloExt), WireError> {
     let (hello, rest) = postcard::take_from_bytes::<T>(bytes)?;
-    let ext = if rest.is_empty() {
-        HelloExt::default()
-    } else {
-        postcard::from_bytes(rest).unwrap_or_default()
-    };
-    Ok((hello, ext))
+    Ok((hello, HelloExt::decode(rest)))
 }
 
 async fn write_body(send: &mut SendStream, body: Vec<u8>) -> Result<(), WireError> {
@@ -288,6 +404,7 @@ mod tests {
         };
         let ext = HelloExt {
             wake: Some("fcm-token".into()),
+            ..HelloExt::default()
         };
         let bytes = encode_hello(&hello, &ext).unwrap();
         // A version 1 build reads the hello and stops.
@@ -301,6 +418,55 @@ mod tests {
         let mut later = old.clone();
         later.extend([0xff, 0xff, 0xff]);
         assert_eq!(decode_hello::<ServerHello>(&later).unwrap().0, hello);
+    }
+
+    #[test]
+    fn records_reach_new_builds_and_old_ones_ignore_them() {
+        let hello = ClientHello {
+            version: VERSION,
+            info: DeviceInfo {
+                name: "Laptop".into(),
+                kind: DeviceKind::Laptop,
+                os: OsPlatform::Linux,
+            },
+            intent: Intent::Ping,
+        };
+        let ext = HelloExt {
+            wake: None,
+            folders: Some(Folders {
+                dirs: vec!["Photos".into(), "Photos/2024".into()],
+                of: vec![0, 1, 2],
+            }),
+            text: Some("https://example.com".into()),
+            trust: Some([9; 32]),
+        };
+        let bytes = encode_hello(&hello, &ext).unwrap();
+        assert_eq!(decode_hello::<ClientHello>(&bytes).unwrap(), (hello.clone(), ext.clone()));
+        // A Phase 8 to 13 build reads the hello, then its extension (just the wake token), and stops.
+        let (old_hello, rest) = postcard::take_from_bytes::<ClientHello>(&bytes).unwrap();
+        assert_eq!(old_hello, hello);
+        assert_eq!(postcard::from_bytes::<ExtV1>(rest).unwrap().wake, None);
+        // A Phase 8 to 13 hello with a wake token still reads here.
+        let mut old = postcard::to_stdvec(&hello).unwrap();
+        old.extend(postcard::to_stdvec(&ExtV1 { wake: Some("t".into()) }).unwrap());
+        assert_eq!(decode_hello::<ClientHello>(&old).unwrap().1.wake.as_deref(), Some("t"));
+        // A record of a kind this build doesn't know is skipped; the rest still count.
+        let mut later = postcard::to_stdvec(&hello).unwrap();
+        later.extend(postcard::to_stdvec(&ExtV1 { wake: None }).unwrap());
+        later.extend(
+            postcard::to_stdvec(&vec![
+                Record { kind: 99, body: vec![1, 2, 3] },
+                Record {
+                    kind: record::TEXT,
+                    body: postcard::to_stdvec("hi").unwrap(),
+                },
+            ])
+            .unwrap(),
+        );
+        assert_eq!(decode_hello::<ClientHello>(&later).unwrap().1.text.as_deref(), Some("hi"));
+        assert_eq!(ext.folders.as_ref().unwrap().of(0), None);
+        assert_eq!(ext.folders.as_ref().unwrap().of(2), Some("Photos/2024"));
+        assert_eq!(ext.folders.as_ref().unwrap().of(7), None);
     }
 
     #[test]

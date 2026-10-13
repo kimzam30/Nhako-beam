@@ -155,18 +155,20 @@
 
       <label class="input-field" in:springIn={{ delay: stagger(0) }}>
         <span>{t('settings.connection.relay')}</span>
-        <input
-          bind:value={form.relay}
-          oninput={edited}
-          onblur={() => (touched.relay = true)}
-          placeholder={t('settings.connection.relay.placeholder')}
-          inputmode="url"
-          autocapitalize="off"
-          autocomplete="off"
-          spellcheck="false"
-          aria-invalid={touched.relay && !!problems.relay}
-          data-testid="conn-relay"
-        />
+        <span class="charge">
+          <input
+            bind:value={form.relay}
+            oninput={edited}
+            onblur={() => (touched.relay = true)}
+            placeholder={t('settings.connection.relay.placeholder')}
+            inputmode="url"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+            aria-invalid={touched.relay && !!problems.relay}
+            data-testid="conn-relay"
+          />
+        </span>
         {#if touched.relay && problems.relay}
           <small class="problem" in:springIn={{ y: -4 }} out:quickOut={{ y: -4 }} data-testid="conn-error-relay">{problemText(problems.relay)}</small>
         {/if}
@@ -174,7 +176,7 @@
 
       <label class="input-field" in:springIn={{ delay: stagger(1) }}>
         <span>{t('settings.connection.token')}</span>
-        <span class="with-button">
+        <span class="with-button charge">
           <input
             bind:value={form.token}
             oninput={edited}
@@ -202,18 +204,20 @@
 
       <label class="input-field" in:springIn={{ delay: stagger(2) }}>
         <span>{t('settings.connection.lookup')}</span>
-        <input
-          bind:value={form.lookup}
-          oninput={edited}
-          onblur={() => (touched.lookup = true)}
-          placeholder={t('settings.connection.lookup.placeholder')}
-          inputmode="url"
-          autocapitalize="off"
-          autocomplete="off"
-          spellcheck="false"
-          aria-invalid={touched.lookup && !!problems.lookup}
-          data-testid="conn-lookup"
-        />
+        <span class="charge">
+          <input
+            bind:value={form.lookup}
+            oninput={edited}
+            onblur={() => (touched.lookup = true)}
+            placeholder={t('settings.connection.lookup.placeholder')}
+            inputmode="url"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+            aria-invalid={touched.lookup && !!problems.lookup}
+            data-testid="conn-lookup"
+          />
+        </span>
         {#if touched.lookup && problems.lookup}
           <small class="problem" in:springIn={{ y: -4 }} out:quickOut={{ y: -4 }} data-testid="conn-error-lookup">{problemText(problems.lookup)}</small>
         {:else}

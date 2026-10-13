@@ -28,7 +28,7 @@ const OWN = process.env.NHAKO_TEST_RELAY
   ? { relay: process.env.NHAKO_TEST_RELAY, token: process.env.NHAKO_RELAY_TOKEN ?? '', lookup: process.env.NHAKO_TEST_LOOKUP }
   : null;
 /** On your own server, the command line skips local discovery too, so both sides really use the server. */
-const cliNet = OWN ? ['--no-mdns'] : [];
+const cliNet = OWN ? ['--no-nearby'] : [];
 
 for (const [what, path] of [['app', APP], ['command line tool', CLI]]) {
   if (!existsSync(path)) throw new Error(`No ${what} at ${path}. Build it first (see the top of this file).`);
@@ -163,7 +163,16 @@ async function step(name, fn) {
   console.log(`ok (${(ms / 1000).toFixed(1)} s)`);
 }
 
-const driverEnv = { ...process.env, HOME: appHome, XDG_CONFIG_HOME: join(appHome, '.config'), XDG_DATA_HOME: join(appHome, '.local/share'), RUST_LOG: 'info,iroh=warn' };
+// NHAKO_TEST_ANY_PATH: WebDriver can't drag real files in, so the drop step below sends Tauri's drop
+// event from the page, which the app would otherwise refuse (it only takes paths it saw dropped).
+const driverEnv = {
+  ...process.env,
+  HOME: appHome,
+  XDG_CONFIG_HOME: join(appHome, '.config'),
+  XDG_DATA_HOME: join(appHome, '.local/share'),
+  RUST_LOG: 'info,iroh=warn',
+  NHAKO_TEST_ANY_PATH: '1',
+};
 const driver = spawn('tauri-driver', [], { env: driverEnv, stdio: ['ignore', 'pipe', 'pipe'] });
 const appLog = [];
 driver.stdout.on('data', (d) => appLog.push(String(d)));

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -51,12 +53,15 @@ import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferError
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.state.AppState
+import io.github.kimzam30.nhakobeam.state.Sheet
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.formatBytes
 import io.github.kimzam30.nhakobeam.ui.formatEta
 import io.github.kimzam30.nhakobeam.ui.formatSpeed
+import io.github.kimzam30.nhakobeam.ui.isLink
 import io.github.kimzam30.nhakobeam.ui.percent
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
+import io.github.kimzam30.nhakobeam.ui.textPreview
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
@@ -109,6 +114,11 @@ fun Beam(progress: Float, intensity: Float, mode: BeamMode, modifier: Modifier =
             val x = shimmer.value * (size.width * p + w) - w
             drawRoundRect(Color.White.copy(alpha = 0.45f), Offset(x.coerceAtLeast(0f), top), Size(w.coerceAtMost(size.width * p - x.coerceAtLeast(0f)).coerceAtLeast(0f), h), r)
         }
+        // A small bolt rides the front of the fill while bytes move. Paused, it stops and greys out.
+        if ((mode == BeamMode.Moving || mode == BeamMode.Paused || mode == BeamMode.Reconnecting) && p in 0.02f..0.995f) {
+            val moving = mode == BeamMode.Moving
+            drawBolt(Offset(size.width * p, size.height / 2), 14.dp.toPx(), if (moving) io.github.kimzam30.nhakobeam.design.NhakoBrand.yellow else c.textTertiary, if (moving) io.github.kimzam30.nhakobeam.design.NhakoBrand.navy else null, alpha = if (moving) 1f else 0.8f)
+        }
     }
 }
 
@@ -124,13 +134,18 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
     val unreachable = tr.status == TransferStatus.Failed && tr.error == TransferError.PeerGone && tr.doneBytes == 0L
     val canRetry = tr.status == TransferStatus.Failed || tr.status == TransferStatus.Declined || (tr.status == TransferStatus.Cancelled && tr.cancelledBy == Side.Peer)
     // An ended card with nothing to do but dismiss keeps its close button in the title row.
-    val closeInHeader = ended && !canRetry && !(tr.status == TransferStatus.Done && tr.direction == TransferDirection.Receive)
+    /** Text (a note, a link): it travels in the request, so there's no beam, just the outcome. */
+    val text = tr.text
+    val link = text != null && isLink(text)
+    val closeInHeader = ended && !canRetry && !(tr.status == TransferStatus.Done && (tr.direction == TransferDirection.Receive || text != null))
 
     val title = when (tr.status) {
         TransferStatus.Waiting -> t(if (tr.waitingLong) "send.waiting.long" else "send.waiting", "device" to name)
         TransferStatus.Connecting -> if (tr.waking) t("transfer.waking", "device" to name) else t("transfer.connecting")
-        TransferStatus.Done -> t(if (tr.direction == TransferDirection.Send) "transfer.done.sent" else "transfer.done.received", "device" to name)
-        TransferStatus.Declined -> t("send.declined", "device" to name)
+        TransferStatus.Done -> if (text != null) {
+            t(if (tr.direction == TransferDirection.Send) (if (link) "text.link.to" else "text.to") else if (link) "text.link.from" else "text.from", "device" to name)
+        } else t(if (tr.direction == TransferDirection.Send) "transfer.done.sent" else "transfer.done.received", "device" to name)
+        TransferStatus.Declined -> t(if (tr.error == TransferError.NotAllowed) "send.notAllowed" else "send.declined", "device" to name)
         TransferStatus.Failed -> if (unreachable) t("send.unreachable", "device" to name) else t("transfer.failed")
         TransferStatus.Cancelled -> if (tr.cancelledBy == Side.Peer) t("transfer.cancelled.byOther", "device" to name) else t("transfer.cancelled.byYou")
         else -> t(if (tr.direction == TransferDirection.Send) "transfer.sending" else "transfer.receiving", "device" to name)
@@ -141,13 +156,15 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
         tr.status == TransferStatus.Paused && tr.pausedBy == Side.Peer -> t("transfer.paused.byOther", "device" to name)
         tr.status == TransferStatus.Paused -> t("transfer.paused")
         tr.status == TransferStatus.Reconnecting -> t("transfer.reconnecting")
+        tr.status == TransferStatus.Declined && tr.error == TransferError.NotAllowed -> t("send.notAllowed.hint")
         tr.status == TransferStatus.Failed && tr.error != null && !unreachable ->
             t("error.${errorKey(tr.error)}", "device" to name, "fileName" to (tr.files.firstOrNull()?.name ?: "A file"))
+        text != null -> textPreview(text)
         else -> "${summarizeFiles(tr.files)} · ${formatBytes(tr.totalBytes)}"
     }
     val detailColor = when {
         tr.status == TransferStatus.Failed -> c.danger
-        tr.status == TransferStatus.Reconnecting || tr.error == TransferError.DiskFull || tr.error == TransferError.DiskFullPeer -> if (Nhako.dark) c.warning else Color(0xFF8A5300)
+        tr.status == TransferStatus.Reconnecting || tr.error == TransferError.DiskFull || tr.error == TransferError.DiskFullPeer || tr.error == TransferError.NotAllowed -> if (Nhako.dark) c.warning else Color(0xFF8A5300)
         else -> c.textSecondary
     }
     val mode = when (tr.status) {
@@ -174,11 +191,12 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
     NCard(modifier.graphicsLayer { translationX = shake.value * density }) {
         Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(if (tr.status == TransferStatus.Done) c.successSubtle else c.accentSubtle), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(if (tr.status == TransferStatus.Done) c.successSubtle else if (tr.status == TransferStatus.Failed) c.dangerSubtle else c.accentSubtle), contentAlignment = Alignment.Center) {
                     if (tr.status == TransferStatus.Done) {
-                        val pop = remember { Animatable(0.3f) }
-                        LaunchedEffect(Unit) { pop.animateTo(1f, NhakoMotion.bouncy.spec()) }
-                        PhIcon("check-circle", Modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value }, size = 22.dp, tint = c.success, weight = IconWeight.Fill)
+                        // The bolt strikes, throws a few sparks, then turns into a check.
+                        Bolt(26.dp, mode = BoltMode.Check, tint = c.success, strike = true)
+                    } else if (tr.status == TransferStatus.Failed) {
+                        Bolt(24.dp, mode = BoltMode.Cracked, brand = false, tint = c.danger)
                     } else {
                         PhIcon(if (tr.direction == TransferDirection.Send) kindIcon(device?.kind ?: io.github.kimzam30.nhakobeam.model.DeviceKind.Laptop) else "download-simple", size = 20.dp, tint = c.accent)
                     }
@@ -190,14 +208,14 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                 }
                 if (closeInHeader) NIconButton("x", t("transfer.dismiss"), { app.dismissTransfer(tr.id) })
             }
-            if (tr.status != TransferStatus.Waiting && tr.status != TransferStatus.Declined && !(tr.status == TransferStatus.Failed && tr.doneBytes == 0L) && tr.status != TransferStatus.Done) {
+            if (text == null && tr.status != TransferStatus.Waiting && tr.status != TransferStatus.Declined && !(tr.status == TransferStatus.Failed && tr.doneBytes == 0L) && tr.status != TransferStatus.Done) {
                 Beam(if (tr.totalBytes > 0) tr.doneBytes.toFloat() / tr.totalBytes else 0f, (tr.speed / 92e6).toFloat(), mode)
             }
             if (!closeInHeader) Row(verticalAlignment = Alignment.CenterVertically) {
                 if (tr.status in setOf(TransferStatus.Transferring, TransferStatus.Paused, TransferStatus.Reconnecting, TransferStatus.Connecting)) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            BasicText("$pct%", style = NhakoType.callout.style(c.textPrimary).copy(fontWeight = FontWeight(600)))
+                            RollingNumber(pct, "%", NhakoType.callout.style(c.textPrimary).copy(fontWeight = FontWeight(600)))
                             if (moving && tr.speed > 0) {
                                 Spacer(Modifier.width(NhakoSpace.s4))
                                 BasicText(formatSpeed(tr.speed), style = NhakoType.callout.style(c.textSecondary))
@@ -222,7 +240,12 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                     Spacer(Modifier.weight(1f))
                     NButton(t("send.cancel"), { app.engine.cancel(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm)
                 } else if (tr.status == TransferStatus.Done) {
-                    if (tr.direction == TransferDirection.Receive) {
+                    if (text != null) {
+                        NButton(t("text.copy"), { app.copyText(text) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "copy")
+                        Spacer(Modifier.width(NhakoSpace.s3))
+                        if (link) NButton(t("text.open"), { app.openLink(text) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "arrow-square-out")
+                        else NButton(t("text.show"), { app.sheet = Sheet.TextSheet(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "text-aa")
+                    } else if (tr.direction == TransferDirection.Receive) {
                         NButton(t("transfer.done.open"), { app.openReceived(tr) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "arrow-square-out")
                         Spacer(Modifier.width(NhakoSpace.s3))
                         NButton(t("transfer.done.share"), { app.openReceived(tr, share = true) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "share-network")
@@ -230,7 +253,12 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                     Spacer(Modifier.weight(1f))
                     NIconButton("x", t("transfer.dismiss"), { app.dismissTransfer(tr.id) })
                 } else if (ended) {
-                    if (canRetry) {
+                    if (tr.status == TransferStatus.Declined && tr.error == TransferError.NotAllowed) {
+                        // Showing a code here and typing it there makes this one of their devices; then Try again works.
+                        NButton(t("send.notAllowed.pair"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "qr-code")
+                        Spacer(Modifier.width(NhakoSpace.s2))
+                        NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "arrow-clockwise")
+                    } else if (canRetry) {
                         NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "arrow-clockwise")
                     }
                     Spacer(Modifier.weight(1f))
@@ -250,5 +278,37 @@ private fun errorKey(e: TransferError) = when (e) {
     TransferError.Permission -> "permission"
     TransferError.DiskFull -> "diskFull"
     TransferError.DiskFullPeer -> "diskFullPeer"
+    TransferError.NotAllowed -> "notAllowed"
     TransferError.Unknown -> "unknown"
+}
+
+/**
+ * A whole number whose digits roll up (or down) when they change, like a meter. Each place keeps
+ * its slot. Reduced motion: they swap. Desktop twin: RollingNumber.svelte.
+ */
+@Composable
+fun RollingNumber(value: Int, suffix: String, style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier) {
+    val reduced = Nhako.reducedMotion
+    val digits = value.toString()
+    Row(modifier.semantics(mergeDescendants = true) { contentDescription = "$value$suffix" }) {
+        digits.forEachIndexed { i, ch ->
+            // Keyed by place from the right, so the ones stay the ones.
+            androidx.compose.runtime.key(digits.length - i) {
+                androidx.compose.animation.AnimatedContent(
+                    ch,
+                    transitionSpec = {
+                        if (reduced) {
+                            androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                        } else {
+                            val up = targetState > initialState
+                            (androidx.compose.animation.slideInVertically(NhakoMotion.snappy.spec()) { h -> if (up) h else -h } + androidx.compose.animation.fadeIn(tween(NhakoMotion.Duration.fast))) togetherWith
+                                (androidx.compose.animation.slideOutVertically(tween(150, easing = NhakoMotion.Easing.exit)) { h -> if (up) -h else h } + androidx.compose.animation.fadeOut(tween(150)))
+                        }.using(androidx.compose.animation.SizeTransform(clip = true))
+                    },
+                    label = "digit",
+                ) { d -> BasicText(d.toString(), style = style.copy(fontFeatureSettings = "tnum")) }
+            }
+        }
+        BasicText(suffix, style = style)
+    }
 }

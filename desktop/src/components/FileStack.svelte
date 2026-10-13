@@ -1,29 +1,34 @@
 <script lang="ts">
   // Up to 3 stacked file cards with a count badge. Fans out on hover (or when `fanned`).
   import type { FileItem } from '../lib/engine/types';
-  import { fileKind } from '../lib/format';
+  import { fileKind, isLink } from '../lib/format';
   import Icon from './Icon.svelte';
 
   interface Props {
-    files: Pick<FileItem, 'name' | 'mime'>[];
+    files: Pick<FileItem, 'name' | 'mime' | 'folder'>[];
+    /** Text being sent: one card with a text (or link) glyph. */
+    text?: string | null;
     count?: number;
     size?: number;
     fanned?: boolean;
     lifted?: boolean;
   }
 
-  let { files, count, size = 56, fanned = false, lifted = false }: Props = $props();
+  let { files, text = null, count, size = 56, fanned = false, lifted = false }: Props = $props();
 
   const kindIcon = { photo: 'image', video: 'film-strip', song: 'music-note', document: 'file-text', archive: 'file-zip', file: 'file' } as const;
-  const top = $derived(files.slice(0, 3));
-  const total = $derived(count ?? files.length);
+  // A sent folder shows as a folder card on top of its files.
+  const iconOf = (f: Pick<FileItem, 'name' | 'mime' | 'folder'>) => (f.folder ? 'folder-simple' : kindIcon[fileKind(f)]);
+  const top = $derived(text !== null ? [{ name: 'text', mime: 'text/plain' }] : files.slice(0, 3));
+  const total = $derived(text !== null ? 1 : (count ?? files.length));
+  const textIcon = $derived(text !== null && isLink(text) ? 'link-simple' : 'text-aa');
 </script>
 
 <span class="stack" class:fanned class:lifted style:--s="{size}px" aria-hidden="true">
   {#each top.slice().reverse() as f, i (i)}
     {@const depth = top.length - 1 - i}
     <span class="card" style:--d={depth}>
-      <Icon name={kindIcon[fileKind(f)]} size={Math.round(size * 0.42)} />
+      <Icon name={text !== null ? textIcon : iconOf(f)} size={Math.round(size * 0.42)} />
     </span>
   {/each}
   {#if total > 1}

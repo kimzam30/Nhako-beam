@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { SoundName } from '../lib/sounds.svelte';
+  import { flash, pointOf, spark } from '../lib/motion/bolt';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -16,6 +17,8 @@
     testid?: string;
     /** Its own sound instead of the tap (lib/sounds.svelte.ts). */
     sound?: SoundName;
+    /** A primary button throws sparks when clicked; off where the screen zaps on its own. */
+    sparks?: boolean;
     onclick?: (e: MouseEvent) => void;
     children?: Snippet;
   }
@@ -32,9 +35,20 @@
     label,
     testid,
     sound,
+    sparks = true,
     onclick,
     children,
   }: Props = $props();
+
+  let rim: HTMLElement | undefined = $state();
+
+  // Release: a thin yellow rim flashes. A primary action also throws a few sparks from where
+  // it was clicked (docs/design/motion-spec.md, 4.15).
+  function click(e: MouseEvent) {
+    flash(rim);
+    if (variant === 'primary' && sparks) spark(pointOf(e, e.currentTarget as Element), { count: 4, reach: 28 });
+    onclick?.(e);
+  }
 </script>
 
 <button
@@ -47,8 +61,9 @@
   aria-label={label}
   data-testid={testid}
   data-sound={sound}
-  {onclick}
+  onclick={click}
 >
+  <span class="rim" bind:this={rim} aria-hidden="true"></span>
   <span class="inner">
     {#if icon}<Icon name={icon} weight={iconWeight} size={size === 'sm' ? 16 : 20} />{/if}
     {#if children}<span class="text">{@render children()}</span>{/if}
@@ -81,6 +96,14 @@
   }
   .btn.loading {
     opacity: 1;
+  }
+  .rim {
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    border: 2px solid var(--brand-yellow);
+    opacity: 0;
+    pointer-events: none;
   }
   .inner {
     grid-area: 1 / 1;

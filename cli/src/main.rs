@@ -3,11 +3,11 @@
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use nhako_core::{
-    CheckResult, Connection, Device, Engine, EngineConfig, EngineEvent, Network, OwnNetwork, OwnServer, PairVia, RedeemFailure, RedeemResult, Route,
-    ServerCheck, Transfer, TransferDirection, TransferError, TransferStatus, check_server, store, words,
+    CheckResult, Connection, Device, Engine, EngineConfig, EngineEvent, Network, Outgoing, OwnNetwork, OwnServer, PairVia, RedeemFailure, RedeemResult, Route,
+    ServerCheck, Transfer, TransferDirection, TransferError, TransferStatus, WhoCanSend, check_server, store, words,
 };
 use tokio::sync::broadcast;
 
@@ -36,9 +36,9 @@ struct Cli {
     /// Only use the relay, never a direct path. For testing a relay.
     #[arg(long, global = true)]
     relay_only: bool,
-    /// Don't look for devices on the same network (mDNS).
-    #[arg(long, global = true)]
-    no_mdns: bool,
+    /// Don't look for devices on the same network (mDNS and the beacon).
+    #[arg(long, global = true, alias = "no-mdns")]
+    no_nearby: bool,
     /// Print engine events as JSON lines (for scripts).
     #[arg(long, global = true)]
     json: bool,
@@ -58,10 +58,13 @@ enum Command {
         /// The new name, for example "Hakim's laptop".
         name: Vec<String>,
     },
-    /// Send files. Without --to, shows a three-word code for the other device to enter.
+    /// Send files and folders, or text. Without --to, shows a four-word code for the other device to enter.
     Send {
-        #[arg(required = true)]
+        #[arg(required_unless_present = "text")]
         files: Vec<PathBuf>,
+        /// Send this text (a note or a link) instead of files.
+        #[arg(long, conflicts_with = "files")]
+        text: Option<String>,
         /// Send to a trusted or nearby device by name, fingerprint or id.
         #[arg(long, value_name = "DEVICE")]
         to: Option<String>,
@@ -71,7 +74,7 @@ enum Command {
     },
     /// Receive files. With a code, receive from the device showing it; without, wait for nearby and trusted devices.
     Receive {
-        /// The three words shown on the other device.
+        /// The four words shown on the other device.
         words: Vec<String>,
         /// Accept without asking.
         #[arg(short, long)]
@@ -80,7 +83,7 @@ enum Command {
         #[arg(long)]
         trust: bool,
     },
-    /// Pair with a code and save each other as trusted. No words shows a code; three words enters one.
+    /// Pair with a code and save each other as trusted. No words shows a code; four words enters one.
     Pair { words: Vec<String> },
     /// List nearby and trusted devices.
     Devices {
@@ -88,6 +91,15 @@ enum Command {
         #[arg(long, default_value_t = 3)]
         wait: u64,
     },
+    /// Print a report on this device's network and nearby discovery, for a bug report.
+    Diagnostics {
+        /// Seconds to look around first.
+        #[arg(long, default_value_t = 5)]
+        wait: u64,
+    },
+    /// Who can send to this device: your devices only (trusted, or connected with a code), or
+    /// everyone nearby. Without a value, shows the current setting.
+    WhoCanSend { who: Option<WhoArg> },
     /// Manage trusted devices.
     Trust {
         #[command(subcommand)]
@@ -119,6 +131,23 @@ enum ServerAction {
     Public,
     /// Check that the saved server answers and accepts the token.
     Check,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum WhoArg {
+    /// Trusted devices, and devices you connect with a code.
+    Yours,
+    /// Anyone on the same network (you're still asked first).
+    Everyone,
+}
+
+impl From<WhoArg> for WhoCanSend {
+    fn from(w: WhoArg) -> Self {
+        match w {
+            WhoArg::Yours => Self::YourDevices,
+            WhoArg::Everyone => Self::EveryoneNearby,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -162,7 +191,10 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     }
     let mut cfg = EngineConfig::new(config_dir);
     cfg.save_dir = cli.save_dir.clone();
-    cfg.mdns = !cli.no_mdns;
+    cfg.mdns = !cli.no_nearby;
+    if cli.no_nearby {
+        cfg.beacon = None;
+    }
     cfg.relay_only = cli.relay_only;
     cfg.network = if let Some(relay) = &cli.relay {
         let own = OwnServer {
@@ -190,6 +222,21 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     let ui = Ui { json: cli.json };
     let result = match cli.command {
         Command::Whoami => whoami(&engine, &ui),
+        Command::Diagnostics { wait } => {
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            println!("{}", engine.diagnostics(&format!("nhako {}", env!("CARGO_PKG_VERSION"))));
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::WhoCanSend { who } => {
+            if let Some(who) = who {
+                engine.set_who_can_send(who.into())?;
+            }
+            ui.say(match engine.who_can_send() {
+                WhoCanSend::YourDevices => "Only your devices can send here: trusted ones, and ones you connect with a code.",
+                WhoCanSend::EveryoneNearby => "Everyone nearby can send here. You're asked before anything is saved.",
+            });
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Name { name } => {
             let name = name.join(" ");
             if name.trim().is_empty() {
@@ -199,7 +246,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             ui.say(format!("This device is now called {}.", engine.me().name));
             Ok(ExitCode::SUCCESS)
         }
-        Command::Send { files, to, trust } => send(&engine, events, &ui, files, to, trust).await,
+        Command::Send { files, text, to, trust } => send(&engine, events, &ui, files, text, to, trust).await,
         Command::Receive { words, yes, trust } if words.is_empty() => listen(&engine, events, &ui, yes, trust).await,
         Command::Receive { words, yes, trust } => receive_code(&engine, events, &ui, &words, yes, trust).await,
         Command::Pair { words } => pair(&engine, events, &ui, &words).await,
@@ -277,11 +324,25 @@ fn error_text(err: Option<TransferError>, device: &str) -> String {
         Some(TransferError::Permission) => "Nhako Beam doesn't have permission to save here. Choose another folder with --save-dir.".into(),
         Some(TransferError::DiskFull) => "This device ran out of space.".into(),
         Some(TransferError::DiskFullPeer) => format!("{device} ran out of space."),
+        Some(TransferError::NotAllowed) => format!("{device} only takes files from its own devices. Pair with a code first: nhako pair"),
         Some(TransferError::Unknown) | None => "Something went wrong. Try again, and if it keeps happening, run with --verbose.".into(),
     }
 }
 
 fn summary(t: &Transfer) -> String {
+    if let Some(text) = &t.text {
+        let line: String = text.trim().lines().next().unwrap_or_default().chars().take(60).collect();
+        return format!("this text: \"{line}\"");
+    }
+    let folders: std::collections::BTreeSet<&str> = t.files.iter().filter_map(|f| f.folder.as_deref()?.split('/').next()).collect();
+    if folders.len() == 1 && t.files.iter().all(|f| f.folder.is_some()) {
+        return format!(
+            "the folder {} ({} files, {})",
+            folders.first().unwrap_or(&""),
+            t.files.len(),
+            human_bytes(t.total_bytes)
+        );
+    }
     match t.files.len() {
         1 => format!("{} ({})", t.files[0].name, human_bytes(t.total_bytes)),
         n => format!("{n} files ({})", human_bytes(t.total_bytes)),
@@ -439,14 +500,36 @@ async fn send(
     mut events: broadcast::Receiver<EngineEvent>,
     ui: &Ui,
     files: Vec<PathBuf>,
+    text: Option<String>,
     to: Option<String>,
     trust: bool,
 ) -> Result<ExitCode> {
+    let mut out = Vec::new();
     for f in &files {
         let meta = std::fs::metadata(f).with_context(|| format!("Can't read {}", f.display()))?;
-        if !meta.is_file() {
-            bail!("{} is a folder. Folders aren't supported yet, send the files inside it.", f.display());
+        if meta.is_dir() {
+            let inside =
+                nhako_core::files::walk_folder(f, nhako_core::engine_limits::FILES_MAX).with_context(|| format!("Can't send the folder {}", f.display()))?;
+            if inside.is_empty() {
+                bail!("{} is an empty folder. There's nothing in it to send.", f.display());
+            }
+            out.extend(inside.into_iter().map(|(path, folder)| Outgoing {
+                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                path,
+                folder: Some(folder),
+            }));
+        } else {
+            out.push(Outgoing {
+                name: f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
+                path: f.clone(),
+                folder: None,
+            });
         }
+    }
+    if let Some(t) = &text
+        && t.len() > nhako_core::engine_limits::TEXT_MAX
+    {
+        bail!("That text is too long to send as text. Save it in a file and send the file.");
     }
     let device = match to {
         Some(query) => {
@@ -465,7 +548,10 @@ async fn send(
             device
         }
     };
-    let id = engine.send(&device.id, &files)?;
+    let id = match &text {
+        Some(t) => engine.send_text(&device.id, t)?,
+        None => engine.send_files(&device.id, &out)?,
+    };
     follow_transfer(engine, &mut events, ui, &id, &device.name).await
 }
 
@@ -569,8 +655,16 @@ async fn follow_transfer(engine: &Engine, events: &mut broadcast::Receiver<Engin
         };
         match t.status {
             TransferStatus::Done if sending => done(&bar, format!("Sent {} to {device}.", summary(t)), true),
+            TransferStatus::Done if t.text.is_some() => {
+                bar.finish_and_clear();
+                ui.say(format!("Text from {device}:"));
+                // The text itself goes to standard output, so it can be piped.
+                println!("{}", t.text.as_deref().unwrap_or_default());
+                Some(ExitCode::SUCCESS)
+            }
             TransferStatus::Done => done(&bar, format!("Received {} from {device}.", summary(t)), true),
             TransferStatus::Declined if t.error == Some(TransferError::DiskFullPeer) => done(&bar, format!("{device} doesn't have enough space."), false),
+            TransferStatus::Declined if t.error == Some(TransferError::NotAllowed) => done(&bar, error_text(t.error, device), false),
             TransferStatus::Declined => done(&bar, format!("{device} declined."), false),
             TransferStatus::Cancelled if t.cancelled_by == Some(nhako_core::Side::Peer) => done(&bar, format!("{device} cancelled this transfer."), false),
             TransferStatus::Cancelled => done(&bar, "You cancelled this transfer.".into(), false),
@@ -589,6 +683,7 @@ async fn follow_transfer(engine: &Engine, events: &mut broadcast::Receiver<Engin
                         return Ok(code);
                     }
                 }
+                Some(EngineEvent::TransferProgress { id: moved, done_bytes, .. }) if moved == id => bar.set_position(done_bytes),
                 None => return Ok(ExitCode::FAILURE),
                 _ => {}
             },
@@ -629,8 +724,8 @@ async fn confirm(question: String) -> bool {
 
 async fn redeem(engine: &Engine, ui: &Ui, typed: &[String]) -> Result<Option<Device>> {
     let parts: Vec<String> = typed.iter().flat_map(|w| words::split_code(w)).collect();
-    if parts.len() != 3 {
-        bail!("A code is three words, for example: nhako receive river lantern seven");
+    if parts.len() != words::CODE_WORDS {
+        bail!("A code is four words, for example: nhako receive river lantern seven harbor");
     }
     ui.say("Looking for the device showing this code...");
     match engine.redeem_code(&parts).await {
@@ -668,7 +763,7 @@ async fn receive_code(engine: &Engine, mut events: broadcast::Receiver<EngineEve
                     ui.say(format!("Waiting for {} to send...", device.name));
                 }
                 Some(EngineEvent::Incoming { request }) if request.device_id == device.id => {
-                    let t = Transfer { files: request.files.clone(), total_bytes: request.total_bytes, ..placeholder() };
+                    let t = Transfer { files: request.files.clone(), total_bytes: request.total_bytes, text: request.text.clone(), ..placeholder() };
                     if !yes && !confirm(format!("{} wants to send you {}. Accept?", device.name, summary(&t))).await {
                         engine.decline(&request.id);
                         ui.say("Declined.");
@@ -717,6 +812,7 @@ fn placeholder() -> Transfer {
         finished_at: None,
         waiting_long: false,
         waking: false,
+        text: None,
     }
 }
 
@@ -736,7 +832,7 @@ async fn listen(engine: &Engine, mut events: broadcast::Receiver<EngineEvent>, u
             e = next_event(&mut events) => match e {
                 Some(EngineEvent::Incoming { request }) => {
                     let name = engine.devices().into_iter().find(|d| d.id == request.device_id).map(|d| d.name).unwrap_or_else(|| "A device".into());
-                    let t = Transfer { files: request.files.clone(), total_bytes: request.total_bytes, ..placeholder() };
+                    let t = Transfer { files: request.files.clone(), total_bytes: request.total_bytes, text: request.text.clone(), ..placeholder() };
                     if yes || confirm(format!("{name} wants to send you {}. Accept?", summary(&t))).await {
                         engine.accept(&request.id, trust, false);
                     } else {

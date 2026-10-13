@@ -64,9 +64,9 @@ import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.style
 import java.util.concurrent.Executors
 
-/** The three words in a code link (`nhakobeam://pair/river-lantern-seven`), or null. */
+/** The four words in a code link (`nhakobeam://pair/river-lantern-seven-harbor`), or null. */
 fun wordsFromCodeUri(text: String): List<String>? {
-    val m = Regex("""^nhakobeam://pair/([a-z]+)-([a-z]+)-([a-z]+)$""").find(text.trim().lowercase()) ?: return null
+    val m = Regex("""^nhakobeam://pair/([a-z]+)-([a-z]+)-([a-z]+)-([a-z]+)$""").find(text.trim().lowercase()) ?: return null
     return m.groupValues.drop(1)
 }
 

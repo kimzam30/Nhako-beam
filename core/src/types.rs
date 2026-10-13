@@ -72,6 +72,10 @@ pub struct FileItem {
     pub name: String,
     pub size: u64,
     pub mime: String,
+    /// The folder it's in, inside a folder that was sent (`Photos/2024`, `/` between folders).
+    /// Missing for files sent on their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +116,8 @@ pub enum TransferError {
     Permission,
     DiskFull,
     DiskFullPeer,
+    /// The receiver only takes files from its own devices (Who can send to me).
+    NotAllowed,
     Unknown,
 }
 
@@ -148,6 +154,10 @@ pub struct Transfer {
     pub waiting_long: bool,
     /// Sender: the other device was asleep and has been asked to wake up.
     pub waking: bool,
+    /// A text transfer (a note, a link, a clipboard): the text. Its one file is the same text, for
+    /// devices on a version without text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// A transfer that ended, as History lists it. Kept after a restart, and after the device is removed.
@@ -174,6 +184,9 @@ pub struct HistoryEntry {
     pub finished_at: u64,
     /// Bytes per second while bytes were moving (pauses left out). 0 when nothing moved.
     pub average_speed: f64,
+    /// A text transfer: the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,16 +197,58 @@ pub struct IncomingRequest {
     pub files: Vec<FileItem>,
     pub total_bytes: u64,
     pub received_at: u64,
+    /// Text rather than files: the text, to read before accepting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// Another device on the same network asking to be one of your devices, and you one of its own
+/// (Trust this device, from Nearby). Both screens show `check`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustRequest {
+    pub device_id: String,
+    pub check: String,
+    pub received_at: u64,
+}
+
+/// How a trust ask ended without both devices trusting each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrustOutcome {
+    /// The other device said no (asker), or you did (asked).
+    Declined,
+    /// The asker gave up or went away before you answered (asked).
+    Withdrawn,
+    /// The other device has a version without trust asks (asker).
+    Outdated,
+    /// The other device couldn't be reached, or didn't answer in time (asker).
+    Unreachable,
+    /// The other device is answering someone else's ask (asker).
+    Busy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingCode {
-    pub words: [String; 3],
+    /// Four words (`words::CODE_WORDS`).
+    pub words: [String; crate::words::CODE_WORDS],
     /// Epoch milliseconds. Codes live 10 minutes.
     pub expires_at: u64,
     /// Encoded in the QR code.
     pub uri: String,
+}
+
+/// Settings > Receiving > Who can send to me. Devices you trust, and devices you've just
+/// connected with a code, can always send.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WhoCanSend {
+    /// Requests from anyone else are refused, and the sender is told why.
+    #[default]
+    YourDevices,
+    /// Anyone on the same network can ask (one request at a time per device).
+    EveryoneNearby,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,6 +265,8 @@ pub enum DiscoveryState {
 pub enum PairVia {
     Shown,
     Entered,
+    /// Trust this device, from Nearby: one device asked, the other agreed.
+    Nearby,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -325,6 +382,17 @@ pub enum EngineEvent {
     Transfer {
         transfer: Transfer,
     },
+    /// A transfer moved: only what changed since the last `transfer` or `transferProgress` event
+    /// for it, merged into the transfer the app has. `fileBytes` lists only the files whose count
+    /// changed, so a transfer of thousands of files doesn't resend its whole list every update.
+    #[serde(rename_all = "camelCase")]
+    TransferProgress {
+        id: String,
+        done_bytes: u64,
+        speed: f64,
+        moving_since: Option<u64>,
+        file_bytes: BTreeMap<String, u64>,
+    },
     /// `check` is the same short value on both screens.
     Paired {
         device: Device,
@@ -346,6 +414,23 @@ pub enum EngineEvent {
     History {
         entry: HistoryEntry,
     },
+    /// A device nearby asks to trust this one, and this one it. Answer with `answer_trust`.
+    TrustAsk {
+        request: TrustRequest,
+    },
+    /// On the device that asked: the other device has the ask, and both screens show `check`.
+    #[serde(rename_all = "camelCase")]
+    TrustWaiting {
+        device_id: String,
+        check: String,
+    },
+    /// A trust ask ended without a match: on the device that asked, or the one that was asked.
+    /// A match ends with `Paired` (via `nearby`) on both instead.
+    #[serde(rename_all = "camelCase")]
+    TrustEnded {
+        device_id: String,
+        outcome: TrustOutcome,
+    },
 }
 
 /// Everything the app needs to draw itself, for when its window (re)loads after the engine started.
@@ -361,6 +446,8 @@ pub struct Snapshot {
     pub server_problem: Option<ServerProblem>,
     /// Newest first.
     pub history: Vec<HistoryEntry>,
+    /// Trust asks waiting for an answer here.
+    pub trust_asks: Vec<TrustRequest>,
 }
 
 #[cfg(test)]
@@ -413,6 +500,56 @@ mod tests {
         assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"server","problem":"tokenRejected"}"#);
         let e = EngineEvent::Server { problem: None };
         assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"server","problem":null}"#);
+
+        let e = EngineEvent::TrustAsk {
+            request: TrustRequest {
+                device_id: "d".into(),
+                check: "5D19 E04A".into(),
+                received_at: 1,
+            },
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"trustAsk","request":{"deviceId":"d","check":"5D19 E04A","receivedAt":1}}"#
+        );
+        let e = EngineEvent::TrustEnded {
+            device_id: "d".into(),
+            outcome: TrustOutcome::Outdated,
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"trustEnded","deviceId":"d","outcome":"outdated"}"#
+        );
+        assert_eq!(serde_json::to_string(&PairVia::Nearby).unwrap(), r#""nearby""#);
+
+        let f = FileItem {
+            id: "f0".into(),
+            name: "a.jpg".into(),
+            size: 1,
+            mime: "image/jpeg".into(),
+            folder: Some("Photos/2024".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&f).unwrap(),
+            r#"{"id":"f0","name":"a.jpg","size":1,"mime":"image/jpeg","folder":"Photos/2024"}"#
+        );
+        let old: FileItem = serde_json::from_str(r#"{"id":"f0","name":"a.jpg","size":1,"mime":"image/jpeg"}"#).unwrap();
+        assert_eq!(old.folder, None, "History from before Phase 14 still reads");
+    }
+
+    #[test]
+    fn progress_is_camel_case_and_small() {
+        let e = EngineEvent::TransferProgress {
+            id: "t".into(),
+            done_bytes: 5,
+            speed: 2.0,
+            moving_since: Some(1),
+            file_bytes: BTreeMap::from([("f3".into(), 5)]),
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"transferProgress","id":"t","doneBytes":5,"speed":2.0,"movingSince":1,"fileBytes":{"f3":5}}"#
+        );
     }
 
     #[test]
@@ -436,8 +573,10 @@ mod tests {
             finished_at: None,
             waiting_long: false,
             waking: false,
+            text: None,
         };
         let v = serde_json::to_value(&t).unwrap();
+        assert!(v.get("text").is_none(), "left out when there's none");
         for key in [
             "deviceId",
             "totalBytes",

@@ -15,27 +15,33 @@ It runs on Linux and Windows. On Windows, the config folder is `%APPDATA%\kimzam
 ## Use
 
 ```bash
-# Send with a code. Prints three words for the other device.
+# Send with a code. Prints four words for the other device.
 nhako send holiday.mp4 notes.pdf
 
 # On the other device, type the words.
-nhako receive river lantern seven
+nhako receive river lantern seven harbor
 
 # Pair once and save each other as trusted (run one on each device).
 nhako pair                       # shows a code
-nhako pair river lantern seven   # enters it
+nhako pair river lantern seven harbor   # enters it
 
 # Then send by name, no code needed.
 nhako send report.pdf --to "Work phone"
 
-# Wait for files from nearby and trusted devices (asks before accepting).
+# A folder goes with everything inside it, keeping its shape.
+nhako send ~/Pictures/Trip --to "Work phone"
+
+# Text or a link. Text that arrives is printed, so it can be piped.
+nhako send --text "https://example.com/menu" --to "Work phone"
+
+# Wait for files from your devices (asks before accepting).
 nhako receive
 
 # See who's around.
 nhako devices
 ```
 
-Other commands: `nhako whoami`, `nhako name "Hakim's laptop"`, `nhako trust remove DEVICE`, `nhako trust auto-accept DEVICE on|off`.
+Other commands: `nhako who-can-send yours|everyone` (who may send here: your devices only, the default, or anyone on the same network; you're still asked), `nhako diagnostics` (a report on this device's network and nearby discovery, for a bug report), `nhako whoami`, `nhako name "Hakim's laptop"`, `nhako trust remove DEVICE`, `nhako trust auto-accept DEVICE on|off`.
 
 ## Your own server
 
@@ -58,7 +64,7 @@ nhako server public               # back to n0's free servers
 | `--local-only` | Same network only. No relay and no internet lookups. Codes still work on the same Wi-Fi. |
 | `--relay URL` | Use your own relay for this run only. `--relay-token` (or `NHAKO_RELAY_TOKEN`) and `--lookup URL` go with it. To keep it, use `nhako server set`. |
 | `--relay-only` | Never connect directly, always go through the relay. For testing a relay. |
-| `--no-mdns` | Don't look for devices on the same network. Useful for testing the internet path. |
+| `--no-nearby` | Don't look for devices on the same network (mDNS and the beacon). Useful for testing the internet path. The old name `--no-mdns` still works. |
 | `--save-dir DIR` | Where received files go for this run. The default is `Downloads/Nhako Beam`. |
 | `--config-dir DIR` | Where the device key, name and trusted devices live. The default is the platform config folder (`~/.config/nhakobeam` on Linux). Use different folders to run two devices on one machine. |
 | `--json` | Print every engine event as one JSON line on stdout, the same events the app gets. |

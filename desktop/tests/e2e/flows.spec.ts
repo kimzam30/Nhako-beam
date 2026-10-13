@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { center, closePanel, drag, haptics, ready, sim, soundsPlayed } from './helpers';
 
 test.describe('onboarding', () => {
@@ -181,13 +181,86 @@ test.describe('incoming', () => {
   });
 });
 
+test.describe('who can send', () => {
+  test('a device that only takes files from its own devices: says so and offers a code', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-photos');
+    await page.getByTestId('outcome').getByRole('radio', { name: 'Not theirs' }).click();
+    await closePanel(page);
+    await page.getByTestId('orb-d-studio').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'declined', { timeout: 5000 });
+    await expect(card).toContainText('Studio PC only takes files from its own devices');
+    await expect(card).toContainText('Pair with a code first, then send again.');
+    await card.getByTestId('pair-instead').click();
+    await expect(page.getByTestId('sheet-show-code')).toBeVisible();
+  });
+
+  test('Settings: Your devices by default, Everyone nearby on request, with a hint for each', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    const who = page.getByTestId('who-can-send');
+    await expect(who.getByRole('radio', { name: 'Your devices' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('who-can-send-hint')).toContainText('Anyone else is told no');
+    await who.getByRole('radio', { name: 'Everyone nearby' }).click();
+    await expect(who.getByRole('radio', { name: 'Everyone nearby' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('who-can-send-hint')).toContainText('You still decide each time');
+    expect(await page.evaluate(() => (window as any).__nhako.app.engine.getWhoCanSend())).toBe('everyoneNearby');
+  });
+
+  test('requests say when a device is not yours, and a received program asks before opening', async ({ page }) => {
+    await ready(page, { speed: 40 });
+    await sim(page, 'in-aisyah');
+    await closePanel(page);
+    await expect(page.getByTestId('incoming-card')).toBeVisible();
+    await expect(page.getByTestId('not-yours')).toHaveCount(0);
+    await page.getByTestId('decline').click();
+    await expect(page.getByTestId('incoming-card')).toBeHidden();
+
+    await sim(page, 'in-program');
+    await closePanel(page);
+    await expect(page.getByTestId('not-yours')).toHaveText('Not one of your devices');
+    await page.getByTestId('accept').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'done', { timeout: 15_000 });
+    await card.getByTestId('open').click();
+    const ask = page.getByTestId('sheet-confirm-open');
+    await expect(ask).toContainText('Open Setup.exe?');
+    await expect(ask).toContainText('Only open it if you expected it from Studio PC.');
+    await ask.getByTestId('cancel-open').click();
+    await expect(ask).toBeHidden();
+    await card.getByTestId('open').click();
+    await page.getByTestId('confirm-open').click();
+    await expect(page.getByTestId('sheet-confirm-open')).toBeHidden();
+    await expect(page.getByTestId('toast').first()).toContainText('Prototype: would open the file');
+  });
+});
+
+test.describe('long transfers', () => {
+  test('a folder of photos lists its files a page at a time', async ({ page }) => {
+    await ready(page, { speed: 1 });
+    await sim(page, 'in-folder');
+    await closePanel(page);
+    await page.getByTestId('accept').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', /connecting|transferring/);
+    await card.getByTestId('details').click();
+    const sheet = page.getByTestId('sheet-transfer');
+    await expect(sheet.locator('.files li')).toHaveCount(100);
+    await expect(sheet).toContainText('1,240 photos');
+    await sheet.getByTestId('files-more').click();
+    await expect(sheet.locator('.files li')).toHaveCount(200);
+    await expect(sheet.getByTestId('files-more')).toHaveText('Show 100 more');
+  });
+});
+
 test.describe('codes', () => {
-  test('show my code: QR, three words, countdown, expiry', async ({ page }) => {
+  test('show my code: QR, four words, countdown, expiry', async ({ page }) => {
     await ready(page);
     await page.getByTestId('send-code').click();
     const sheet = page.getByTestId('sheet-show-code');
     await expect(sheet.getByRole('img', { name: 'QR code for pairing' })).toBeVisible();
-    await expect(page.getByTestId('code-words').locator('.word')).toHaveCount(3);
+    await expect(page.getByTestId('code-words').locator('.word')).toHaveCount(4);
     await expect(page.getByTestId('code-timer')).toContainText('Expires in 10 min');
     await sim(page, 'code-expire-soon');
     await expect(page.getByTestId('code-timer')).toContainText(/Expires in 2\ds/);
@@ -217,6 +290,7 @@ test.describe('codes', () => {
     await page.getByTestId('code-word-0').fill('river');
     await page.getByTestId('code-word-1').fill('lanternz');
     await page.getByTestId('code-word-2').fill('seven');
+    await page.getByTestId('code-word-3').fill('harbor');
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('sheet-enter-code')).toContainText("isn't in the list");
     await page.getByTestId('code-word-1').fill('lantern');
@@ -423,6 +497,7 @@ test.describe('connection settings', () => {
     await page.getByTestId('code-word-0').fill('river');
     await page.getByTestId('code-word-1').fill('lantern');
     await page.getByTestId('code-word-2').fill('seven');
+    await page.getByTestId('code-word-3').fill('harbor');
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('sheet-enter-code')).toContainText("Your server turned this device away, so the other device couldn't be reached.");
     await page.getByTestId('sheet-close').click();
@@ -534,6 +609,17 @@ test.describe('phase 8', () => {
     await expect(page.getByTestId('settings')).toBeVisible();
   });
 
+  test('copy diagnostics puts the report on the clipboard', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('copy-diagnostics').click();
+    await expect(page.getByText('Diagnostics copied')).toBeVisible();
+    const text = await page.evaluate(() => navigator.clipboard.readText());
+    expect(text).toContain('Nhako Beam diagnostics');
+    expect(text).toContain('Nearby discovery');
+  });
+
   test('finding nearby devices can be turned off and on', async ({ page }) => {
     await ready(page);
     await page.getByTestId('open-settings').click();
@@ -643,5 +729,245 @@ test.describe('sounds', () => {
     await expect.poll(() => soundsPlayed(page), { timeout: 15_000 }).toContain('done');
     const heard = (await soundsPlayed(page)).filter((n) => n !== 'tap');
     expect(heard).toEqual(['incoming', 'accept', 'done']);
+  });
+});
+
+test.describe('bolt motion (phase 13)', () => {
+  /** Receives 4 photos from Studio PC and waits for the card to land on done. */
+  async function receiveToDone(page: Page) {
+    await sim(page, 'in-studio');
+    await closePanel(page);
+    await page.getByTestId('accept').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'done', { timeout: 15000 });
+    return card;
+  }
+
+  test('arcs, sparks, the riding bolt and the done check', async ({ page }) => {
+    await ready(page, { speed: 4 });
+    // A device turning up gets an arc from you to it.
+    await sim(page, 'disc-add');
+    await expect(page.getByTestId('radar-arc').first()).toBeAttached();
+    await closePanel(page);
+    // A primary button throws sparks; they clear themselves.
+    await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));
+    await expect(page.getByTestId('spark').first()).toBeAttached();
+    await expect(page.getByTestId('spark')).toHaveCount(0, { timeout: 2000 });
+    // While bytes move a bolt rides the beam; when done the bolt turns into a check.
+    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0.3));
+    await sim(page, 'in-studio');
+    await closePanel(page);
+    await page.getByTestId('accept').click();
+    await expect(page.getByTestId('beam-head')).toBeVisible({ timeout: 8000 });
+    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 8));
+    await expect(page.getByTestId('done-bolt')).toHaveAttribute('data-mode', 'check', { timeout: 15000 });
+  });
+
+  test('a failed transfer shows a cracked bolt; history empty shows a sleeping one', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-video');
+    await closePanel(page);
+    await page.getByTestId('orb-d-aisyah').click();
+    await expect(page.locator('[data-testid^="transfer-"]').first()).toHaveAttribute('data-status', 'transferring');
+    await sim(page, 'tr-fail');
+    await closePanel(page);
+    await expect(page.getByTestId('failed-bolt')).toHaveAttribute('data-mode', 'cracked');
+    await page.evaluate(() => {
+      const a = (window as any).__nhako.app;
+      a.history = [];
+      a.screen = 'history';
+    });
+    await expect(page.getByTestId('sleeping-bolt')).toBeVisible();
+  });
+
+  test('reduced motion: no sparks or arcs, the states still show', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await ready(page, { speed: 8 });
+    await sim(page, 'disc-add');
+    await closePanel(page);
+    await page.waitForTimeout(300);
+    await expect(page.getByTestId('radar-arc')).toHaveCount(0);
+    await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));
+    await page.waitForTimeout(50);
+    await expect(page.getByTestId('spark')).toHaveCount(0);
+    await receiveToDone(page);
+    await expect(page.getByTestId('done-bolt')).toHaveAttribute('data-mode', 'check');
+  });
+
+  test('the motion lab plays every piece and switches to reduced', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'motion-lab');
+    const lab = page.getByTestId('motion-lab');
+    await expect(lab).toBeVisible();
+    await expect(lab.locator('section')).toHaveCount(10);
+    await page.getByTestId('lab-spark').click();
+    await expect(page.getByTestId('spark').first()).toBeAttached();
+    await page.getByTestId('lab-count-up').click();
+    await expect(lab.getByRole('img', { name: '44%' })).toBeVisible();
+    await page.getByTestId('lab-motion').getByRole('radio', { name: 'Reduced' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-reduced', 'true');
+    await expect(page.getByTestId('spark')).toHaveCount(0, { timeout: 2000 });
+    await page.getByTestId('lab-spark').click();
+    await page.waitForTimeout(50);
+    await expect(page.getByTestId('spark')).toHaveCount(0);
+    await page.getByTestId('lab-close').click();
+    await expect(lab).toBeHidden();
+  });
+});
+
+test.describe('folders, text and trust (phase 14)', () => {
+  test('a folder goes as one: the tray and the history say its name', async ({ page }) => {
+    await ready(page, { speed: 30 });
+    await sim(page, 'stage-tree');
+    await closePanel(page);
+    await expect(page.getByTestId('staged-title')).toHaveText('Langkawi trip folder, 44 files');
+    await page.getByTestId('orb-d-aisyah').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'done', { timeout: 20_000 });
+    await expect(card).toContainText('Langkawi trip folder, 44 files');
+    await page.getByTestId('open-history').click();
+    await expect(page.getByTestId('history').getByText('Langkawi trip folder, 44 files').first()).toBeVisible();
+  });
+
+  test('a folder arriving shows by its name, and its files keep their folders', async ({ page }) => {
+    await ready(page, { speed: 30 });
+    await sim(page, 'in-tree');
+    await closePanel(page);
+    const card = page.getByTestId('incoming-card');
+    await expect(card.locator('.what')).toHaveText('Langkawi trip');
+    await expect(card).toContainText('44 files');
+    await page.getByTestId('accept').click();
+    await expect(page.locator('[data-testid^="transfer-"]').first()).toHaveAttribute('data-status', 'done', { timeout: 20_000 });
+    // Done quickly at this speed, so the file list is read from History.
+    await page.getByTestId('open-history').click();
+    await page.getByTestId('history').getByText('Langkawi trip folder, 44 files').first().click();
+    await expect(page.getByTestId('sheet-history')).toContainText('Langkawi trip/Day 1/');
+  });
+
+  test('text: write it, pick a device, it arrives as text with Copy', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await ready(page);
+    await page.getByTestId('send-text').click();
+    await page.getByTestId('compose-text').fill('Meet at 6 by the gate');
+    await page.getByTestId('compose-next').click();
+    await expect(page.getByTestId('sheet-send')).toContainText('Meet at 6 by the gate');
+    await page.getByTestId('send-row-d-aisyah').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'done', { timeout: 8000 });
+    await expect(card).toContainText("Text to Aisyah's laptop");
+    await card.getByTestId('text-card-copy').click();
+    await expect(page.getByText('Copied', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Meet at 6 by the gate');
+  });
+
+  test('text that is too long is turned away before it goes', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('send-text').click();
+    await page.getByTestId('compose-text').fill('x'.repeat(64 * 1024 + 10));
+    await expect(page.getByRole('alert')).toContainText('Too long by 10 B');
+    await expect(page.getByTestId('compose-next')).toBeDisabled();
+  });
+
+  test('a link request: read it first, then Copy accepts it', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await ready(page);
+    await sim(page, 'in-link');
+    await closePanel(page);
+    const card = page.getByTestId('incoming-card');
+    await expect(card.getByTestId('incoming-text')).toHaveText('https://nhako.example/trip/photos');
+    await expect(card.getByTestId('accept-open')).toBeVisible();
+    await card.getByTestId('accept').click();
+    await expect(page.locator('[data-testid^="transfer-"]').first()).toContainText('Link from Studio PC');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('https://nhako.example/trip/photos');
+  });
+
+  test('text from your own device goes straight to the clipboard', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await ready(page);
+    await sim(page, 'in-link-auto');
+    await closePanel(page);
+    await expect(page.getByText('Copied a link from Work phone')).toBeVisible();
+    await expect(page.getByTestId('incoming-card')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://nhako.example/trip/photos');
+  });
+
+  test('pasting on Home starts a text with what was pasted', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'Pasted note');
+      window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+    });
+    await expect(page.getByTestId('compose-text')).toHaveValue('Pasted note');
+  });
+
+  test('trust from Nearby: both screens show a code, then both are yours', async ({ page }, info) => {
+    await ready(page);
+    const orb = page.getByTestId('radar').getByTestId('orb-d-studio');
+    // A long press on phones, a right-click with a mouse.
+    if (info.project.name === 'phone') {
+      await orb.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true });
+      await page.waitForTimeout(650);
+      await orb.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true });
+      // The click a long press ends with doesn't also send.
+      await orb.dispatchEvent('click');
+      await expect(page.locator('[data-testid^="transfer-"]')).toHaveCount(0);
+    } else await orb.click({ button: 'right' });
+    await expect(page.getByTestId('sheet-device')).toContainText('Nearby, not one of your devices');
+    await page.getByTestId('device-trust').click();
+    await expect(page.getByTestId('sheet-trust-wait')).toBeVisible();
+    await expect(page.getByTestId('trust-check')).toHaveText(/A3F0 7C21/);
+    await expect(page.getByTestId('sheet-paired')).toContainText('Studio PC is one of your devices now', { timeout: 6000 });
+    await expect(page.getByTestId('trust-new')).toHaveCount(0);
+    await page.getByTestId('paired-continue').click();
+    await expect(orb.locator('.trusted')).toBeVisible();
+  });
+
+  test('trust from Nearby: a no, and a device that is out of date, say so', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-photos');
+    await page.getByTestId('trust-reply').getByRole('radio', { name: 'No' }).click();
+    await closePanel(page);
+    await page.getByTestId('choose-device').click();
+    await page.getByTestId('send-trust-d-tablet').click();
+    await expect(page.getByText("Mei Ling's tablet said no.")).toBeVisible({ timeout: 6000 });
+    await expect(page.getByTestId('sheet-trust-wait')).toHaveCount(0);
+    await page.getByTestId('dev-toggle').click();
+    await page.getByTestId('trust-reply').getByRole('radio', { name: 'Old' }).click();
+    await closePanel(page);
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('settings-trust-d-studio').click();
+    await expect(page.getByText('Studio PC needs a newer Nhako Beam first.')).toBeVisible();
+  });
+
+  test('being asked: the check, Add, and an ask that goes away', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'trust-ask');
+    await closePanel(page);
+    await expect(page.getByTestId('sheet-trust-ask')).toContainText('Add Studio PC to your devices?');
+    await expect(page.getByTestId('trust-ask-check')).toHaveText(/A3F0 7C21/);
+    await page.getByTestId('trust-yes').click();
+    await expect(page.getByTestId('sheet-paired')).toContainText('Studio PC is one of your devices now');
+    await page.getByTestId('paired-continue').click();
+    await sim(page, 'trust-ask');
+    await sim(page, 'trust-withdraw');
+    await closePanel(page);
+    await expect(page.getByTestId('sheet-trust-ask')).toHaveCount(0);
+    await expect(page.getByText('Studio PC stopped asking.')).toBeVisible();
+  });
+
+  test('off Wi-Fi: a banner, and an empty radar says why and offers a code', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'lan-off');
+    await closePanel(page);
+    await expect(page.getByTestId('banner-no-lan')).toBeVisible();
+    await expect(page.getByTestId('orb-d-studio')).toHaveCount(0);
+    await page.evaluate(() => {
+      const a = (window as any).__nhako.app;
+      a.devices = a.devices.map((d: any) => ({ ...d, reachable: false, route: null }));
+    });
+    await expect(page.getByTestId('empty-no-lan')).toContainText("You're not on Wi-Fi");
+    await page.getByTestId('no-lan-code').click();
+    await expect(page.getByTestId('sheet-show-code')).toBeVisible();
   });
 });

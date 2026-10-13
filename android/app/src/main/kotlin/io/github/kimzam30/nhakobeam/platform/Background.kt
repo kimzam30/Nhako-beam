@@ -98,6 +98,9 @@ class Background(private val context: Context, private val app: AppState, privat
                 postedRequests += e.request.id
             }
             is EngineEvent.TransferChanged -> onTransfer(e)
+            is EngineEvent.TrustAsk -> if (!foreground) notifier.showTrustAsk(e.request.deviceId, app.deviceName(e.request.deviceId))
+            is EngineEvent.TrustEnded -> notifier.cancel(Notifier.trustId(e.deviceId))
+            is EngineEvent.Paired -> notifier.cancel(Notifier.trustId(e.device.id))
             else -> {}
         }
         // Requests that were answered, withdrawn or timed out lose their notification.
@@ -112,11 +115,15 @@ class Background(private val context: Context, private val app: AppState, privat
     private fun onTransfer(e: EngineEvent.TransferChanged) {
         val tr = e.transfer
         if (tr.status != TransferStatus.Done || tr.direction != TransferDirection.Receive || !finished.add(tr.id)) return
-        scope.launch {
+        if (tr.text == null) scope.launch {
             val paths = runCatching { app.engine.savedFiles(tr.id) }.getOrDefault(emptyList())
             if (paths.isNotEmpty()) MediaScannerConnection.scanFile(context, paths.toTypedArray(), null, null)
         }
-        if (!foreground) notifier.showReceived(tr, app.deviceName(tr.deviceId))
+        if (foreground) return
+        // Text: copied straight away from your own devices; from anyone else it was accepted on screen.
+        if (tr.text != null) {
+            if (app.device(tr.deviceId)?.autoAccept == true) notifier.showCopied(tr, app.deviceName(tr.deviceId))
+        } else notifier.showReceived(tr, app.deviceName(tr.deviceId))
     }
 
     fun progressNotification(): Notification? {

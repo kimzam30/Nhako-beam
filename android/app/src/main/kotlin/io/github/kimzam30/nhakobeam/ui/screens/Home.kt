@@ -1,10 +1,10 @@
 package io.github.kimzam30.nhakobeam.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -33,14 +35,16 @@ import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
+import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.DiscoveryState
 import io.github.kimzam30.nhakobeam.model.ServerProblem
-import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.Screen
 import io.github.kimzam30.nhakobeam.state.Sheet
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.components.BannerTone
+import io.github.kimzam30.nhakobeam.ui.components.Bolt
+import io.github.kimzam30.nhakobeam.ui.components.BoltMode
 import io.github.kimzam30.nhakobeam.ui.components.ButtonSize
 import io.github.kimzam30.nhakobeam.ui.components.ButtonVariant
 import io.github.kimzam30.nhakobeam.ui.components.FileStack
@@ -50,6 +54,8 @@ import io.github.kimzam30.nhakobeam.ui.components.NIconButton
 import io.github.kimzam30.nhakobeam.ui.components.Radar
 import io.github.kimzam30.nhakobeam.ui.components.TransferCard
 import io.github.kimzam30.nhakobeam.ui.formatBytes
+import io.github.kimzam30.nhakobeam.ui.isLink
+import io.github.kimzam30.nhakobeam.ui.textPreview
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.style
@@ -63,7 +69,7 @@ fun HomeScreen(app: AppState) {
     fun pick(deviceId: String) {
         val d = app.device(deviceId) ?: return
         if (!d.reachable && !d.wakeable) return
-        if (app.staged.isNotEmpty()) app.sendTo(deviceId) else {
+        if (app.hasStaged) app.sendTo(deviceId) else {
             app.pickTarget = deviceId
             app.platform.pickFiles()
         }
@@ -87,7 +93,7 @@ fun HomeScreen(app: AppState) {
         when (app.discovery) {
             DiscoveryState.Offline -> NBanner(t("home.banner.offline"), icon = "wifi-slash")
             DiscoveryState.Blocked -> NBanner(t("home.banner.discoveryBlocked"), actionLabel = t("home.banner.discoveryBlocked.fix"), onAction = { app.engine.rescan() })
-            else -> {}
+            else -> if (!app.onLan) NBanner(t("home.banner.noLan"), icon = "cell-signal-full")
         }
         if (app.serverProblem != null && app.connection is Connection.Own) {
             val token = app.serverProblem == ServerProblem.TokenRejected
@@ -100,17 +106,19 @@ fun HomeScreen(app: AppState) {
             )
         }
 
-        AnimatedVisibility(app.staged.isNotEmpty(), enter = slideInVertically(NhakoMotion.bouncy.spec()) { -it / 3 } + fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(app.hasStaged, enter = slideInVertically(NhakoMotion.bouncy.spec()) { -it / 3 } + fadeIn(), exit = fadeOut()) {
             Row(
                 Modifier.fillMaxWidth().shadow(3.dp, RoundedCornerShape(NhakoRadius.lg)).clip(RoundedCornerShape(NhakoRadius.lg)).background(c.surface)
                     .padding(start = NhakoSpace.s4, end = NhakoSpace.s2, top = NhakoSpace.s3, bottom = NhakoSpace.s3),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FileStack(app.staged, 44.dp)
+                val text = app.stagedText
+                FileStack(app.staged, 44.dp, text = text)
                 Spacer(Modifier.width(NhakoSpace.s4))
                 Column(Modifier.weight(1f)) {
-                    BasicText(app.stagedSummary, style = NhakoType.headline.style(c.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    BasicText("${formatBytes(app.staged.sumOf { it.size })} · ${t("home.staged.hint")}", style = NhakoType.footnote.style(c.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BasicText(text?.let { textPreview(it) } ?: app.stagedSummary, style = NhakoType.headline.style(c.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val what = text?.let { t(if (isLink(it)) "staged.link" else "staged.text") } ?: formatBytes(app.staged.sumOf { it.size })
+                    BasicText("$what · ${t("home.staged.hint")}", style = NhakoType.footnote.style(c.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 NButton(t("send.clear"), { app.clearStaged() }, variant = ButtonVariant.Plain, size = ButtonSize.Sm)
             }
@@ -122,9 +130,16 @@ fun HomeScreen(app: AppState) {
         }
 
         if (nothingNearby && transfers.isEmpty()) {
+            // On mobile data nearby can't work, so say why and offer the way that does.
+            val noLan = !app.onLan && app.discovery != DiscoveryState.Offline
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                BasicText(t("home.empty.title"), style = NhakoType.headline.style(c.textPrimary))
-                BasicText(t("home.empty.body"), Modifier.padding(horizontal = NhakoSpace.s5), style = NhakoType.callout.style(c.textSecondary).copy(textAlign = TextAlign.Center))
+                Bolt(26.dp, mode = BoltMode.Asleep)
+                BasicText(t(if (noLan) "home.empty.noLan.title" else "home.empty.title"), style = NhakoType.headline.style(c.textPrimary))
+                BasicText(t(if (noLan) "home.empty.noLan.body" else "home.empty.body"), Modifier.padding(horizontal = NhakoSpace.s5), style = NhakoType.callout.style(c.textSecondary).copy(textAlign = TextAlign.Center))
+                if (noLan) {
+                    Spacer(Modifier.height(NhakoSpace.s2))
+                    NButton(t("home.empty.noLan.action"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "qr-code")
+                }
             }
         }
 
@@ -137,10 +152,15 @@ fun HomeScreen(app: AppState) {
         }
 
         NButton(
-            if (app.staged.isNotEmpty()) t("send.choose.title") + "…" else t("home.action.sendFiles"),
-            { if (app.staged.isNotEmpty()) app.sheet = Sheet.Send else app.platform.pickFiles() },
+            if (app.hasStaged) t("send.choose.title") + "…" else t("home.action.sendFiles"),
+            { if (app.hasStaged) app.sheet = Sheet.Send else app.platform.pickFiles() },
             full = true, size = ButtonSize.Lg, icon = "paper-plane-tilt", iconWeight = IconWeight.Fill,
         )
+        if (!app.hasStaged) Row(Modifier.offset(y = (-4).dp)) {
+            NButton(t("home.action.folder"), { app.platform.pickFolder() }, Modifier.weight(1f), variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "folder-simple", full = true, padding = NhakoSpace.s2)
+            NButton(t("home.action.text"), { app.sheet = Sheet.Compose() }, Modifier.weight(1f), variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "text-aa", full = true, padding = NhakoSpace.s2)
+            NButton(t("home.action.clipboard"), { app.stageClipboard() }, Modifier.weight(1f), variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "clipboard-text", full = true, padding = NhakoSpace.s2)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
             NButton(t("home.action.sendCode"), { app.sheet = Sheet.ShowCode }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "qr-code", full = true, padding = NhakoSpace.s4)
             NButton(t("home.action.receiveCode"), { app.sheet = Sheet.Scan }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "download-simple", full = true, padding = NhakoSpace.s4)

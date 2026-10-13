@@ -1,6 +1,8 @@
-//! Key derivation for three-word codes. See docs/protocol/nhako-1.md, section 7.
+//! Key derivation for four-word codes. See docs/protocol/nhako-1.md, section 7.
 
 use iroh::{EndpointId, SecretKey};
+
+use crate::words::CODE_WORDS;
 
 /// Codes live 10 minutes, and the Argon2 salt changes with the same period.
 pub const WINDOW_SECS: u64 = 600;
@@ -46,9 +48,10 @@ impl KdfCost {
 
 impl CodeKeys {
     /// Slow on purpose (64 MB and about 0.13 s on a desktop CPU with `KdfCost::REAL`). Run it off the async runtime.
-    pub fn derive(words: &[String; 3], window: u64, cost: KdfCost) -> Self {
+    pub fn derive(words: &[String; CODE_WORDS], window: u64, cost: KdfCost) -> Self {
         let password = words.iter().map(|w| w.trim().to_ascii_lowercase()).collect::<Vec<_>>().join(" ");
-        let salt = format!("nhakobeam-code-v1:{window}");
+        // v2: four words. A v1 (three word) code never derives the same keys.
+        let salt = format!("nhakobeam-code-v2:{window}");
         let params = argon2::Params::new(cost.memory_kib, cost.iterations, 1, Some(32)).expect("valid argon2 params");
         let argon = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let mut k = [0u8; 32];
@@ -93,6 +96,26 @@ impl CodeKeys {
     }
 }
 
+const TRUST_COMMIT_CTX: &str = "nhakobeam 2026-10 trust commit";
+const TRUST_CHECK_CTX: &str = "nhakobeam 2026-10 trust check";
+
+/// What a device asking to be trusted sends first: a commitment to its random number, revealed
+/// only after the other device has sent its own. Neither side can pick its number to steer the
+/// check value, so someone in the middle gets one guess in 4 billion at making both screens match.
+pub fn trust_commit(nonce: &[u8; 32]) -> [u8; 32] {
+    blake3::derive_key(TRUST_COMMIT_CTX, nonce)
+}
+
+/// The short value both screens show while one device asks the other to trust it, like `5D19 E04A`.
+pub fn trust_check(asker_nonce: &[u8; 32], asked_nonce: &[u8; 32], asker: &EndpointId, asked: &EndpointId) -> String {
+    let mut material = Vec::with_capacity(128);
+    material.extend_from_slice(asker_nonce);
+    material.extend_from_slice(asked_nonce);
+    material.extend_from_slice(asker.as_bytes());
+    material.extend_from_slice(asked.as_bytes());
+    hex_groups(&blake3::derive_key(TRUST_CHECK_CTX, &material)[..4])
+}
+
 /// Constant time comparison for macs.
 pub fn macs_equal(a: &[u8; 32], b: &[u8; 32]) -> bool {
     blake3::Hash::from_bytes(*a) == blake3::Hash::from_bytes(*b)
@@ -125,8 +148,8 @@ pub fn fingerprint(id: &EndpointId) -> String {
 mod tests {
     use super::*;
 
-    fn words(a: &str, b: &str, c: &str) -> [String; 3] {
-        [a.into(), b.into(), c.into()]
+    fn words(a: &str, b: &str, c: &str) -> [String; CODE_WORDS] {
+        [a.into(), b.into(), c.into(), "harbor".into()]
     }
 
     #[test]
@@ -180,7 +203,7 @@ mod timing {
     #[test]
     #[ignore]
     fn real_cost() {
-        let words = ["river".to_string(), "lantern".to_string(), "seven".to_string()];
+        let words = ["river", "lantern", "seven", "harbor"].map(String::from);
         let start = std::time::Instant::now();
         for w in 0..5 {
             CodeKeys::derive(&words, w, KdfCost::REAL);

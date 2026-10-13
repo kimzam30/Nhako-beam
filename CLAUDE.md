@@ -28,7 +28,7 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 | `design/sounds/` | Every sound, made from scratch by `build.mjs` into WAVs both apps use ([design/sounds/README.md](design/sounds/README.md)) |
 | `docs/design/` | Design system, motion spec, every screen and state, all UI copy |
 | `docs/brand/` | The brand kit: logo (SVG, PNG), posters, launch videos |
-| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)); `licenses.mjs` for About > Open source licenses |
+| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)); `licenses.mjs` for About > Open source licenses; `bump-version.mjs` for releases ([docs/releasing.md](docs/releasing.md)) |
 
 ## Things that must stay in step
 
@@ -37,6 +37,7 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 - **Design tokens:** edit `design/tokens/tokens.json`, then `npm run tokens` in `desktop/`. The build output in `design/tokens/build/` is committed.
 - **Sounds:** edit `design/sounds/build.mjs`, then `npm run sounds` in `desktop/`. `design/sounds/build/` is committed. Where each sound plays is twinned too: `desktop/src/lib/state/app.svelte.ts` and `AppState.kt` play the same ones on the same events.
 - **Behavior:** `desktop/src/lib/state/app.svelte.ts` and `android/.../state/AppState.kt` are twins. A change in one usually belongs in the other.
+- **Version:** six files carry it (`Cargo.toml`, `Cargo.lock`, `desktop/package.json`, `desktop/package-lock.json`, `tauri.conf.json`, `build.gradle.kts`). Change it only with `node scripts/bump-version.mjs <version>`; the Release workflow fails if they differ from the tag.
 - **Licenses:** after changing dependencies (Cargo.lock, `desktop/package-lock.json`, `android/gradle/libs.versions.toml`), run `node scripts/licenses.mjs` and commit its two JSON files.
 - **Icons on Android:** `shared-assets.mjs` only copies icons the Kotlin code names as a string, so run it after using a new one.
 

@@ -117,7 +117,7 @@ Words we use and avoid:
 | `code.show.expired` | This code expired |
 | `code.show.new` | New code |
 | `code.enter.title` | Enter the code |
-| `code.enter.body` | Type the three words shown on the other device. |
+| `code.enter.body` | Type the four words shown on the other device. |
 | `code.enter.scan` | Scan instead |
 | `code.enter.wrong` | That code didn't match. Check the words and try again. |
 | `code.enter.unknownWord` | That word isn't in the list. Check the spelling. |
@@ -215,7 +215,7 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `settings.device.name` | Device name |
 | `settings.device.save` | Save location |
 | `settings.trusted.title` | Trusted devices |
-| `settings.trusted.empty` | No trusted devices yet. Save one after connecting with a code. |
+| `settings.trusted.empty` | No trusted devices yet. Trust one that is nearby, or save one after connecting with a code. |
 | `settings.trusted.autoAccept` | Accept files automatically |
 | `settings.trusted.remove` | Remove |
 | `settings.trusted.remove.confirm` | Remove {device}? You'll need a code to connect again. |
@@ -278,6 +278,10 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `settings.about.version` | Version {version} |
 | `settings.about.fingerprint` | This device's fingerprint |
 | `settings.about.licenses` | Open source licenses |
+| `settings.about.diagnostics` | Copy diagnostics |
+| `settings.about.diagnostics.hint` | Network details and recent logs, to paste into a bug report. Device names and internet addresses are left out. |
+| `settings.about.diagnostics.copied` | Diagnostics copied |
+| `settings.about.diagnostics.failed` | Couldn't copy the diagnostics |
 
 ## 9. Accessibility labels (screen readers)
 
@@ -324,8 +328,8 @@ Strings for the real engine, your own server going wrong, and the desktop app.
 | `home.banner.server.unreachable` | Can't reach your server right now. Devices on the same Wi-Fi still work. |
 | `home.banner.server.fix` | Settings |
 | `code.enter.tokenRejected` | Your server turned this device away, so the other device couldn't be reached. Check the token in Settings. |
-| `send.skipped.one` | 1 folder was left out. Folders can't be sent yet. |
-| `send.skipped.many` | {n} folders were left out. Folders can't be sent yet. |
+| `send.skipped.one` | 1 item was left out. It couldn't be read, or it's an empty folder. |
+| `send.skipped.many` | {n} items were left out. They couldn't be read, or they're empty folders. |
 | `send.failed` | Couldn't send. |
 | `transfer.openFailed` | Couldn't open it. |
 | `settings.device.save.failed` | Can't use that folder. |
@@ -426,3 +430,100 @@ Strings in the desktop app's Rust side (`desktop/src-tauri`), which notification
 | Tray menu (Linux) | Quick view / Open Nhako Beam / Quit |
 | Notification, file request (buttons) | Accept / Decline. Body: Accept to save it in your Nhako Beam folder. |
 | Notification, files arrived (buttons) | Open / Show in folder |
+
+## 14. Added in Phase 11 (security)
+
+Codes are four words now, so `code.enter.body` changed (section 4).
+
+| Key | Text |
+|---|---|
+| `send.notAllowed` | {device} only takes files from its own devices |
+| `send.notAllowed.hint` | Pair with a code first, then send again. |
+| `send.notAllowed.pair` | Pair with a code |
+| `error.notAllowed` | {device} only takes files from its own devices. Pair with a code, then send again. |
+| `incoming.notYours` | Not one of your devices |
+| `settings.section.receiving` | Receiving |
+| `settings.receive.who` | Who can send to me |
+| `settings.receive.who.yours` | Your devices |
+| `settings.receive.who.everyone` | Everyone nearby |
+| `settings.receive.who.yours.hint` | Devices you trust, and devices you connect with a code. Anyone else is told no, and you won't see their requests. |
+| `settings.receive.who.everyone.hint` | Anyone on the same network can ask to send. You still decide each time. |
+| `settings.receive.who.failed` | Couldn't save that. Try again. |
+| `open.risky.title` | Open {file}? |
+| `open.risky.body` | It's a program or script, so opening it runs it. Only open it if you expected it from {device}. |
+| `open.risky.confirm` | Open anyway |
+
+## 15. Added in Phase 12 (performance)
+
+| Key | Text |
+|---|---|
+| `transfer.files.more` | Show {count} more |
+
+## 16. Added in Phase 14 (folders, text, trust from Nearby)
+
+Folders can be sent now, so `send.skipped.one` and `send.skipped.many` speak of items that couldn't be read or empty folders, and `settings.trusted.empty` mentions trusting a device that is nearby.
+
+Summaries add folders: "Trip folder, 240 files", "2 folders, 31 files", "Trip folder and 3 photos". A request for one folder shows the folder's name with "240 files · 1.2 GB" under it. Text shows its first line ("Meet at 6 by the north gate.").
+
+| Key | Text |
+|---|---|
+| `home.empty.noLan.title` | You're not on Wi-Fi |
+| `home.empty.noLan.body` | Nearby devices show up on the same Wi-Fi. Away from it you can still reach your own devices: pair one with a code, or trust it next time you're together. |
+| `home.empty.noLan.action` | Use a code |
+| `home.banner.noLan` | You're on mobile data. Only your own devices show up here. |
+| `home.action.folder` | Folder |
+| `home.action.text` | Text |
+| `home.action.clipboard` | Clipboard |
+| `send.clipboard.empty` | Your clipboard has no text to send. |
+| `send.text.tooLong` | That's too long to send as text. Save it in a file and send that. |
+| `send.choose.trust` | Trust |
+| `staged.text` | Text |
+| `staged.link` | Link |
+| `compose.title` | Send text |
+| `compose.placeholder` | Type a note, or paste a link |
+| `compose.paste` | Paste |
+| `compose.next` | Choose a device |
+| `compose.sendTo` | Send to {device} |
+| `compose.tooLong` | Too long by {over}. Send it as a file instead. |
+| `text.from` | Text from {device} |
+| `text.to` | Text to {device} |
+| `text.link.from` | Link from {device} |
+| `text.link.to` | Link to {device} |
+| `text.copy` | Copy |
+| `text.show` | Show |
+| `text.open` | Open link |
+| `text.copied` | Copied |
+| `text.copied.from` | Copied text from {device} |
+| `text.copied.link` | Copied a link from {device} |
+| `text.copyFailed` | Couldn't copy it. Select the text and copy it yourself. |
+| `device.send.files` | Send files |
+| `device.send.folder` | Send a folder |
+| `device.send.text` | Send text |
+| `device.yours` | One of your devices |
+| `device.notYours` | Nearby, not one of your devices |
+| `device.fingerprint` | Fingerprint |
+| `device.trust` | Trust this device |
+| `device.trust.hint` | You'll each save the other as one of your devices, and find each other anywhere, over the internet too, without a code. |
+| `trust.wait.title` | Waiting for {device} |
+| `trust.wait.reaching` | Reaching {device} |
+| `trust.wait.body` | Accept on {device}, then check that both screens show |
+| `trust.ask.title` | Add {device} to your devices? |
+| `trust.ask.body` | {device} asked to be one of your devices, with this one as one of its own. You'll find each other anywhere and send without a code. Only say yes if it's yours. |
+| `trust.ask.check` | Check that both screens show |
+| `trust.ask.yes` | Add |
+| `trust.ask.no` | Not now |
+| `trust.ended.declined` | {device} said no. |
+| `trust.ended.outdated` | {device} needs a newer Nhako Beam first. |
+| `trust.ended.unreachable` | Couldn't reach {device}. Try again when it's nearby. |
+| `trust.ended.busy` | {device} is busy. Try again in a moment. |
+| `trust.ended.withdrawn` | {device} stopped asking. |
+| `code.matched.nearby` | {device} is one of your devices now |
+| `code.matched.nearby.body` | You'll find each other anywhere now, over the internet too. |
+| `settings.trusted.nearby` | Nearby, not yours yet |
+| `history.detail.text` | Text |
+| `notify.request.text` | some text |
+| `notify.request.link` | a link |
+| `notify.copied.title` | Copied {what} from {device} |
+| `notify.trust.title` | {device} wants to add this phone to its devices |
+| `notify.trust.body` | Open Nhako Beam to check that both screens show the same code. |
+

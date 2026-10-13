@@ -1,4 +1,4 @@
-// Pairing codes: showing one (QR, words, countdown ring), typing one (three word slots with
+// Pairing codes: showing one (QR, words, countdown ring), typing one (four word slots with
 // autocomplete) and scanning one (camera). Twins of CodeDisplay.svelte, CodeInput.svelte, QrScanner.svelte.
 package io.github.kimzam30.nhakobeam.ui.components
 
@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -87,7 +88,8 @@ fun formatRemaining(ms: Long): String {
 
 /**
  * The code this device shows: a QR code drawn as dots with rounded finder squares, a ring around
- * it that counts down the 10 minutes (warning color in the last 20 seconds), the three words, and Copy.
+ * it that counts down the 10 minutes (warning color in the last 20 seconds), the four words (two
+ * lines of two, like the slots that type them), and Copy.
  */
 @Composable
 fun CodeDisplay(app: AppState, code: PairingCode, modifier: Modifier = Modifier) {
@@ -141,7 +143,7 @@ fun CodeDisplay(app: AppState, code: PairingCode, modifier: Modifier = Modifier)
             }
         }
         BasicText(
-            code.words.joinToString("  "),
+            code.words.chunked(2).joinToString("\n") { it.joinToString("  ") },
             style = NhakoType.codeWords.style(c.textPrimary).copy(textAlign = TextAlign.Center),
             modifier = Modifier.semantics { contentDescription = "Code: ${code.words.joinToString(", ")}" },
         )
@@ -169,59 +171,90 @@ fun CodeDisplay(app: AppState, code: PairingCode, modifier: Modifier = Modifier)
 /** QR modules as dots, finder patterns as rounded squares with an accent center. */
 @Composable
 fun QrDots(m: BitMatrix, accent: Color, modifier: Modifier = Modifier) {
+    // It draws itself in from the top left corner, in diagonal bands, 45 ms apart (desktop:
+    // `dotBands` in CodeDisplay.svelte). Reduced motion: it's just there.
+    val reduced = Nhako.reducedMotion
+    val drawIn = remember(m) { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(m) { if (!reduced) drawIn.animateTo(1f, tween(QR_BANDS * 45 + 430, easing = LinearEasing)) }
     Canvas(modifier.size(172.dp)) {
         val n = m.width
         val cell = size.width / n
+        val elapsed = drawIn.value * (QR_BANDS * 45 + 430)
+        // How far along band [b] is (0 to 1), each starting 45 ms after the one before.
+        fun shown(b: Int) = NhakoMotion.Easing.enter.transform(((elapsed - 40 - b * 45) / 430f).coerceIn(0f, 1f))
         fun inFinder(x: Int, y: Int) = (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7)
         for (y in 0 until n) for (x in 0 until n) {
-            if (m[x, y] && !inFinder(x, y)) drawCircle(Color(0xFF121418), radius = cell * 0.42f, center = Offset((x + 0.5f) * cell, (y + 0.5f) * cell))
+            if (!m[x, y] || inFinder(x, y)) continue
+            val k = shown(minOf(QR_BANDS - 1, ((x + y).toFloat() / (2 * n) * QR_BANDS).toInt()))
+            if (k > 0f) drawCircle(Color(0xFF121418), radius = cell * 0.42f * (0.82f + 0.18f * k), center = Offset((x + 0.5f) * cell, (y + 0.5f) * cell), alpha = k)
         }
-        for ((fx, fy) in listOf(0 to 0, n - 7 to 0, 0 to n - 7)) {
+        for ((i, f) in listOf(0 to 0, n - 7 to 0, 0 to n - 7).withIndex()) {
+            val (fx, fy) = f
+            val k = shown(listOf(0, 2, 4)[i])
             val o = Offset(fx * cell, fy * cell)
-            drawRoundRect(Color(0xFF121418), o + Offset(cell * 0.5f, cell * 0.5f), Size(cell * 6, cell * 6), CornerRadius(cell * 1.8f), style = Stroke(cell))
-            drawRoundRect(accent, o + Offset(cell * 2, cell * 2), Size(cell * 3, cell * 3), CornerRadius(cell * 0.9f))
+            drawRoundRect(Color(0xFF121418), o + Offset(cell * 0.5f, cell * 0.5f), Size(cell * 6, cell * 6), CornerRadius(cell * 1.8f), style = Stroke(cell), alpha = k)
+            drawRoundRect(accent, o + Offset(cell * 2, cell * 2), Size(cell * 3, cell * 3), CornerRadius(cell * 0.9f), alpha = k)
         }
     }
 }
 
-/** What CodeInput exposes: the three words, and a way to shake a slot after a wrong code. */
+private const val QR_BANDS = 7
+
+/** How many words a pairing code has (core/src/words.rs `CODE_WORDS`). */
+const val CODE_WORDS = 4
+
+/** What CodeInput exposes: the four words, and a way to shake a slot after a wrong code. */
 @Stable
 class CodeInputState {
-    val words = mutableListOf("", "", "").let { androidx.compose.runtime.mutableStateListOf(*it.toTypedArray()) }
+    val words = androidx.compose.runtime.mutableStateListOf(*Array(CODE_WORDS) { "" })
     internal var shakeSlot by mutableIntStateOf(-2)
     internal var shakeSeq by mutableIntStateOf(0)
     val complete: Boolean get() = words.all { it.trim().length > 1 }
 
-    /** Shakes slot [index], or all three when null. */
+    /** Shakes slot [index], or all of them when null. */
     fun shake(index: Int?) {
         shakeSlot = index ?: -1
         shakeSeq++
     }
 
-    /** Pasting "river lantern seven" (or with dashes) into any slot fills all three. */
+    /** Pasting "river lantern seven harbor" (or with dashes) fills the slots from [index] on, as on desktop. */
     fun set(index: Int, value: String) {
         val parts = value.trim().lowercase().split(Regex("[\\s,.-]+")).filter { it.isNotEmpty() }
-        if (parts.size >= 3) {
-            for (i in 0..2) words[i] = parts[i]
+        if (parts.size > 1) {
+            parts.take(CODE_WORDS - index).forEachIndexed { k, w -> words[index + k] = w }
         } else {
             words[index] = value.lowercase().replace(" ", "")
         }
     }
 }
 
-/** Three word slots with a check when a word is real, and suggestions under the slot being typed in. */
+/** Four word slots in two rows of two, with a check when a word is real, and suggestions under the slot being typed in. */
 @Composable
 fun CodeInput(state: CodeInputState, enabled: Boolean, onSubmit: () -> Unit, modifier: Modifier = Modifier) {
     val c = Nhako.colors
-    val focus = remember { List(3) { FocusRequester() } }
+    val last = CODE_WORDS - 1
+    val focus = remember { List(CODE_WORDS) { FocusRequester() } }
     var active by remember { mutableIntStateOf(0) }
+    // When every word is right, the slots lock with a zap, one after another.
+    val allRight = state.words.all { Words.isWord(it) }
+    val zaps = remember { IntArray(CODE_WORDS) }
+    var zapSeq by remember { mutableIntStateOf(0) }
+    LaunchedEffect(allRight) { if (allRight) zapSeq++ }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
-            for (i in 0..2) {
+        for (row in (0..last).chunked(2)) Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+            for (i in row) {
                 val shake = remember { Animatable(0f) }
                 LaunchedEffect(state.shakeSeq) {
                     if (state.shakeSeq > 0 && (state.shakeSlot == -1 || state.shakeSlot == i)) {
                         for (x in listOf(-8f, 7f, -5f, 3f, 0f)) shake.animateTo(x, tween(55))
+                    }
+                }
+                var zap by remember { mutableIntStateOf(0) }
+                LaunchedEffect(zapSeq) {
+                    if (zapSeq > zaps[i]) {
+                        zaps[i] = zapSeq
+                        delay(i * 60L)
+                        zap++
                     }
                 }
                 val word = state.words[i]
@@ -229,17 +262,17 @@ fun CodeInput(state: CodeInputState, enabled: Boolean, onSubmit: () -> Unit, mod
                 NTextField(
                     value = word,
                     onChange = { v ->
-                        if (v.endsWith(" ") && Words.isWord(v.trim()) && i < 2) {
+                        if (v.endsWith(" ") && Words.isWord(v.trim()) && i < last) {
                             state.set(i, v.trim())
                             focus[i + 1].requestFocus()
                         } else {
                             state.set(i, v)
                         }
                     },
-                    modifier = Modifier.weight(1f).focusRequester(focus[i]).onFocusChanged { if (it.isFocused) active = i }.graphicsLayer { translationX = shake.value * density },
-                    placeholder = listOf("first", "second", "third")[i],
-                    imeAction = if (i < 2) ImeAction.Next else ImeAction.Go,
-                    onDone = { if (i < 2) focus[i + 1].requestFocus() else if (state.complete) onSubmit() },
+                    modifier = Modifier.weight(1f).sparks(zap, count = 3, reach = 24f, sizeDp = 11f).focusRequester(focus[i]).onFocusChanged { if (it.isFocused) active = i }.graphicsLayer { translationX = shake.value * density },
+                    placeholder = listOf("first", "second", "third", "fourth")[i],
+                    imeAction = if (i < last) ImeAction.Next else ImeAction.Go,
+                    onDone = { if (i < last) focus[i + 1].requestFocus() else if (state.complete) onSubmit() },
                     style = NhakoType.headline.style(c.textPrimary),
                     trailing = if (valid) ({ PhIcon("check-circle", size = 16.dp, tint = c.accent, weight = IconWeight.Fill) }) else null,
                 )
@@ -255,7 +288,7 @@ fun CodeInput(state: CodeInputState, enabled: Boolean, onSubmit: () -> Unit, mod
                             role = Role.Button,
                             onClick = withTap {
                                 state.words[active] = s
-                                if (active < 2) focus[active + 1].requestFocus()
+                                if (active < last) focus[active + 1].requestFocus()
                             },
                         ).padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
                         style = NhakoType.callout.style(c.accentText).copy(fontWeight = FontWeight(500)),

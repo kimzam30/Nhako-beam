@@ -20,13 +20,21 @@ use tauri::Manager;
 /// Started by "start at login": stay in the tray instead of opening the window.
 pub const HIDDEN_ARG: &str = "--hidden";
 
-pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,iroh=warn,iroh_relay=warn,netwatch=warn,portmapper=warn".into()),
-        )
-        .init();
+const LOG_FILTER: &str = "info,iroh=warn,iroh_relay=warn,netwatch=warn,portmapper=warn";
 
+/// Logs to the terminal and to the log file in the config folder (the Windows app has no terminal,
+/// so the file is the only record; Settings > About > Copy diagnostics includes it).
+fn init_logging(config_dir: &Path) {
+    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+    let file = nhako_core::logfile::install(config_dir);
+    let _ = tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| LOG_FILTER.into()))
+        .with(fmt::layer())
+        .with(fmt::layer().with_ansi(false).with_writer(move || file.writer()))
+        .try_init();
+}
+
+pub fn run() {
     tauri::Builder::default()
         // A second launch (from the menu, the .desktop file, or "Send with Nhako Beam") shows the
         // window that is already running, and hands over any files to send.
@@ -38,12 +46,15 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![HIDDEN_ARG]),
         ))
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(sound::Sounds::new());
             let config_dir = app.path().app_config_dir()?;
+            init_logging(&config_dir);
+            tracing::info!(version = %app.package_info().version, "Nhako Beam desktop starting");
             app.manage(engine::Host::new(config_dir.clone()));
             let shell = shell::Shell::load(config_dir);
             shell.setup_file_menu(&app.path().data_dir()?);
@@ -58,11 +69,21 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(shell::on_window_event)
+        .on_webview_event(shell::on_webview_event)
         .invoke_handler(tauri::generate_handler![
             engine::engine_start,
             engine::engine_stop,
             engine::rescan,
             engine::files_from_paths,
+            engine::pick_files,
+            engine::pick_folders,
+            engine::send_text,
+            engine::read_clipboard,
+            engine::write_clipboard,
+            engine::ask_trust,
+            engine::cancel_trust,
+            engine::answer_trust,
+            engine::pick_save_dir,
             engine::send,
             engine::accept,
             engine::decline,
@@ -78,11 +99,14 @@ pub fn run() {
             engine::rename_self,
             engine::get_self,
             engine::set_save_dir,
+            engine::diagnostics,
             engine::get_connection,
             engine::set_connection,
             engine::check_server,
             engine::get_lan_discovery,
             engine::set_lan_discovery,
+            engine::get_who_can_send,
+            engine::set_who_can_send,
             engine::clear_history,
             shell::open_link,
             popover::open_main,

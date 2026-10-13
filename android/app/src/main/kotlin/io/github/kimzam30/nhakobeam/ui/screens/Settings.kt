@@ -1,5 +1,8 @@
 package io.github.kimzam30.nhakobeam.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -8,7 +11,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +64,7 @@ import io.github.kimzam30.nhakobeam.design.NhakoType
 import io.github.kimzam30.nhakobeam.model.CheckResult
 import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.ServerCheck
+import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.MotionPref
 import io.github.kimzam30.nhakobeam.state.Prefs
@@ -94,6 +102,7 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
     val c = Nhako.colors
     BackHandler { app.navigate(Screen.Home) }
     val trusted = app.devices.filter { it.trusted }.sortedBy { it.name }
+    val nearbyUntrusted = app.devices.filter { !it.trusted && it.reachable && it.route == io.github.kimzam30.nhakobeam.model.Route.Nearby }.sortedBy { it.name }
 
     Column(
         Modifier.fillMaxSize().background(c.canvas).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.ime)
@@ -131,7 +140,11 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                 }
             }
 
-            Section(1, t("settings.trusted.title")) {
+            Section(1, t("settings.section.receiving")) {
+                NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) { WhoCanSendSetting(app) }
+            }
+
+            Section(2, t("settings.trusted.title")) {
                 NCard {
                     Column {
                         if (trusted.isEmpty()) {
@@ -152,9 +165,30 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                         }
                     }
                 }
+                // Devices here right now that aren't yours yet: trusting one asks the other to agree.
+                if (nearbyUntrusted.isNotEmpty()) {
+                    Spacer(Modifier.height(NhakoSpace.s5))
+                    SectionTitle(t("settings.trusted.nearby"))
+                    NCard {
+                        Column {
+                            nearbyUntrusted.forEachIndexed { i, d ->
+                                if (i > 0) Separator()
+                                Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalAlignment = Alignment.CenterVertically) {
+                                    DeviceOrb(d, 40.dp, showName = false)
+                                    Spacer(Modifier.width(NhakoSpace.s3))
+                                    Column(Modifier.weight(1f)) {
+                                        BasicText(d.name, style = NhakoType.headline.style(c.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        BasicText(d.fingerprint, style = NhakoType.footnote.style(c.textSecondary))
+                                    }
+                                    NButton(t("send.choose.trust"), { app.askTrust(d.id) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "handshake")
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Section(2, t("settings.section.connection")) {
+            Section(3, t("settings.section.connection")) {
                 Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
                     NCard {
                         val scope = rememberCoroutineScope()
@@ -169,7 +203,7 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                 }
             }
 
-            Section(3, t("settings.section.appearance")) {
+            Section(4, t("settings.section.appearance")) {
                 NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) {
                     Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
                         BasicText(t("settings.appearance.theme"), style = NhakoType.body.style(c.textPrimary))
@@ -207,7 +241,7 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                 }
             }
 
-            Section(4, t("settings.about.title")) {
+            Section(5, t("settings.about.title")) {
                 NCard {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4)) {
@@ -237,9 +271,92 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                             BasicText(t("settings.about.licenses"), Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary))
                             PhIcon("caret-right", size = 16.dp, tint = c.textTertiary)
                         }
+                        Separator()
+                        DiagnosticsRow(app)
                     }
                 }
             }
+        }
+    }
+}
+
+/** Settings > About > Copy diagnostics. The copy icon turns into a check once it's on the clipboard. */
+@Composable
+private fun DiagnosticsRow(app: AppState) {
+    val c = Nhako.colors
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    var copied by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().pressScale(press).clickable(press, null, onClick = withTap {
+            scope.launch {
+                val ok = app.copyDiagnostics { text ->
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Nhako Beam diagnostics", text))
+                }
+                if (ok) {
+                    copied = true
+                    delay(1600)
+                    copied = false
+                }
+            }
+        }).padding(vertical = NhakoSpace.s4),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s4),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s1)) {
+            BasicText(t("settings.about.diagnostics"), style = NhakoType.body.style(c.textPrimary))
+            BasicText(t("settings.about.diagnostics.hint"), style = NhakoType.footnote.style(c.textSecondary))
+        }
+        val reduced = Nhako.reducedMotion
+        AnimatedContent(
+            copied,
+            transitionSpec = {
+                if (reduced) {
+                    fadeIn(tween(NhakoMotion.Duration.fast)) togetherWith fadeOut(tween(NhakoMotion.Duration.fast))
+                } else {
+                    (fadeIn(tween(NhakoMotion.Duration.fast)) + scaleIn(NhakoMotion.snappy.spec(), initialScale = 0.6f)) togetherWith
+                        (fadeOut(tween(90)) + scaleOut(tween(90), targetScale = 0.6f))
+                }
+            },
+            label = "diagnostics icon",
+        ) { done ->
+            PhIcon(if (done) "check" else "copy", size = 18.dp, tint = if (done) c.success else c.textTertiary)
+        }
+    }
+}
+
+/** Settings > Receiving > Who can send to me, with a hint that changes with the choice. */
+@Composable
+private fun WhoCanSendSetting(app: AppState) {
+    val c = Nhako.colors
+    val scope = rememberCoroutineScope()
+    val reduced = Nhako.reducedMotion
+    Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+        BasicText(t("settings.receive.who"), style = NhakoType.body.style(c.textPrimary))
+        NSegmented(
+            listOf(
+                SegmentOption(WhoCanSend.YourDevices, t("settings.receive.who.yours"), "shield-check"),
+                SegmentOption(WhoCanSend.EveryoneNearby, t("settings.receive.who.everyone"), "broadcast"),
+            ),
+            app.whoCanSend, { who -> scope.launch { app.setWhoCanSend(who) } },
+        )
+        AnimatedContent(
+            app.whoCanSend,
+            transitionSpec = {
+                if (reduced) {
+                    fadeIn(tween(NhakoMotion.Duration.fast)) togetherWith fadeOut(tween(NhakoMotion.Duration.fast))
+                } else {
+                    (fadeIn(tween(NhakoMotion.Duration.fast)) + slideInVertically(NhakoMotion.snappy.spec()) { -it / 4 }) togetherWith fadeOut(tween(90))
+                }
+            },
+            label = "who can send hint",
+        ) { who ->
+            BasicText(
+                t(if (who == WhoCanSend.YourDevices) "settings.receive.who.yours.hint" else "settings.receive.who.everyone.hint"),
+                style = NhakoType.footnote.style(c.textSecondary),
+            )
         }
     }
 }

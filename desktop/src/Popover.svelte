@@ -8,7 +8,7 @@
   import { listenForTaps } from './lib/sounds.svelte';
   import { onFileDrop } from './lib/shell';
   import { t } from './lib/copy';
-  import { formatBytes, summarizeFiles } from './lib/format';
+  import { formatBytes, summarize } from './lib/format';
   import { springIn, quickOut, springFlip, stagger } from './lib/motion/transitions';
   import Button from './components/Button.svelte';
   import DeviceOrb from './components/DeviceOrb.svelte';
@@ -62,13 +62,28 @@
     };
   });
 
+  // Each time the tray opens it, the popover drops in from the tray on the snappy spring.
+  let pop: HTMLElement | undefined = $state();
+  let lastDrop = 0;
+  function drop() {
+    const now = performance.now();
+    if (!pop || now - lastDrop < 600) return;
+    lastDrop = now;
+    const keys = prefs.reducedMotion
+      ? [{ opacity: 0.4 }, { opacity: 1 }]
+      : [{ opacity: 0.4, transform: 'translateY(-10px) scale(0.98)' }, { opacity: 1, transform: 'none' }];
+    pop.animate(keys, { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
+  }
+
   async function sendTo(deviceId: string) {
     const files = await app.pickFiles();
     if (files.length) app.sendTo(deviceId, files);
   }
 </script>
 
-<main class="pop" data-testid="popover">
+<svelte:window onfocus={drop} />
+
+<main class="pop" data-testid="popover" bind:this={pop}>
   <header class="head" in:springIn={{ y: -8 }}>
     <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
       <rect width="1024" height="1024" rx="230" fill="var(--brand-blue)" />
@@ -88,7 +103,7 @@
       <section class="request" animate:springFlip in:springIn={{ preset: 'bouncy', y: -12 }} out:quickOut={{ x: 24, y: 0 }}>
         <p>
           <strong>{t('incoming.title', { device: app.deviceName(r.deviceId) })}</strong>
-          <span class="muted tabular">{summarizeFiles(r.files)} · {formatBytes(r.totalBytes)}</span>
+          <span class="muted tabular">{summarize(r)}{r.text === undefined ? ` · ${formatBytes(r.totalBytes)}` : ''}</span>
         </p>
         <div class="request-actions">
           <Button variant="secondary" size="sm" sound="decline" onclick={() => app.decline(r.id)}>{t('incoming.decline')}</Button>

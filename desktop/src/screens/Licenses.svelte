@@ -54,7 +54,7 @@
   <p class="intro" in:springIn={{ y: 8 }}>{t('licenses.intro')}</p>
 
   {#if data}
-    <div class="search" in:springIn={{ delay: 40, y: 8 }}>
+    <div class="search charge" in:springIn={{ delay: 40, y: 8 }}>
       <Icon name="magnifying-glass" size={18} />
       <input bind:value={query} placeholder={t('licenses.search')} aria-label={t('licenses.search')} data-testid="licenses-search" />
       <span class="count tabular">{t('licenses.count', { count: shown.length })}</span>

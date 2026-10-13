@@ -3,7 +3,7 @@
 // produces. When the window (re)loads, the engine sends one snapshot so the app can redraw.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { Connection, Engine, EngineEvent, FileItem, PairingCode, RedeemResult, SelfInfo, ServerCheck, Snapshot } from './types';
+import type { Connection, Engine, EngineEvent, FileItem, PairingCode, RedeemResult, SelfInfo, ServerCheck, Snapshot, WhoCanSend } from './types';
 
 const EVENT = 'nhako://event';
 const RESYNC = 'nhako://resync';
@@ -88,6 +88,10 @@ export class TauriEngine implements Engine {
     return invoke<string>('send', { deviceId, fileIds: files.map((f) => f.id) });
   }
 
+  sendText(deviceId: string, text: string): Promise<string> {
+    return invoke<string>('send_text', { deviceId, text });
+  }
+
   accept(requestId: string, opts: { trust?: boolean; autoAccept?: boolean } = {}): Promise<string | null> {
     return invoke<string | null>('accept', { requestId, trust: !!opts.trust, autoAccept: !!opts.autoAccept });
   }
@@ -130,6 +134,18 @@ export class TauriEngine implements Engine {
     this.fire('set_trusted', { deviceId, trusted });
   }
 
+  askTrust(deviceId: string): Promise<void> {
+    return invoke('ask_trust', { deviceId });
+  }
+
+  cancelTrust(deviceId: string): void {
+    this.fire('cancel_trust', { deviceId });
+  }
+
+  answerTrust(deviceId: string, yes: boolean): void {
+    this.fire('answer_trust', { deviceId, yes });
+  }
+
   setAutoAccept(deviceId: string, on: boolean): void {
     this.fire('set_auto_accept', { deviceId, on });
   }
@@ -168,7 +184,19 @@ export class TauriEngine implements Engine {
     return invoke('set_lan_discovery', { on });
   }
 
+  getWhoCanSend(): Promise<WhoCanSend> {
+    return invoke<WhoCanSend>('get_who_can_send');
+  }
+
+  setWhoCanSend(who: WhoCanSend): Promise<void> {
+    return invoke('set_who_can_send', { who });
+  }
+
   clearHistory(): void {
     this.fire('clear_history');
+  }
+
+  diagnostics(): Promise<string> {
+    return invoke<string>('diagnostics');
   }
 }

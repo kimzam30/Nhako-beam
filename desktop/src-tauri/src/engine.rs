@@ -15,12 +15,15 @@ use std::{
 };
 
 use nhako_core::{
-    Connection, Engine, EngineConfig, EngineEvent, FileItem, IncomingRequest, Network, OwnServer, PairingCode, RedeemResult, ServerCheck, Snapshot,
-    TransferDirection, TransferStatus, check_server as check, files,
+    Connection, Engine, EngineConfig, EngineEvent, FileItem, IncomingRequest, Network, Outgoing, OwnServer, PairingCode, RedeemResult, ServerCheck, Snapshot,
+    Transfer, TransferDirection, TransferStatus, WhoCanSend, check_server as check, engine_limits, files,
     store::{self, Store},
+    text,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, async_runtime::JoinHandle};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::warn;
@@ -38,9 +41,16 @@ pub struct Host {
     forward: Mutex<Option<JoinHandle<()>>>,
     /// Starting, stopping and restarting happen one at a time.
     lifecycle: tokio::sync::Mutex<()>,
-    /// Files the window picked or dropped: the app only sees ids, the engine needs paths.
-    files: Mutex<HashMap<String, PathBuf>>,
+    /// Files the window picked or dropped: the app only sees ids, the engine needs paths (and,
+    /// for a file inside a folder being sent, the folder it's in).
+    files: Mutex<HashMap<String, (PathBuf, Option<String>)>>,
     file_seq: AtomicU64,
+    /// Paths you handed the app yourself (the file dialog, a drop, "Send with Nhako Beam") and a
+    /// save folder you chose, not yet used. The window can only send or save to these, so a
+    /// script that somehow got into the page couldn't send any file it names.
+    offered: Mutex<HashSet<PathBuf>>,
+    /// Set by the real-app test (`NHAKO_TEST_ANY_PATH=1`), which can't drag real files in.
+    any_path: bool,
 }
 
 impl Host {
@@ -52,7 +62,35 @@ impl Host {
             lifecycle: tokio::sync::Mutex::new(()),
             files: Mutex::new(HashMap::new()),
             file_seq: AtomicU64::new(0),
+            offered: Mutex::new(HashSet::new()),
+            any_path: std::env::var_os("NHAKO_TEST_ANY_PATH").is_some_and(|v| v == "1"),
         }
+    }
+
+    /// Remembers paths you handed the app yourself (see `offered`).
+    pub fn offer(&self, paths: impl IntoIterator<Item = PathBuf>) {
+        let mut offered = self.offered.lock().expect("offered lock");
+        // Drops that never get staged shouldn't pile up for ever.
+        if offered.len() > 10_000 {
+            offered.clear();
+        }
+        offered.extend(paths);
+    }
+
+    /// Takes `path` out of the offered set. A drop reaches the window through an event, so its
+    /// paths may still be on their way here: wait a moment for them.
+    async fn take_offered(&self, path: &Path) -> bool {
+        if self.any_path {
+            return true;
+        }
+        for _ in 0..20 {
+            if self.offered.lock().expect("offered lock").remove(path) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        warn!("refused a path the window wasn't given: {}", path.display());
+        false
     }
 
     fn running(&self) -> Option<Engine> {
@@ -129,19 +167,32 @@ impl Host {
 }
 
 /// Passes engine events to the window, and raises a notification when the window isn't looked at.
+/// Also tells the engine whether a window is on screen, so it checks on devices less often while
+/// the app sits in the tray.
 async fn forward(app: AppHandle, engine: Engine) {
     let mut events = engine.subscribe();
     let mut notified = HashSet::new();
+    let mut look = tokio::time::interval(Duration::from_secs(5));
+    let mut on_screen = None;
     loop {
-        match events.recv().await {
-            Ok(event) => {
-                notify(&app, &engine, &event, &mut notified);
-                let _ = app.emit(EVENT, &event);
+        tokio::select! {
+            event = events.recv() => match event {
+                Ok(event) => {
+                    notify(&app, &engine, &event, &mut notified);
+                    let _ = app.emit(EVENT, &event);
+                }
+                Err(RecvError::Lagged(_)) => {
+                    let _ = app.emit(RESYNC, engine.snapshot());
+                }
+                Err(RecvError::Closed) => break,
+            },
+            _ = look.tick() => {
+                let now = shell::on_screen(&app);
+                if on_screen != Some(now) {
+                    on_screen = Some(now);
+                    engine.set_foreground(now);
+                }
             }
-            Err(RecvError::Lagged(_)) => {
-                let _ = app.emit(RESYNC, engine.snapshot());
-            }
-            Err(RecvError::Closed) => break,
         }
     }
 }
@@ -158,19 +209,73 @@ fn notify(app: &AppHandle, engine: &Engine, event: &EngineEvent, notified: &mut 
     match event {
         EngineEvent::Incoming { request } => {
             let id = request.id.clone();
+            let body = match &request.text {
+                Some(t) => preview(t),
+                None => "Accept to save it in your Nhako Beam folder.".into(),
+            };
             shell::notify_with_actions(
                 app,
                 &incoming_title(&name(&request.device_id), request),
-                "Accept to save it in your Nhako Beam folder.",
+                &body,
                 &[("accept", "Accept"), ("decline", "Decline")],
                 move |app, action| answer_from_notification(app, &id, action),
+            );
+        }
+        // Text from your own devices with "Accept files automatically" on goes straight to the
+        // clipboard; the window shows the same toast when it's open. Text you accepted on a card
+        // is copied from there.
+        EngineEvent::Transfer { transfer }
+            if transfer.direction == TransferDirection::Receive
+                && transfer.status == TransferStatus::Done
+                && transfer.text.is_some()
+                && notified.insert(transfer.id.clone()) =>
+        {
+            let auto = engine.devices().iter().any(|d| d.id == transfer.device_id && d.auto_accept);
+            if !auto {
+                return;
+            }
+            let body = transfer.text.clone().unwrap_or_default();
+            if let Err(e) = app.clipboard().write_text(body.clone()) {
+                warn!("couldn't copy received text: {e}");
+                return;
+            }
+            let link = text::is_link(&body).then(|| body.trim().to_string());
+            let actions: &[(&str, &str)] = if link.is_some() { &[("open", "Open link")] } else { &[] };
+            shell::notify_with_actions(
+                app,
+                &format!("Copied {} from {}", text_phrase(transfer), name(&transfer.device_id)),
+                &preview(&body),
+                actions,
+                move |app, action| match (action, &link) {
+                    ("open", Some(url)) => {
+                        let _ = app.opener().open_url(url, None::<&str>);
+                    }
+                    ("default", _) => shell::show_window(app),
+                    _ => {}
+                },
+            );
+        }
+        EngineEvent::TrustAsk { request } => {
+            shell::notify_with_actions(
+                app,
+                &format!("{} wants to add this computer to its devices", name(&request.device_id)),
+                "Open Nhako Beam to check that both screens show the same code.",
+                &[],
+                |app, action| {
+                    if action == "default" {
+                        shell::show_window(app);
+                    }
+                },
             );
         }
         // Once per transfer: a finished transfer can be reported more than once.
         EngineEvent::Transfer { transfer }
             if transfer.direction == TransferDirection::Receive && transfer.status == TransferStatus::Done && notified.insert(transfer.id.clone()) =>
         {
-            let what = files_phrase(transfer.files.len(), transfer.files.first().map(|f| f.name.as_str()));
+            let what = match top_folder(&transfer.files) {
+                Some(folder) => format!("the folder {folder}"),
+                None => files_phrase(transfer.files.len(), transfer.files.first().map(|f| f.name.as_str())),
+            };
             let id = transfer.id.clone();
             shell::notify_with_actions(
                 app,
@@ -211,10 +316,35 @@ fn answer_from_notification(app: &AppHandle, request_id: &str, action: &str) {
 }
 
 fn incoming_title(device: &str, r: &IncomingRequest) -> String {
-    format!(
-        "{device} wants to send you {}",
-        files_phrase(r.files.len(), r.files.first().map(|f| f.name.as_str()))
-    )
+    let what = match &r.text {
+        Some(t) if text::is_link(t) => "a link".to_string(),
+        Some(_) => "some text".to_string(),
+        None => match top_folder(&r.files) {
+            Some(folder) => format!("the folder {folder}"),
+            None => files_phrase(r.files.len(), r.files.first().map(|f| f.name.as_str())),
+        },
+    };
+    format!("{device} wants to send you {what}")
+}
+
+fn text_phrase(t: &Transfer) -> &'static str {
+    if t.text.as_deref().is_some_and(text::is_link) { "a link" } else { "text" }
+}
+
+/// The first line or so of a text, for a notification.
+fn preview(t: &str) -> String {
+    let line = t.trim().lines().next().unwrap_or_default();
+    let short: String = line.chars().take(80).collect();
+    if short.len() < t.trim().len() { format!("{short}…") } else { short }
+}
+
+/// The one folder every file is in, when a single folder was sent.
+fn top_folder(files: &[FileItem]) -> Option<&str> {
+    let first = files.first()?.folder.as_deref()?.split('/').next()?;
+    files
+        .iter()
+        .all(|f| f.folder.as_deref().and_then(|d| d.split('/').next()) == Some(first))
+        .then_some(first)
 }
 
 fn files_phrase(n: usize, first: Option<&str>) -> String {
@@ -248,11 +378,11 @@ pub struct SelfInfo {
 #[tauri::command]
 pub async fn engine_start(app: AppHandle, host: State<'_, Host>, name: Option<String>) -> Result<Started, String> {
     let _g = host.lifecycle.lock().await;
-    if let Some(name) = name.filter(|n| !n.trim().is_empty())
+    if let Some(name) = name.map(|n| nhako_core::text::device_name(&n)).filter(|n| !n.is_empty())
         && host.running().is_none()
     {
         let mut s = host.store()?;
-        s.state.name = name.trim().chars().filter(|c| !c.is_control()).take(32).collect();
+        s.state.name = name;
         s.save().map_err(|e| e.to_string())?;
     }
     let engine = match host.running() {
@@ -303,49 +433,199 @@ pub async fn get_self(app: AppHandle, host: State<'_, Host>) -> Result<SelfInfo,
 #[serde(rename_all = "camelCase")]
 pub struct Picked {
     files: Vec<FileItem>,
-    /// Folders and things that couldn't be read. Folders aren't sent in this version.
+    /// Things that couldn't be read, and empty folders.
     skipped: usize,
 }
 
-/// Turns picked or dropped paths into the app's file items, and remembers which path each id is.
+/// Turns dropped paths, or files from "Send with Nhako Beam", into the app's file items. Only
+/// paths you handed the app yourself are taken (see `Host::offered`); others count as skipped.
 #[tauri::command]
 pub async fn files_from_paths(host: State<'_, Host>, paths: Vec<PathBuf>) -> Result<Picked, String> {
+    let mut allowed = Vec::new();
+    let mut refused = 0;
+    for p in paths {
+        if host.take_offered(&p).await {
+            allowed.push(p);
+        } else {
+            refused += 1;
+        }
+    }
+    let mut picked = stage(&host, allowed);
+    picked.skipped += refused;
+    Ok(picked)
+}
+
+/// The native "choose files" dialog, over the window that asked. `None` when cancelled.
+#[tauri::command]
+pub async fn pick_files(window: tauri::Window, host: State<'_, Host>) -> Result<Option<Picked>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("Choose files to send")
+        .pick_files(move |p| {
+            let _ = tx.send(p);
+        });
+    let paths: Vec<PathBuf> = rx
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .collect();
+    Ok((!paths.is_empty()).then(|| stage(&host, paths)))
+}
+
+/// The native "choose folder" dialog for folders to send, over the window that asked. `None`
+/// when cancelled.
+#[tauri::command]
+pub async fn pick_folders(window: tauri::Window, host: State<'_, Host>) -> Result<Option<Picked>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("Choose folders to send")
+        .pick_folders(move |p| {
+            let _ = tx.send(p);
+        });
+    let paths: Vec<PathBuf> = rx
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .collect();
+    Ok((!paths.is_empty()).then(|| stage(&host, paths)))
+}
+
+/// The native "choose folder" dialog for where received files go, starting at `current`.
+/// The chosen folder can then be saved with `set_save_dir`. `None` when cancelled.
+#[tauri::command]
+pub async fn pick_save_dir(window: tauri::Window, host: State<'_, Host>, current: Option<PathBuf>) -> Result<Option<PathBuf>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut dialog = window.dialog().file().set_parent(&window).set_title("Where should received files go?");
+    if let Some(dir) = current.filter(|d| d.is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog.pick_folder(move |p| {
+        let _ = tx.send(p);
+    });
+    let dir = rx.await.ok().flatten().and_then(|p| p.into_path().ok());
+    if let Some(dir) = &dir {
+        host.offer([dir.clone()]);
+    }
+    Ok(dir)
+}
+
+fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
     let mut out = Vec::new();
     let mut skipped = 0;
     let mut known = host.files.lock().expect("files lock");
+    let mut add = |out: &mut Vec<FileItem>, p: PathBuf, size: u64, folder: Option<String>| {
+        let id = format!("p{}", host.file_seq.fetch_add(1, Ordering::Relaxed));
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+        out.push(FileItem {
+            id: id.clone(),
+            mime: files::mime_for(&name),
+            name,
+            size,
+            folder: folder.clone(),
+        });
+        known.insert(id, (p, folder));
+    };
     for p in paths {
         match std::fs::metadata(&p) {
-            Ok(m) if m.is_file() => {
-                let id = format!("p{}", host.file_seq.fetch_add(1, Ordering::Relaxed));
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-                out.push(FileItem {
-                    id: id.clone(),
-                    mime: files::mime_for(&name),
-                    name,
-                    size: m.len(),
-                });
-                known.insert(id, p);
-            }
+            Ok(m) if m.is_file() => add(&mut out, p, m.len(), None),
+            // A folder goes with everything inside it, keeping its shape.
+            Ok(m) if m.is_dir() => match files::walk_folder(&p, engine_limits::FILES_MAX) {
+                Ok(inside) if !inside.is_empty() => {
+                    for (file, folder) in inside {
+                        match std::fs::metadata(&file) {
+                            Ok(m) => add(&mut out, file, m.len(), Some(folder)),
+                            Err(_) => skipped += 1,
+                        }
+                    }
+                }
+                _ => skipped += 1,
+            },
             _ => skipped += 1,
         }
     }
-    Ok(Picked { files: out, skipped })
+    Picked { files: out, skipped }
 }
 
 #[tauri::command]
 pub async fn send(host: State<'_, Host>, device_id: String, file_ids: Vec<String>) -> Result<String, String> {
-    let paths: Vec<PathBuf> = {
+    let out: Vec<Outgoing> = {
         let known = host.files.lock().expect("files lock");
-        file_ids.iter().filter_map(|id| known.get(id).cloned()).collect()
+        file_ids
+            .iter()
+            .filter_map(|id| known.get(id).cloned())
+            .map(|(path, folder)| Outgoing {
+                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
+                path,
+                folder,
+            })
+            .collect()
     };
-    if paths.len() != file_ids.len() {
+    if out.len() != file_ids.len() {
         return Err("Some of those files can't be found any more. Add them again.".into());
     }
-    host.engine()?.send(&device_id, &paths).map_err(|e| match e {
+    host.engine()?.send_files(&device_id, &out).map_err(|e| match e {
         nhako_core::EngineError::File { path, .. } => format!("Couldn't read {}. It may have been moved or deleted.", display_name(&path)),
         nhako_core::EngineError::UnknownDevice => "That device isn't known any more.".into(),
         other => other.to_string(),
     })
+}
+
+/// Sends text: a note, a link, a clipboard. Returns the transfer id.
+#[tauri::command]
+pub async fn send_text(host: State<'_, Host>, device_id: String, text: String) -> Result<String, String> {
+    host.engine()?.send_text(&device_id, &text).map_err(|e| match e {
+        nhako_core::EngineError::TextTooLong => "That's too long to send as text. Save it in a file and send that.".into(),
+        nhako_core::EngineError::NoFiles => "There's nothing to send.".into(),
+        nhako_core::EngineError::UnknownDevice => "That device isn't known any more.".into(),
+        other => other.to_string(),
+    })
+}
+
+/// What's on the clipboard as text, for "Send clipboard". Empty when there's none.
+#[tauri::command]
+pub async fn read_clipboard(app: AppHandle) -> Result<String, String> {
+    Ok(app.clipboard().read_text().unwrap_or_default())
+}
+
+/// Puts text on the clipboard ("Copy" on text that arrived). Works with the window in the background too.
+#[tauri::command]
+pub async fn write_clipboard(app: AppHandle, text: String) -> Result<(), String> {
+    app.clipboard().write_text(text).map_err(|e| {
+        warn!("couldn't copy: {e}");
+        "Couldn't copy it.".to_string()
+    })
+}
+
+#[tauri::command]
+pub async fn ask_trust(host: State<'_, Host>, device_id: String) -> Result<(), String> {
+    host.engine()?.ask_trust(&device_id).map_err(|e| match e {
+        nhako_core::EngineError::NotNearby => "That device isn't nearby any more.".into(),
+        _ => "That device isn't known any more.".into(),
+    })
+}
+
+#[tauri::command]
+pub async fn cancel_trust(host: State<'_, Host>, device_id: String) -> Result<(), String> {
+    host.engine()?.cancel_trust(&device_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn answer_trust(host: State<'_, Host>, device_id: String, yes: bool) -> Result<(), String> {
+    host.engine()?.answer_trust(&device_id, yes);
+    Ok(())
 }
 
 fn display_name(p: &Path) -> String {
@@ -366,14 +646,19 @@ fn open_saved(app: &AppHandle, engine: &Engine, transfer_id: &str, reveal: bool)
     let Some(first) = saved.first() else {
         return Err("The files aren't there any more. They may have been moved or deleted.".into());
     };
+    // A folder that arrived: open it, or show it in the save folder.
+    let save_dir = engine.me().save_dir;
+    let shared = shared_folder(&saved, &save_dir);
     let opener = app.opener();
-    let result = if reveal {
-        opener.reveal_item_in_dir(first)
-    } else if saved.len() == 1 {
-        opener.open_path(first.to_string_lossy(), None::<&str>)
-    } else {
-        let dir = first.parent().unwrap_or(first);
-        opener.open_path(dir.to_string_lossy(), None::<&str>)
+    let result = match (&shared, reveal) {
+        (Some(folder), true) => opener.reveal_item_in_dir(folder),
+        (Some(folder), false) => opener.open_path(folder.to_string_lossy(), None::<&str>),
+        (None, true) => opener.reveal_item_in_dir(first),
+        (None, false) if saved.len() == 1 => opener.open_path(first.to_string_lossy(), None::<&str>),
+        (None, false) => {
+            let dir = first.parent().unwrap_or(first);
+            opener.open_path(dir.to_string_lossy(), None::<&str>)
+        }
     };
     result.map_err(|e| {
         warn!("couldn't open {}: {e}", first.display());
@@ -381,9 +666,23 @@ fn open_saved(app: &AppHandle, engine: &Engine, transfer_id: &str, reveal: bool)
     })
 }
 
+/// The folder inside `save_dir` that holds every saved file, when they arrived as one folder.
+fn shared_folder(saved: &[PathBuf], save_dir: &Path) -> Option<PathBuf> {
+    let top = |p: &PathBuf| -> Option<PathBuf> {
+        let rest = p.strip_prefix(save_dir).ok()?;
+        let mut parts = rest.components();
+        let first = parts.next()?;
+        // Only a file inside a folder there, not one saved straight in it.
+        parts.next()?;
+        Some(save_dir.join(first))
+    };
+    let first = top(saved.first()?)?;
+    saved.iter().all(|p| top(p).as_ref() == Some(&first)).then_some(first)
+}
+
 #[tauri::command]
 pub async fn set_save_dir(host: State<'_, Host>, dir: PathBuf) -> Result<(), String> {
-    if !dir.is_absolute() {
+    if !dir.is_absolute() || !host.take_offered(&dir).await {
         return Err("Pick a folder.".into());
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("Can't use that folder: {e}"))?;
@@ -476,7 +775,7 @@ pub async fn rename_self(host: State<'_, Host>, name: String) -> Result<(), Stri
     host.settings(
         |e| e.rename_self(&name),
         |s| {
-            let name: String = name.trim().chars().filter(|c| !c.is_control()).take(32).collect();
+            let name: String = nhako_core::text::device_name(&name);
             if name.is_empty() {
                 return Ok(());
             }
@@ -518,10 +817,38 @@ pub async fn set_lan_discovery(app: AppHandle, host: State<'_, Host>, on: bool) 
         .await
 }
 
+/// Who can send to me. Applies to the next request, so no restart.
+#[tauri::command]
+pub async fn get_who_can_send(host: State<'_, Host>) -> Result<WhoCanSend, String> {
+    host.settings(|e| e.who_can_send(), |s| Ok(s.state.who_can_send)).await
+}
+
+#[tauri::command]
+pub async fn set_who_can_send(host: State<'_, Host>, who: WhoCanSend) -> Result<(), String> {
+    host.settings(
+        |e| e.set_who_can_send(who).map_err(|e| e.to_string()),
+        |s| {
+            s.state.who_can_send = who;
+            Ok(s.save().map_err(|e| e.to_string()))
+        },
+    )
+    .await?
+}
+
 #[tauri::command]
 pub async fn clear_history(host: State<'_, Host>) -> Result<(), String> {
     host.engine()?.clear_history();
     Ok(())
+}
+
+/// Settings > About > Copy diagnostics: the network and nearby discovery report, with recent logs.
+#[tauri::command]
+pub async fn diagnostics(app: AppHandle, host: State<'_, Host>) -> Result<String, String> {
+    let line = format!("desktop {}", app.package_info().version);
+    Ok(match host.running() {
+        Some(e) => e.diagnostics(&line),
+        None => nhako_core::diagnostics_without_engine(&line),
+    })
 }
 
 #[tauri::command]
@@ -545,12 +872,31 @@ mod tests {
                 name: "holiday.mp4".into(),
                 size: 1,
                 mime: "video/mp4".into(),
+                folder: None,
             }],
             total_bytes: 1,
             received_at: 0,
+            text: None,
         };
         assert_eq!(incoming_title("Aisyah's phone", &r), "Aisyah's phone wants to send you holiday.mp4");
         assert_eq!(files_phrase(3, Some("a")), "3 files");
+        let mut folder = r.clone();
+        folder.files[0].folder = Some("Trip/day 2".into());
+        assert_eq!(incoming_title("Aisyah's phone", &folder), "Aisyah's phone wants to send you the folder Trip");
+        let mut link = r.clone();
+        link.text = Some("https://example.com".into());
+        assert_eq!(incoming_title("Aisyah's phone", &link), "Aisyah's phone wants to send you a link");
+        assert_eq!(preview("first line\nsecond"), "first line…");
+        assert_eq!(preview("  short  "), "short");
+    }
+
+    #[test]
+    fn a_folder_that_arrived_opens_as_one() {
+        let save = PathBuf::from("/home/k/Downloads/Nhako Beam");
+        let inside = vec![save.join("Trip/a.jpg"), save.join("Trip/day 2/b.jpg")];
+        assert_eq!(shared_folder(&inside, &save), Some(save.join("Trip")));
+        assert_eq!(shared_folder(&[save.join("a.jpg")], &save), None, "a file on its own");
+        assert_eq!(shared_folder(&[save.join("Trip/a.jpg"), save.join("b.jpg")], &save), None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

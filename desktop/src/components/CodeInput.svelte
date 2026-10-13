@@ -1,10 +1,12 @@
 <script lang="ts">
-  // Three word slots. Autocomplete shows the rest of the word as ghost text (Tab, Enter or
-  // right arrow accepts it; on touch, tap the suggestion chip). Pasting fills all three.
+  // Four word slots (two rows of two when narrow). Autocomplete shows the rest of the word as
+  // ghost text (Tab, Enter or right arrow accepts it; on touch, tap the suggestion chip). Pasting
+  // fills them all.
   // A correct word locks in with a small snappy pop; a wrong one shakes.
-  import { isWord, splitCode, suggest } from '../lib/engine/words';
+  import { CODE_WORDS, isWord, splitCode, suggest } from '../lib/engine/words';
   import { shake } from '../lib/motion/springs';
   import { springIn } from '../lib/motion/transitions';
+  import { spark } from '../lib/motion/bolt';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -15,12 +17,24 @@
 
   let { words = $bindable(), disabled = false, onsubmit }: Props = $props();
 
+  const LAST = CODE_WORDS - 1;
+  const slotIndexes = Array.from({ length: CODE_WORDS }, (_, i) => i);
+  const ordinal = ['first', 'second', 'third', 'fourth'];
+
   let inputs: HTMLInputElement[] = $state([]);
   let slots: HTMLElement[] = $state([]);
   let focusIndex = $state(0);
 
   const valid = $derived(words.map((w) => isWord(w)));
   const ghost = $derived(words.map((w) => (w && !isWord(w) ? (suggest(w, 1)[0] ?? '') : '')));
+  // When every word is right, the slots lock with a zap, one after another.
+  let locked = false;
+  $effect(() => {
+    const all = valid.length === CODE_WORDS && valid.every(Boolean);
+    if (all && !locked) slots.forEach((s, i) => s && setTimeout(() => spark(s, { count: 3, reach: 24, size: 11 }), i * 60));
+    locked = all;
+  });
+
   const chips = $derived(suggest(words[focusIndex] ?? '', 3).filter((s) => s !== words[focusIndex]));
 
   function setWord(i: number, v: string) {
@@ -42,9 +56,9 @@
 
   function fill(parts: string[], from = 0) {
     const next = [...words];
-    parts.slice(0, 3 - from).forEach((p, k) => (next[from + k] = p));
+    parts.slice(0, CODE_WORDS - from).forEach((p, k) => (next[from + k] = p));
     words = next;
-    const last = Math.min(2, from + parts.length - 1);
+    const last = Math.min(LAST, from + parts.length - 1);
     inputs[last]?.focus();
   }
 
@@ -56,7 +70,7 @@
   }
 
   function advance(i: number) {
-    if (i < 2) inputs[i + 1]?.focus();
+    if (i < LAST) inputs[i + 1]?.focus();
     else if (valid.every(Boolean)) onsubmit();
   }
 
@@ -101,9 +115,10 @@
   }
 </script>
 
+<div class="slots-wrap">
 <div class="slots" role="group" aria-label="Code words">
-  {#each [0, 1, 2] as i}
-    <label class="slot" class:ok={valid[i]} bind:this={slots[i]}>
+  {#each slotIndexes as i}
+    <label class="slot charge" class:ok={valid[i]} bind:this={slots[i]}>
       <span class="sr-only">Word {i + 1}</span>
       <span class="field">
         <span class="ghost" aria-hidden="true"><span class="typed">{words[i]}</span>{(ghost[i] ?? '').slice((words[i] ?? '').length)}</span>
@@ -114,7 +129,8 @@
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
-          enterkeyhint={i < 2 ? 'next' : 'go'}
+          enterkeyhint={i < LAST ? 'next' : 'go'}
+          placeholder={ordinal[i]}
           data-testid="code-word-{i}"
           oninput={(e) => onInput(i, e)}
           onkeydown={(e) => onKey(i, e)}
@@ -128,6 +144,7 @@
     </label>
   {/each}
 </div>
+</div>
 
 <div class="chips" aria-live="polite">
   {#each chips as c (c)}
@@ -136,10 +153,19 @@
 </div>
 
 <style>
+  .slots-wrap {
+    container: code-input / inline-size;
+  }
   .slots {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3);
+  }
+  /* Four across when there's room for the longest words (8 letters). */
+  @container code-input (min-width: 30rem) {
+    .slots {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
   }
   .slot {
     position: relative;
@@ -178,6 +204,10 @@
     background: transparent;
     outline: none;
     color: var(--color-text-primary);
+  }
+  input::placeholder {
+    color: var(--color-text-tertiary);
+    font-weight: 500;
   }
   .ghost {
     position: absolute;

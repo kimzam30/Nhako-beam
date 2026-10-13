@@ -19,18 +19,26 @@ import type {
   ServerProblem,
   Transfer,
   TransferError,
+  TrustOutcome,
+  TrustRequest,
+  WhoCanSend,
 } from './types';
-import { isWord, randomWords } from './words';
+import { TEXT_MAX } from './types';
+import { CODE_WORDS, isWord, randomWords } from './words';
 import { parseLookup, parseRelay, parseToken } from './server';
 
-export type SendOutcome = 'accept' | 'decline' | 'ignore' | 'unreachable';
-export type SampleKind = 'photos' | 'video' | 'longname' | 'mixed' | 'big';
+/** `notAllowed`: the other device only takes files from its own devices (Who can send to me). */
+export type SendOutcome = 'accept' | 'decline' | 'ignore' | 'unreachable' | 'notAllowed';
+export type SampleKind = 'photos' | 'video' | 'longname' | 'mixed' | 'big' | 'program' | 'folder' | 'tree' | 'text' | 'link';
+/** What the other device does with a trust ask from here. `ignore`: nobody answers. */
+export type TrustReply = 'yes' | 'no' | 'outdated' | 'busy' | 'ignore';
 
 const TICK_MS = 100;
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
 const ROUTE_SPEED: Record<Route, number> = { nearby: 92e6, direct: 31e6, relayed: 11e6 };
 const CONNECTION_STORE = 'nhako.mock.connection';
 const LAN_STORE = 'nhako.mock.lan';
+const WHO_STORE = 'nhako.mock.who';
 const ENDED = new Set(['done', 'failed', 'cancelled', 'declined']);
 const HOUR = 3_600_000;
 /** How long a pretend server check takes. */
@@ -60,6 +68,16 @@ function loadLan(): boolean {
     // Blocked storage or no window (tests): on.
   }
   return true;
+}
+
+function loadWho(): WhoCanSend {
+  try {
+    const raw = localStorage.getItem(WHO_STORE);
+    if (raw && JSON.parse(raw) === 'everyoneNearby') return 'everyoneNearby';
+  } catch {
+    // Blocked storage or no window (tests): the default.
+  }
+  return 'yourDevices';
 }
 
 function loadConnection(): Connection {
@@ -94,6 +112,12 @@ const EXTRA: Omit<Device, 'id'>[] = [
 const PAIR_DEVICE: Omit<Device, 'id'> = { name: "Nadia's laptop", kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'direct', fingerprint: '8C4E 17B2', wakeable: false };
 /** What both screens show after pairing with a code (the real engine derives it from both device keys). */
 const PAIR_CHECK = '5D19 E04A';
+/** What both screens show during a trust ask from Nearby. */
+const TRUST_CHECK = 'A3F0 7C21';
+
+/** Texts the pretend devices send. */
+export const SAMPLE_TEXT = 'Meet at 6 by the north gate.\nBring the charger, mine died.';
+export const SAMPLE_LINK = 'https://nhako.example/trip/photos';
 
 /** A few earlier transfers, so History has something to show in the prototype. */
 function seedHistory(now: number): HistoryEntry[] {
@@ -148,6 +172,23 @@ export function sampleFiles(kind: SampleKind): FileItem[] {
       ];
     case 'big':
       return [f('Project backup 2026-10.zip', 48_000_000_000, 'application/zip')];
+    case 'program':
+      return [f('Setup.exe', 38_000_000, 'application/x-msdownload')];
+    case 'folder':
+      // A camera folder: long lists show a page at a time.
+      return Array.from({ length: 1240 }, (_, i) => f(`IMG_${4001 + i}.jpg`, 1_800_000 + ((i * 7919) % 3_200_000), 'image/jpeg'));
+    case 'tree':
+      // A folder sent as a folder: it arrives with its shape.
+      return [
+        { ...f('Itinerary.pdf', 380_000, 'application/pdf'), folder: 'Langkawi trip' },
+        ...Array.from({ length: 24 }, (_, i) => ({ ...f(`IMG_${5101 + i}.jpg`, 2_400_000 + ((i * 7919) % 1_900_000), 'image/jpeg'), folder: 'Langkawi trip/Day 1' })),
+        ...Array.from({ length: 18 }, (_, i) => ({ ...f(`IMG_${5201 + i}.jpg`, 2_200_000 + ((i * 6007) % 1_700_000), 'image/jpeg'), folder: 'Langkawi trip/Day 2' })),
+        { ...f('Cable car.mp4', 210_000_000, 'video/mp4'), folder: 'Langkawi trip/Day 2/Videos' },
+      ];
+    case 'text':
+      return [f('Text.txt', new TextEncoder().encode(SAMPLE_TEXT).length, 'text/plain')];
+    case 'link':
+      return [f('Link.txt', SAMPLE_LINK.length, 'text/plain')];
   }
 }
 
@@ -175,16 +216,24 @@ export class MockEngine implements Engine {
   private serverProblem: ServerProblem | null = null;
   private saveDir = 'Downloads/Nhako Beam';
   private lan = loadLan();
+  private who: WhoCanSend = loadWho();
   private history: HistoryEntry[] | null = null;
   /** The status each transfer's History entry was written with. */
   private recorded = new Map<string, string>();
+  /** Trust asks waiting for an answer here. */
+  private trustAsks = new Map<string, TrustRequest>();
+  /** Trust asks made from here, by device: bumped to cancel the pending answer. */
+  private asking = new Map<string, number>();
+
+  /** What the next device asked to trust this one does. */
+  nextTrustReply: TrustReply = 'yes';
 
   /** What the next send to an untrusted device does. */
   nextSendOutcome: SendOutcome = 'accept';
   /** Free space on this device, bytes. */
   freeSpace = 32e9;
   /** The code "the other device" is showing, for Receive with a code. */
-  peerCode: [string, string, string] = ['river', 'lantern', 'seven'];
+  peerCode: [string, string, string, string] = ['river', 'lantern', 'seven', 'harbor'];
   selfName = 'This device';
   now: () => number = () => Date.now();
   /** Speed multiplier so demos and tests can run faster. */
@@ -263,8 +312,16 @@ export class MockEngine implements Engine {
     return this.sendNow(deviceId, files);
   }
 
+  async sendText(deviceId: string, text: string): Promise<string> {
+    if (!text.trim()) throw new Error("There's nothing to send.");
+    const bytes = new TextEncoder().encode(text).length;
+    if (bytes > TEXT_MAX) throw new Error("That's too long to send as text. Save it in a file and send that.");
+    const name = /^https?:\/\/\S+$/.test(text.trim()) ? 'Link.txt' : 'Text.txt';
+    return this.sendNow(deviceId, [f(name, bytes, 'text/plain')], text);
+  }
+
   /** `send` without the promise, for tests and the scenario panel. */
-  sendNow(deviceId: string, files: FileItem[]): string {
+  sendNow(deviceId: string, files: FileItem[], text?: string): string {
     const device = this.devices.get(deviceId);
     const id = `t${++this.seq}`;
     const now = this.now();
@@ -289,6 +346,7 @@ export class MockEngine implements Engine {
       finishedAt: null,
       waitingLong: false,
       waking: false,
+      ...(text !== undefined ? { text } : {}),
       outcome: trustedPeer ? 'accept' : this.nextSendOutcome,
       answerAt: trustedPeer ? null : now + 2200,
       connectAt: trustedPeer ? now + 700 : null,
@@ -327,7 +385,8 @@ export class MockEngine implements Engine {
       cancelledBy: t.cancelledBy,
       startedAt: t.startedAt,
       finishedAt,
-      averageSpeed: t.doneBytes ? t.doneBytes / seconds : 0,
+      averageSpeed: t.doneBytes && !t.text ? t.doneBytes / seconds : 0,
+      ...(t.text !== undefined ? { text: t.text } : {}),
     };
     this.history = [entry, ...(this.history ?? []).filter((h) => h.id !== t.id)];
     this.emit({ type: 'history', entry: { ...entry } });
@@ -335,6 +394,19 @@ export class MockEngine implements Engine {
 
   clearHistory(): void {
     this.history = [];
+  }
+
+  async diagnostics(): Promise<string> {
+    return [
+      'Nhako Beam diagnostics',
+      'App: prototype (pretend engine)',
+      '',
+      'Nearby discovery',
+      `  Setting: ${this.lan ? 'on' : 'off'}`,
+      `  State: ${this.discovery}`,
+      '',
+      `Devices (${this.devices.size})`,
+    ].join('\n');
   }
 
   getHistory(): HistoryEntry[] {
@@ -406,17 +478,50 @@ export class MockEngine implements Engine {
     this.requests.delete(requestId);
     if (opts.trust) this.setTrusted(r.deviceId, true);
     if (opts.autoAccept) this.setAutoAccept(r.deviceId, true);
-    return this.startReceive(r.deviceId, r.files);
+    return this.startReceive(r.deviceId, r.files, r.text);
   }
 
   decline(requestId: string): void {
     this.requests.delete(requestId);
   }
 
-  private startReceive(deviceId: string, files: FileItem[]): string {
+  private startReceive(deviceId: string, files: FileItem[], text?: string): string {
     const device = this.devices.get(deviceId);
     const id = `t${++this.seq}`;
     const now = this.now();
+    if (text !== undefined) {
+      // Text came with the request: it's here as soon as it's accepted.
+      const total = files.reduce((n, x) => n + x.size, 0);
+      const t: Internal = {
+        id,
+        direction: 'receive',
+        deviceId,
+        files,
+        totalBytes: total,
+        doneBytes: total,
+        fileBytes: Object.fromEntries(files.map((x) => [x.id, x.size])),
+        speed: 0,
+        route: device?.route ?? 'relayed',
+        status: 'done',
+        pausedBy: null,
+        cancelledBy: null,
+        error: null,
+        startedAt: now,
+        movingSince: null,
+        finishedAt: now,
+        waitingLong: false,
+        waking: false,
+        text,
+        outcome: 'accept',
+        answerAt: null,
+        connectAt: null,
+        reconnectAt: null,
+        noise: 0,
+      };
+      this.transfers.set(id, t);
+      this.push(t);
+      return id;
+    }
     const t: Internal = {
       id,
       direction: 'receive',
@@ -469,7 +574,7 @@ export class MockEngine implements Engine {
     return new Promise((resolve) => {
       const bad = words.findIndex((w) => !isWord(w));
       if (bad >= 0) return this.later(250, () => resolve({ ok: false, reason: 'unknownWord', index: bad }));
-      const match = words.length === 3 && words.every((w, i) => w.trim().toLowerCase() === this.peerCode[i]);
+      const match = words.length === CODE_WORDS && words.every((w, i) => w.trim().toLowerCase() === this.peerCode[i]);
       this.later(match ? 900 : 700, () => {
         if (this.serverProblem === 'tokenRejected') return resolve({ ok: false, reason: 'tokenRejected' });
         if (!match) return resolve({ ok: false, reason: 'noMatch' });
@@ -510,6 +615,47 @@ export class MockEngine implements Engine {
     if (!d || !d.trusted) return;
     d.autoAccept = on;
     this.emit({ type: 'device', device: { ...d } });
+  }
+
+  async askTrust(deviceId: string): Promise<void> {
+    const d = this.devices.get(deviceId);
+    if (!d?.reachable || d.route !== 'nearby') throw new Error("That device isn't nearby any more.");
+    const token = (this.asking.get(deviceId) ?? 0) + 1;
+    this.asking.set(deviceId, token);
+    const reply = this.nextTrustReply;
+    const still = () => this.asking.get(deviceId) === token;
+    const end = (outcome: TrustOutcome) => {
+      this.asking.delete(deviceId);
+      this.emit({ type: 'trustEnded', deviceId, outcome });
+    };
+    this.later(500, () => {
+      if (!still()) return;
+      if (reply === 'outdated' || reply === 'busy') return end(reply);
+      this.emit({ type: 'trustWaiting', deviceId, check: TRUST_CHECK });
+      if (reply === 'ignore') return;
+      this.later(2200, () => {
+        if (!still()) return;
+        if (reply === 'no') return end('declined');
+        this.asking.delete(deviceId);
+        this.setTrusted(deviceId, true);
+        this.emit({ type: 'paired', device: { ...this.devices.get(deviceId)! }, via: 'nearby', check: TRUST_CHECK });
+      });
+    });
+  }
+
+  cancelTrust(deviceId: string): void {
+    this.asking.delete(deviceId);
+  }
+
+  answerTrust(deviceId: string, yes: boolean): void {
+    if (!this.trustAsks.delete(deviceId)) return;
+    if (!yes) {
+      this.emit({ type: 'trustEnded', deviceId, outcome: 'declined' });
+      return;
+    }
+    this.setTrusted(deviceId, true);
+    const d = this.devices.get(deviceId);
+    if (d) this.emit({ type: 'paired', device: { ...d }, via: 'nearby', check: TRUST_CHECK });
   }
 
   renameSelf(name: string): void {
@@ -561,6 +707,19 @@ export class MockEngine implements Engine {
     this.later(1200, () => this.setDiscovery(before === 'searching' ? 'idle' : before));
   }
 
+  async getWhoCanSend(): Promise<WhoCanSend> {
+    return this.who;
+  }
+
+  async setWhoCanSend(who: WhoCanSend): Promise<void> {
+    this.who = who;
+    try {
+      localStorage.setItem(WHO_STORE, JSON.stringify(who));
+    } catch {
+      // Not saved across reloads; fine for the prototype.
+    }
+  }
+
   async getLanDiscovery(): Promise<boolean> {
     return this.lan;
   }
@@ -596,7 +755,9 @@ export class MockEngine implements Engine {
   tick(dtMs: number): void {
     const now = this.now();
     for (const t of this.transfers.values()) {
+      // changed: something besides bytes and speed, so the whole transfer goes out.
       let changed = false;
+      let moved = false;
 
       if (t.status === 'waiting' && t.answerAt !== null && now >= t.answerAt) {
         if (t.outcome === 'accept') {
@@ -605,6 +766,11 @@ export class MockEngine implements Engine {
           t.answerAt = null;
         } else if (t.outcome === 'decline') {
           t.status = 'declined';
+          t.finishedAt = now;
+          t.answerAt = null;
+        } else if (t.outcome === 'notAllowed') {
+          t.status = 'declined';
+          t.error = 'notAllowed';
           t.finishedAt = now;
           t.answerAt = null;
         } else if (t.outcome === 'unreachable') {
@@ -618,6 +784,16 @@ export class MockEngine implements Engine {
           continue;
         }
         changed = true;
+      }
+
+      if (t.status === 'connecting' && t.connectAt !== null && now >= t.connectAt && t.text !== undefined) {
+        // Text went with the request: nothing more to move.
+        this.addBytes(t, t.totalBytes);
+        t.status = 'done';
+        t.connectAt = null;
+        t.finishedAt = now;
+        this.push(t);
+        continue;
       }
 
       if (t.status === 'connecting' && t.connectAt !== null && now >= t.connectAt) {
@@ -660,14 +836,15 @@ export class MockEngine implements Engine {
           t.status = 'done';
           t.speed = 0;
           t.finishedAt = now;
-        }
-        changed = true;
+          changed = true;
+        } else moved = true;
       } else if (t.speed > 0) {
         t.speed = t.speed < 1000 ? 0 : t.speed * 0.6;
-        changed = true;
+        moved = true;
       }
 
       if (changed) this.push(t);
+      else if (moved) this.emit({ type: 'transferProgress', id: t.id, doneBytes: t.doneBytes, speed: t.speed, movingSince: t.movingSince, fileBytes: { ...t.fileBytes } });
     }
   }
 
@@ -691,8 +868,9 @@ export class MockEngine implements Engine {
     const device = this.devices.get(deviceId) ?? [...this.devices.values()].find((d) => d.reachable);
     if (!device) return;
     const files = sampleFiles(kind);
+    const text = kind === 'text' ? SAMPLE_TEXT : kind === 'link' ? SAMPLE_LINK : undefined;
     if (device.trusted && device.autoAccept) {
-      this.startReceive(device.id, files);
+      this.startReceive(device.id, files, text);
       return;
     }
     const request: IncomingRequest = {
@@ -701,9 +879,45 @@ export class MockEngine implements Engine {
       files,
       totalBytes: files.reduce((n, x) => n + x.size, 0),
       receivedAt: this.now(),
+      ...(text !== undefined ? { text } : {}),
     };
     this.requests.set(request.id, request);
     this.emit({ type: 'incoming', request });
+  }
+
+  /** A nearby device asks to trust this one. */
+  simTrustAsk(deviceId = 'd-studio'): void {
+    const d = this.devices.get(deviceId) ?? [...this.devices.values()].find((x) => x.reachable && !x.trusted);
+    if (!d) return;
+    const request: TrustRequest = { deviceId: d.id, check: TRUST_CHECK, receivedAt: this.now() };
+    this.trustAsks.set(d.id, request);
+    this.emit({ type: 'trustAsk', request });
+  }
+
+  /** The device asking gives up. */
+  simTrustWithdraw(): void {
+    const last = [...this.trustAsks.keys()].pop();
+    if (!last) return;
+    this.trustAsks.delete(last);
+    this.emit({ type: 'trustEnded', deviceId: last, outcome: 'withdrawn' });
+  }
+
+  /** Off Wi-Fi (on mobile data): nearby devices go, your own ones are reached over the internet. */
+  simLan(on: boolean): void {
+    if (on) {
+      this.simDiscovery('searching');
+      return;
+    }
+    for (const d of [...this.devices.values()]) {
+      if (!d.trusted) {
+        this.devices.delete(d.id);
+        this.emit({ type: 'deviceLost', deviceId: d.id });
+      } else if (d.reachable) {
+        d.route = 'direct';
+        this.emit({ type: 'device', device: { ...d } });
+      }
+    }
+    this.setDiscovery('idle');
   }
 
   simWithdraw(): void {

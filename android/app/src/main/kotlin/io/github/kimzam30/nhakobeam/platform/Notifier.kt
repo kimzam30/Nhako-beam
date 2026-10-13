@@ -25,8 +25,11 @@ import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.formatEta
 import io.github.kimzam30.nhakobeam.ui.formatSpeed
+import io.github.kimzam30.nhakobeam.ui.isLink
 import io.github.kimzam30.nhakobeam.ui.percent
+import io.github.kimzam30.nhakobeam.ui.singleFolder
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
+import io.github.kimzam30.nhakobeam.ui.textPreview
 
 /**
  * The app's notifications: file requests (with Accept and Decline), the progress of running
@@ -83,8 +86,8 @@ class Notifier(private val context: Context) {
         val n = NotificationCompat.Builder(context, CHANNEL_REQUESTS)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(ACCENT)
-            .setContentTitle(t("notify.request.title", "device" to deviceName, "what" to summarizeFiles(r.files)))
-            .setContentText(t("notify.request.body"))
+            .setContentTitle(t("notify.request.title", "device" to deviceName, "what" to what(r.files, r.text)))
+            .setContentText(r.text?.let { textPreview(it, 80) } ?: t("notify.request.body"))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(openApp())
@@ -93,6 +96,42 @@ class Notifier(private val context: Context) {
             .addAction(action(ActionReceiver.ACCEPT, r.id, t("incoming.accept")))
             .build()
         post(requestId(r.id), n)
+    }
+
+    /** "a link", "some text", "the folder Trip", or the files' summary. */
+    private fun what(files: List<io.github.kimzam30.nhakobeam.model.FileItem>, text: String?): String = when {
+        text != null && isLink(text) -> t("notify.request.link")
+        text != null -> t("notify.request.text")
+        else -> singleFolder(files)?.let { "the folder ${it.first}" } ?: summarizeFiles(files)
+    }
+
+    /** Text from one of your own devices went straight to the clipboard while the app was out of sight. */
+    fun showCopied(tr: Transfer, deviceName: String) {
+        val text = tr.text ?: return
+        val n = NotificationCompat.Builder(context, CHANNEL_RECEIVED)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(ACCENT)
+            .setContentTitle(t("notify.copied.title", "what" to if (isLink(text)) t("notify.request.link") else t("staged.text").lowercase(), "device" to deviceName))
+            .setContentText(textPreview(text, 80))
+            .setContentIntent(openApp())
+            .setAutoCancel(true)
+            .build()
+        post(doneId(tr.id), n)
+    }
+
+    /** Another device asks to trust this phone: open the app to check the code and answer. */
+    fun showTrustAsk(deviceId: String, deviceName: String) {
+        val n = NotificationCompat.Builder(context, CHANNEL_REQUESTS)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(ACCENT)
+            .setContentTitle(t("notify.trust.title", "device" to deviceName))
+            .setContentText(t("notify.trust.body"))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openApp())
+            .setAutoCancel(true)
+            .build()
+        post(trustId(deviceId), n)
     }
 
     // ---------- Progress ----------
@@ -165,7 +204,7 @@ class Notifier(private val context: Context) {
         val n = NotificationCompat.Builder(context, CHANNEL_RECEIVED)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(ACCENT)
-            .setContentTitle(t("notify.done.title", "device" to deviceName, "what" to summarizeFiles(tr.files)))
+            .setContentTitle(t("notify.done.title", "device" to deviceName, "what" to what(tr.files, null)))
             .setContentText(t("notify.done.body"))
             .setContentIntent(openApp())
             .setAutoCancel(true)
@@ -189,5 +228,6 @@ class Notifier(private val context: Context) {
 
         fun requestId(id: String) = 1000 + (id.hashCode() and 0xFFFFF)
         fun doneId(id: String) = 2_000_000 + (id.hashCode() and 0xFFFFF)
+        fun trustId(deviceId: String) = 4_000_000 + (deviceId.hashCode() and 0xFFFFF)
     }
 }

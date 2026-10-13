@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (end of Phase 9)
+# Handoff: where Nhako Beam stands (end of Phase 14)
 
-Last updated 2026-10-12, at the end of Phase 9. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-13, at the end of Phase 14. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -8,7 +8,9 @@ Last updated 2026-10-12, at the end of Phase 9. Read [CLAUDE.md](../CLAUDE.md) f
   - `48cb0cb`: Phases 0 to 7.
   - `abe8915` ("beambrandkit"): the brand kit in `docs/brand/`.
   - `d6264f7`: these handoff notes for Phase 8.
-- **Phases 8 and 9 are not committed yet.** They sit in the working tree on `dev` until the owner commits them.
+  - `f2843f3` ("initialrelease"): Phases 8 and 9.
+- **Phases 10 to 14 are not committed yet.** They sit in the working tree on `dev` until the owner commits them.
+- The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
 - `main` still holds only the initial plan. `claude/youthful-euler-vxt9o5` is an unused cloud branch.
 - Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
 
@@ -24,6 +26,11 @@ Last updated 2026-10-12, at the end of Phase 9. Read [CLAUDE.md](../CLAUDE.md) f
 | 7 | The Android app (Compose on the engine through `ffi/`), plus local build scripts |
 | 8 | Brand, launch intro, smaller APKs, push wake-up, history, licenses, tray quick view, notification buttons, nearby switch, Quick Settings tile |
 | 9 | Sounds for every interaction, on both apps, plus the fixes from the first real-device test |
+| 10 | Nearby discovery that works on Windows (the beacon), a log file, and Settings > About > Copy diagnostics |
+| 11 | Security: four-word codes, Who can send to me (your devices by default) with request limits, clean names, the Windows download mark and asking before opening programs, safer part files, desktop paths only from you, no `file://` shares on Android, dependency audits |
+| 12 | Performance: a benchmark script, small progress updates instead of the whole file list, part files made as each file starts, background disk syncs, resume save points, fewer device checks in the background, long file lists a page at a time |
+| 14 | Folders (sent as folders, kept in shape), text, links and the clipboard, "Trust this device" from Nearby (both devices agree and check the same code), and a clearer screen off Wi-Fi |
+| 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
 
 ### Phase 8 in detail
 
@@ -33,7 +40,7 @@ Last updated 2026-10-12, at the end of Phase 9. Read [CLAUDE.md](../CLAUDE.md) f
   - The brand colors are a token group (`brand` in `tokens.json`), built into CSS, TS and Kotlin.
 - **Launch intro** (Android and desktop, about 0.8 s): the bolt presses in, springs back with a ring pulse, then the app fades in. Reduced motion: a 0.2 s fade. On Android it follows the system SplashScreen and only plays on a fresh launch. Spec: motion-spec 4.14.
 - **Smaller APK:**
-  - The release profile is fat LTO, one codegen unit, stripped (`Cargo.toml`). On arm64, `libnhako_ffi.so` went from 16.8 MB to 14.5 MB, and speed from about 345 to 365 MB/s (the ignored `throughput` test in `core/tests/engine.rs`).
+  - The release profile is fat LTO, one codegen unit, stripped (`Cargo.toml`). On arm64, `libnhako_ffi.so` went from 16.8 MB to 14.5 MB, and speed from about 345 to 365 MB/s (now `bench_one_big_file`, run with `scripts/bench.sh`).
   - `opt-level = "s"` was measured and rejected: 2 MB smaller, but 10% slower.
   - One APK per phone type (`splits.abi` in `android/app/build.gradle.kts`).
   - The build scripts, VS Code tasks and CI now make shrunk release APKs (R8, rules in `android/app/proguard-rules.pro`), signed with the computer's debug key until there's a real release key. The app id no longer ends in `.debug`.
@@ -105,10 +112,133 @@ Last updated 2026-10-12, at the end of Phase 9. Read [CLAUDE.md](../CLAUDE.md) f
 - **A removed trusted device that's offline stayed on screen until a restart:** the engine now reports it gone (a device in reach stays, untrusted). Engine test `removing_a_trusted_device_that_is_away_takes_it_off_the_list`; the browser prototype and the Android fake do the same, with a Playwright flow.
 - Seen once, not again: a "Send with a code" transfer from the emulator to the CLI's `receive <words>` sat at 0%. Two retries of the same flow worked.
 
-## Next (Phase 10 is not planned yet; ask the owner)
+### Phase 10 in detail
+
+- **Why Windows found nothing nearby (found with the owner on their PC):** Windows' DNS Client service holds UDP port 5353 for IPv4 by itself. The mDNS library (`swarm-discovery`) drops the failed IPv4 socket without a word (`socket_v4(None).ok()`) and runs on IPv6 only, which the phone and laptop never heard. The app didn't show "blocked" because mDNS had "started". The firewall was fine (Private network, app allowed).
+- **The beacon** (`core/src/beacon.rs`, spec in `docs/protocol/nhako-1.md` section 2): a 40-byte "I'm here" on UDP 47820, to the group 239.255.78.66 and the broadcast address of every LAN adapter. It runs next to mDNS. Hearing one adds the address and pings the device, as mDNS does. Asks are answered directly.
+- **Fewer pings:** mDNS re-reported every device on each announcement, and each one started a connection. A device seen again within 20 s isn't checked again (both mDNS and the beacon).
+- **Discovery state:** "blocked" now means neither mDNS nor the beacon could start. When mDNS can't get the IPv4 port, the log says so and the diagnostics show it.
+- **Log file:** `<config folder>/logs/nhako-beam.log`, 1 MB plus one older file (`core/src/logfile.rs`), on the desktop app and Android.
+- **Copy diagnostics** (Settings > About, both apps; `nhako diagnostics` on the CLI): network, nearby discovery (mDNS, beacon adapters, packets sent and heard), devices by short id, and the last 48 KB of the log. No device names, file names or internet addresses.
+- **CLI:** `--no-mdns` is now `--no-nearby` (the old name still works).
+
+### Phase 10: verified, and not
+
+- **Verified:**
+  - cargo fmt and clippy clean. Engine: 33 unit and 23 integration tests, including `beacon_alone_finds_nearby_devices` (two engines with no mDNS and no shared address table find each other through the beacon, then send a file).
+  - Desktop: svelte-check 0 errors, 59 unit tests, 72 Playwright flows (6 skipped, the usual platform-only ones), including copy diagnostics on desktop and phone sizes.
+  - Android: 39 JVM tests, with the new UniFFI binding.
+  - On this laptop's real Wi-Fi: `nhako diagnostics` sends the beacon on all three adapters (18 packets, none failed).
+- **Found:** this laptop runs ufw (Zorin's default: incoming dropped, mDNS let in), so it can't hear other devices' beacons. That's fine in practice: one side hearing the other is enough, since the ping that follows shows each to the other.
+- **Not verified:**
+  - On Windows: not compiled here (no Windows target on this machine), not run. The real test is the owner's PC finding the phone and the laptop.
+  - Phone and laptop with the new build, both ways.
+  - A firewall "Fix it" button: dropped from this phase, since the firewall wasn't the cause.
+
+### Phase 11 in detail
+
+Audit items S1 to S5, S7, S8 and S11 (`~/.claude/plans/eager-kindling-ember.md`). S6 (wrapping the device key), S9 (wake service limits) and S10 (signing) were not in this phase.
+
+- **S1, codes are four words** (owner's choice over a PAKE, which without our own server would leave part of the code public). 4.3 billion codes; salt `nhakobeam-code-v2`, ALPN `nhako-pair/2`. **Old and new builds can't pair with each other**; three words get "no match". Both apps show the words as two rows of two and type them in two rows of two slots (four across on a wide desktop sheet).
+- **S2, Who can send to me** (Settings > Receiving, both apps; `nhako who-can-send yours|everyone`). Default **Your devices** (owner's choice), also for settings saved before Phase 11: trusted devices and devices paired with a code this run. Anyone else gets `Decline(NotAllowed)` with no request card, and the sender's card says "{device} only takes files from its own devices" with **Pair with a code** and Try again. With **Everyone nearby**: one waiting request per device, 3 asks a minute per device (refused ones count), 5 waiting from strangers in total. Pings are never refused, so devices still show up.
+- **S3, names:** other devices' names lose control and invisible characters (direction overrides, zero-width, tags), spaces collapse, 32 characters at most (`core/src/text.rs`). File names lose the same invisible characters. Request cards from devices that aren't trusted show **Not one of your devices**.
+- **S4, opening programs:** received files on Windows get the "downloaded from another computer" mark (`Zone.Identifier`, zone 3). Opening a single received program or script (exe, msi, bat, ps1, lnk, sh, AppImage, apk and more; `isRunnable` in `format.ts` and `Format.kt`) asks first, from the transfer card and History.
+- **S5, Android:** shares and picks only take `content://` addresses; `file://` ones are skipped.
+- **S7, part files:** created new only (a planted file or link is skipped), opened without following links on Linux and Android, and finished with a hard link so nothing is ever replaced (rename after a check where the disk has no hard links).
+- **S8, desktop paths:** the file and folder dialogs now open from Rust. Drops and "Send with Nhako Beam" paths are recorded on the Rust side, and `files_from_paths` and `set_save_dir` only take those. The page lost the `dialog:allow-open` permission and the `@tauri-apps/plugin-dialog` npm package. The real-app test sets `NHAKO_TEST_ANY_PATH=1`, because WebDriver can't drag real files.
+- **S11, dependency audits** (cargo-audit 0.22.2 and osv-scanner 2.6.0 installed for this, both free; npm audit): npm 0, Android 0 (322 resolved libraries). Rust: no vulnerabilities, 4 warnings, all deep in other libraries: `glib` 0.18 unsound iterator (RUSTSEC-2024-0429, from Tauri's Linux GTK stack, fixed only in glib 0.20, which Tauri doesn't use yet), and unmaintained `paste` (iroh), `proc-macro-error` (GTK) and `atomic-polyfill`. Nothing to do on our side until Tauri and iroh move.
+
+### Phase 11: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 36 engine unit tests, 20 engine and 4 own-server integration tests, 8 desktop tests. New: `only_your_devices_can_send_by_default` (refused with the reason, Everyone nearby one at a time and 3 a minute, then allowed after a code), four-word pairing (three words never match), name cleaning, a planted link never written through, finishing never replaces a file, older settings get the new default.
+  - Desktop: svelte-check 0 errors, 62 unit tests, 78 Playwright flows (6 skipped), new: the refused send with Pair with a code, the Settings switch, the Not one of your devices label and asking before opening `Setup.exe`.
+  - Android: 43 JVM tests, new screenshots 21 to 23 (label, refused send, ask before opening) and the four-word code screens checked by eye.
+- **Not verified:**
+  - Windows: the download mark and the Rust-side dialogs and drops aren't compiled or run here. Real drag and drop on Linux isn't either (only the test's fake drop).
+  - Real devices with the new builds. All of them need updating together, because of the four-word codes.
+
+### Phase 12 in detail
+
+Measured first with `scripts/bench.sh` (the ignored `bench_` tests in `core/tests/engine.rs`: two engines on localhost, release build, capped at 3 GB of memory with systemd-run). This computer, ext4 on NVMe:
+
+| Benchmark | Before | After |
+|---|---|---|
+| One 512 MB file | 221 to 354 MB/s (noisy) | 241 to 360 MB/s (unchanged) |
+| 5,000 files of 200 KB | ran out of memory (2,000 files: 56 MB/s, 335 MB of updates to the app) | 228 MB/s, 1,114 files/s, 2.5 MB of updates |
+| 20,000 files of 100 bytes | ran out of memory (2,000 files: 0.15 s to accept, 427 files/s) | 0.04 s to accept, 2,064 files/s |
+| Connection dropped at 85% of 1 GB | 0.9 s spent re-reading what both sides had | none measurable |
+
+- **Progress updates** (the cause of the out-of-memory runs, which also took the Claude app down once): every finished file sent the app the whole transfer with its whole file list, so N files cost N x N. Now there's a `transferProgress` event (`types.rs`, `types.ts`, `Contract.kt`) with only bytes, speed and the files that moved; full `transfer` events are for status changes. Both apps merge it (`app.svelte.ts`, `AppState.kt`); a window that falls behind still gets a snapshot. Per-file progress also no longer walks every file (`Tx::set_file`).
+- **Part files** are made when each file's data starts (`DstFile::claim`), not all at accept time; the first one still is, so an unwritable folder is caught straight away. No more thousands of empty `.nhakopart` files in Downloads before anything moves.
+- **Disk syncs:** each received file's fsync and move to its name run in the background, up to 8 at a time, while the next file arrives. It was 3 to 4 times slower one by one. A file still only counts as received once it's on disk, so `Verdict`s can arrive out of order (protocol doc section 6).
+- **Resume save points:** both sides keep hasher states every 16 MiB for the life of the transfer (`session::Marks`), so a reconnect re-reads at most 16 MiB instead of everything so far. No wire change.
+- **Battery:** `Engine::set_foreground` (desktop: whether the main window or quick view is on screen, checked every 5 s in `forward`; Android: `MainActivity` onStart/onStop through `ffi` `set_foreground`). In the background, trusted devices and devices seen nearby are checked every 5 minutes instead of every 60 and 20 seconds, and free space every minute; coming back checks trusted devices at once. Devices just checked because they were seen nearby are skipped by the minute check.
+- **Long lists:** the Files sheet and History's file list show 100 files, then **Show 100 more** (`transfer.files.more`), on both apps (Android's History list used to stop at 50 silently). Counts group thousands: "1,240 photos". The prototype's scenario panel has "A folder of 1,240 photos".
+- **Not done from the audit:** sending several small files at once (P3). The time went into disk syncs, not the network, so it wasn't needed. P5 (repeated mDNS announcements) was already handled by `RECHECK_NEARBY`.
+
+### Phase 12: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 38 engine unit tests, 21 engine and 4 own-server integration tests, 8 desktop tests. New: `many_files_arrive_without_flooding_the_folder_or_the_app` (one part file at a time, small progress updates, at most a few full ones), `resumes_hashing_from_the_nearest_mark`, `progress_is_camel_case_and_small`.
+  - Desktop: svelte-check 0 errors, 63 unit tests, 80 Playwright flows (6 skipped), new: a folder of 1,240 photos lists 100, then 200.
+  - Android: 44 JVM tests, new screenshot 24 (a folder of 1,240 photos, with a progress update merged in), checked by eye.
+- **Not verified:**
+  - The real desktop app test (`npm run test:app`): `tauri-driver` and `webkit2gtk-driver` aren't installed on this computer.
+  - The background check timing (`set_foreground`) has no automated test; it's 60 s and 5 minute timers.
+  - Phones: how much faster small files and resumes are on real phone storage. The benchmark ran on a laptop's NVMe disk.
+  - The radar and beam animations' CPU use while the window is in the tray (P7) wasn't profiled.
+
+### Phase 14 in detail
+
+The owner chose all three: folders, text and the clipboard, and nearby trust with the off Wi-Fi screen. Decisions they made: trust needs **both devices to agree**; text from your own devices with "Accept files automatically" goes **straight to the clipboard**, anything else shows a card first; a folder whose name is taken arrives as **`Trip (1)`**, never merged.
+
+- **The protocol** ([nhako-1.md](protocol/nhako-1.md), section 4): the hello extension now carries records (kind and bytes; an unknown kind is skipped), so builds from Phases 8 to 13 still talk to new ones. Folders: record 1, each file's folder. Text: record 2; the offer still lists one `Text.txt`, so an older build saves it as a file. Trust asks: record 3 on a ping, then a commit, reveal and answer, so the check code can't be steered by someone in the middle.
+- **The engine:** `send_files` with `Outgoing { path, name, folder }`, `send_text`, `ask_trust` / `answer_trust` / `cancel_trust` (`core/src/trust.rs`), `files::walk_folder`, `safe_folder`, `reserve_folder`, `prune_empty`. Received text is never written to disk. The contract gained `FileItem.folder`, `text` on transfers, requests and History, `TrustRequest`, the `trustAsk`, `trustWaiting` and `trustEnded` events, `PairVia::nearby` and `Snapshot.trustAsks`, in all three files.
+- **Desktop:** Home has Folder, Text and Clipboard under Choose files; folders can be dropped or picked (native dialog); Ctrl+V on Home starts a text. A device's own sheet opens with a right-click or long press on its orb. Received text copies with the Rust side (`tauri-plugin-clipboard-manager`, a new dependency, free), so it works with the window in the tray, with a notification. Open and Show in folder open the arrived folder.
+- **Android:** the same buttons; the system folder picker; text and links shared from other apps (`EXTRA_TEXT`); long press on an orb. Files in a picked folder are opened one at a time as each is sent (`FileOpener` across the FFI), so a big folder never holds thousands of handles. Off Wi-Fi comes from the system's network callback. Notifications for text requests, copied text and trust asks.
+- **CLI:** `nhako send FOLDER` and `nhako send --text "..."`; received text is printed.
+- **Copy:** 59 new keys (ux-copy.md section 16), three changed. **Screens:** 2.12, 2.13, 3.9 to 3.11, 5.7 to 5.9. **Motion:** 4.16.
+- **Worth knowing:** file and folder names that start with a dot lose it on arrival (`.gitignore` arrives as `gitignore`), the rule from before for single files. Empty folders aren't sent. Text is at most 64 KB.
+
+### Phase 14: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 43 engine unit tests, 24 engine and 4 own-server integration tests, 9 desktop tests. New: `sends_a_folder_and_keeps_its_shape` (folders, a taken name gets `Trip (1)`, a cancelled folder is cleared away), `text_comes_in_the_request_and_never_touches_the_disk`, `trust_from_nearby_needs_both_to_agree` (the same check on both, yes, no, and a cancelled ask), and unit tests for the records (an old build reads past them, an unknown kind is skipped), folder names, the folder walk and text cleaning.
+  - Desktop: svelte-check 0 errors, 70 unit tests, 110 Playwright flows (6 skipped). 11 new flows on both the desktop and phone layouts, run 3 times each: a folder sent and received, writing and sending text, too long text, a link request, auto-copy from your own device, paste on Home, trust from Nearby (right-click, and a real long press on the phone layout), a no and an outdated device, being asked, and off Wi-Fi. Every new screen checked by eye in light, dark and phone width.
+  - Android: 54 JVM tests, new: folder and text summaries, the contract's new calls on the real engine, and screenshots 27 to 34 (link request, folder request, Send text, a device's sheet, trust wait, trust ask, paired from Nearby, off Wi-Fi), checked by eye.
+- **Not verified:**
+  - Nothing on real devices yet: the Android folder picker and its one-file-at-a-time opening, text shared from the phone's browser, the clipboard on Windows and on Linux under Wayland, trust between a real phone and laptop, and the phone on mobile data afterwards.
+  - The real desktop app (still no `tauri-driver`): the folder dialog, dropping a folder, the clipboard plugin, and the notifications for copied text and trust asks. They build and their Rust tests pass.
+  - Old and new builds side by side for real: covered by the wire format tests, not by running a Phase 13 build against this one.
+  - "Send with Nhako Beam" from the file manager on a folder (Explorer and Files register it for files only, as before).
+
+### Phase 13 in detail
+
+- **The spec** is [motion-spec.md](design/motion-spec.md), section 4.15, with every moment and its reduced-motion version. Tokens: `motion.bolt` (spark count, reach, size and time, flash, arc, morph).
+- **Shared parts:** `desktop/src/lib/motion/bolt.ts` (shape, morph, arc path, `spark()`, `flash()`, `strike()`) and `components/Bolt.svelte`; `android/.../ui/components/Bolt.kt` (`Bolt`, `drawBolt`, `Modifier.sparks`, `arcPoints`). The geometry is tested to match on both (`bolt.test.ts`, `BoltTest.kt`).
+- **The Motion lab** (prototype only): Scenarios > Open the motion lab, or `localhost:5173/#motion`. Every effect with a replay button, and a System / Full / Reduced switch.
+- **Small model change:** a toast now carries how long it stays (`ms`), on both apps, so its bar can drain.
+- **Not done:** the file stack folding into a bolt on its way along the beam (the drop already shrinks into the orb, and the orb pulses); "each letter pops" in the code input (the browser's text field can't animate single letters; the words lock with a zap instead).
+
+### Phase 13: verified, and not
+
+- **Verified:**
+  - Desktop: svelte-check 0 errors, 65 unit tests, 88 Playwright flows (6 skipped), new: arcs, sparks, the riding bolt and the done check; a failed transfer's cracked bolt and History's sleeping bolt; reduced motion has no sparks or arcs but keeps the states; the Motion lab. Frames frozen mid-animation (sparks, strike, arcs, swipe meter, QR draw-in, check code scan) were checked by eye in light and dark.
+  - Android: 47 JVM tests, new `BoltTest` and screenshots 25 and 26 (the strike with sparks out, then bolt, check, crack and sleep). Screenshots 06, 07, 10 and 18 now show the badge, the riding bolts, the bolt between paired devices and the sleeping bolt; checked by eye.
+  - Rust wasn't touched in this phase.
+- **Not verified:**
+  - On a real phone and the real desktop app: how the sparks and arcs feel at full speed, and their frame time. The 60 fps budget wasn't measured.
+  - The tray popover's drop runs on the window's focus event; not tried in the real Linux or Windows tray.
+  - Android haptics weren't changed; they already land on the same beats as the sounds.
+
+## Next (ask the owner)
+
+- **The owner's try of Phase 14 on real devices:** a folder both ways (Android picker, desktop drop), a link shared from the phone's browser, Clipboard, and Trust this device between the phone and a laptop, then the phone on mobile data finding the laptop.
+- **The owner's look at the Motion lab** (`npm run dev` in `desktop/`, then `localhost:5173/#motion`) and the apps, then adjust: spark size and count, arc speed and the rest are tokens.
+- **The owner's Windows test of Phases 10 to 14**, with Copy diagnostics if something is missing. All devices need the new build (four-word codes), and they'll need pairing again only if they weren't trusted already.
 
 - **The owner's verdict on the sounds**, then adjust recipes in `build.mjs` (each is a few lines).
-- **"Trust this device" from Nearby, and a clearer empty state off Wi-Fi** (offered after the mobile data test; not decided).
 
 - **Real devices:** the basics, big files with pause and resume, and the screen off all work. Still to try: across the internet after pairing with a code and saving as trusted.
 - **Push wake-up:** when the owner wants it, the Firebase and Cloudflare setup in [wake/README.md](../wake/README.md), then a test with the app closed.

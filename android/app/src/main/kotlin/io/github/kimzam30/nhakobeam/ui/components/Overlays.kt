@@ -3,6 +3,7 @@
 package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
@@ -38,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +50,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -58,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.kimzam30.nhakobeam.design.NhakoBrand
 import io.github.kimzam30.nhakobeam.design.NhakoGesture
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
@@ -73,17 +83,21 @@ import io.github.kimzam30.nhakobeam.state.ToastTone
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.fileKindName
 import io.github.kimzam30.nhakobeam.ui.formatBytes
+import io.github.kimzam30.nhakobeam.ui.isLink
+import io.github.kimzam30.nhakobeam.ui.singleFolder
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
 import io.github.kimzam30.nhakobeam.ui.withTap
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sign
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-fun fileIcon(f: FileItem) = when (fileKindName(f)) {
+fun fileIcon(f: FileItem) = if (!f.folder.isNullOrEmpty()) "folder-simple" else when (fileKindName(f)) {
     "photo" -> "image"
     "video" -> "film-strip"
     "song" -> "music-note"
@@ -94,9 +108,17 @@ fun fileIcon(f: FileItem) = when (fileKindName(f)) {
 
 /** A small fanned stack of the files, with a count badge. */
 @Composable
-fun FileStack(files: List<FileItem>, size: Dp = 44.dp, modifier: Modifier = Modifier) {
+fun FileStack(files: List<FileItem>, size: Dp = 44.dp, modifier: Modifier = Modifier, text: String? = null) {
     val c = Nhako.colors
     Box(modifier.size(size + 10.dp), contentAlignment = Alignment.Center) {
+        // Text being sent: one card with a text (or link) glyph.
+        if (text != null) {
+            Box(
+                Modifier.size(size).shadow(2.dp, RoundedCornerShape(NhakoRadius.sm)).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.surface),
+                contentAlignment = Alignment.Center,
+            ) { PhIcon(if (io.github.kimzam30.nhakobeam.ui.isLink(text)) "link-simple" else "text-aa", size = size * 0.45f, tint = c.accent) }
+            return@Box
+        }
         val shown = files.take(3)
         shown.forEachIndexed { i, f ->
             val back = shown.size - 1 - i
@@ -130,110 +152,172 @@ fun IncomingCard(app: AppState, request: IncomingRequest, modifier: Modifier = M
     val scope = rememberCoroutineScope()
     val device = app.device(request.deviceId)
     val name = device?.name ?: "Someone nearby"
-    val noSpace = app.freeSpace in 1 until request.totalBytes
+    /** Text rather than files: nothing goes to disk, so space doesn't matter. */
+    val text = request.text
+    val link = text != null && isLink(text)
+    val noSpace = text == null && app.freeSpace in 1 until request.totalBytes
+    /** One folder: its name as the title, the count with the size. */
+    val folder = if (text == null) singleFolder(request.files) else null
     var always by remember(request.id) { mutableStateOf(false) }
     val x = remember(request.id) { Animatable(0f) }
     val enter = remember(request.id) { Animatable(if (reduced) 1f else 0f) }
     var leaving by remember(request.id) { mutableStateOf(false) }
     var widthPx by remember { mutableFloatStateOf(1f) }
     LaunchedEffect(request.id) { if (!reduced) enter.animateTo(1f, NhakoMotion.smooth.spec()) }
+    // The bolt badge on the sender twitches once the card has landed.
+    var twitch by remember(request.id) { mutableIntStateOf(0) }
+    LaunchedEffect(request.id) {
+        delay(420)
+        twitch++
+    }
+    // Zap: sparks thrown the way the card is about to fly.
+    var zap by remember(request.id) { mutableIntStateOf(0) }
+    var zapToward by remember(request.id) { mutableFloatStateOf(0f) }
 
-    fun commit(accept: Boolean, velocity: Float = 0f) {
+    /** [then], for text: what accepting does with it (Copy is what a swipe does). */
+    fun commit(accept: Boolean, velocity: Float = 0f, then: String = "copy") {
         if (leaving) return
         leaving = true
+        zapToward = if (accept) 0f else PI.toFloat()
+        zap++
         (if (accept) NhakoHaptic.Accept else NhakoHaptic.Decline).perform(view)
         app.sound(if (accept) NhakoSound.Accept else NhakoSound.Decline)
         scope.launch {
             if (!reduced) x.animateTo((if (accept) 1 else -1) * widthPx * 1.4f, NhakoMotion.settle.spec(), initialVelocity = velocity)
-            if (accept) app.accept(request.id, autoAccept = always) else app.decline(request.id)
+            if (!accept) return@launch app.decline(request.id)
+            app.accept(request.id, autoAccept = always)
+            if (text != null) if (then == "open") app.openLink(text) else app.copyText(text)
         }
     }
 
     val progress = (abs(x.value) / (widthPx * NhakoGesture.swipeCommitFraction)).coerceIn(0f, 1f)
-    Box(
-        modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                translationX = x.value
-                translationY = (1 - enter.value) * 80.dp.toPx()
-                rotationZ = (x.value / widthPx).coerceIn(-1f, 1f) * NhakoGesture.swipeMaxRotationDeg
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
-                alpha = enter.value.coerceIn(0f, 1f)
-            }
-            .shadow(16.dp, RoundedCornerShape(NhakoRadius.xl))
-            .clip(RoundedCornerShape(NhakoRadius.xl))
-            .background(c.surfaceRaised)
-            .pointerInput(request.id, noSpace) {
-                if (noSpace) return@pointerInput
-                widthPx = size.width.toFloat()
-                val tracker = VelocityTracker()
-                var past = false
-                detectHorizontalDragGestures(
-                    onDragStart = { tracker.resetTracking() },
-                    onDragEnd = {
-                        val v = tracker.calculateVelocity().x
-                        val vDp = v / density.density
-                        val far = abs(x.value) > widthPx * NhakoGesture.swipeCommitFraction
-                        val flung = abs(vDp) > NhakoGesture.swipeCommitVelocity && sign(v) == sign(x.value)
-                        if (far || flung) commit(x.value > 0, v) else scope.launch { x.animateTo(0f, NhakoMotion.settle.spec(), initialVelocity = v) }
-                        past = false
-                    },
-                    onDragCancel = { scope.launch { x.animateTo(0f, NhakoMotion.settle.spec()) } },
-                ) { change, dx ->
-                    tracker.addPosition(change.uptimeMillis, change.position)
-                    scope.launch { x.snapTo(x.value + dx) }
-                    val nowPast = abs(x.value + dx) > widthPx * NhakoGesture.swipeCommitFraction
-                    if (nowPast != past) {
-                        (if (nowPast) NhakoHaptic.ThresholdActivate else NhakoHaptic.ThresholdDeactivate).perform(view)
-                        if (nowPast) app.sound(NhakoSound.Tick)
-                        past = nowPast
-                    }
+    Box(modifier.fillMaxWidth().sparks(zap, reach = 36f, toward = zapToward)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    translationX = x.value
+                    translationY = (1 - enter.value) * 80.dp.toPx()
+                    rotationZ = (x.value / widthPx).coerceIn(-1f, 1f) * NhakoGesture.swipeMaxRotationDeg
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                    alpha = enter.value.coerceIn(0f, 1f)
                 }
-            }
-            .padding(NhakoSpace.s6),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                DeviceOrb(device, 48.dp, showName = false)
-                Spacer(Modifier.width(NhakoSpace.s4))
-                Column(Modifier.weight(1f)) {
-                    BasicText(t("incoming.title", "device" to name), style = NhakoType.footnote.style(c.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    BasicText(summarizeFiles(request.files), style = NhakoType.title2.style(c.textPrimary), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicText(formatBytes(request.totalBytes), style = NhakoType.footnote.style(c.textSecondary))
-                        device?.route?.let {
-                            Spacer(Modifier.width(NhakoSpace.s3))
-                            RouteBadge(it)
+                .shadow(16.dp, RoundedCornerShape(NhakoRadius.xl))
+                .clip(RoundedCornerShape(NhakoRadius.xl))
+                .background(c.surfaceRaised)
+                .pointerInput(request.id, noSpace) {
+                    if (noSpace) return@pointerInput
+                    widthPx = size.width.toFloat()
+                    val tracker = VelocityTracker()
+                    var past = false
+                    detectHorizontalDragGestures(
+                        onDragStart = { tracker.resetTracking() },
+                        onDragEnd = {
+                            val v = tracker.calculateVelocity().x
+                            val vDp = v / density.density
+                            val far = abs(x.value) > widthPx * NhakoGesture.swipeCommitFraction
+                            val flung = abs(vDp) > NhakoGesture.swipeCommitVelocity && sign(v) == sign(x.value)
+                            if (far || flung) commit(x.value > 0, v) else scope.launch { x.animateTo(0f, NhakoMotion.settle.spec(), initialVelocity = v) }
+                            past = false
+                        },
+                        onDragCancel = { scope.launch { x.animateTo(0f, NhakoMotion.settle.spec()) } },
+                    ) { change, dx ->
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        scope.launch { x.snapTo(x.value + dx) }
+                        val nowPast = abs(x.value + dx) > widthPx * NhakoGesture.swipeCommitFraction
+                        if (nowPast != past) {
+                            (if (nowPast) NhakoHaptic.ThresholdActivate else NhakoHaptic.ThresholdDeactivate).perform(view)
+                            if (nowPast) app.sound(NhakoSound.Tick)
+                            past = nowPast
                         }
                     }
                 }
-                FileStack(request.files, 40.dp)
+                .padding(NhakoSpace.s6),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        DeviceOrb(device, 48.dp, showName = false)
+                        Box(
+                            Modifier.align(Alignment.TopStart).offset((-4).dp, (-6).dp).size(24.dp).shadow(1.dp, CircleShape).clip(CircleShape).background(c.surfaceRaised),
+                            contentAlignment = Alignment.Center,
+                        ) { Bolt(16.dp, twitch = twitch) }
+                    }
+                    Spacer(Modifier.width(NhakoSpace.s4))
+                    Column(Modifier.weight(1f)) {
+                        BasicText(t("incoming.title", "device" to name), style = NhakoType.footnote.style(c.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val what = when {
+                            text != null -> t(if (link) "staged.link" else "staged.text")
+                            folder != null -> folder.first
+                            else -> summarizeFiles(request.files)
+                        }
+                        BasicText(what, style = NhakoType.title2.style(c.textPrimary), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (text == null) BasicText(listOfNotNull(folder?.second, formatBytes(request.totalBytes)).joinToString(" · "), style = NhakoType.footnote.style(c.textSecondary))
+                            device?.route?.let {
+                                Spacer(Modifier.width(NhakoSpace.s3))
+                                RouteBadge(it)
+                            }
+                        }
+                        // A stranger can copy a name, so say plainly when this isn't one of your saved devices.
+                        if (device?.trusted != true) NotYoursBadge(request.id)
+                    }
+                    FileStack(request.files, 40.dp, text = text)
+                }
+                // Read it before deciding: the whole point of text arriving in the request.
+                if (text != null) {
+                    BasicText(
+                        text,
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(NhakoRadius.sm)).background(c.surfaceSunken)
+                            .drawBehind { drawRect(NhakoBrand.yellow, size = Size(3.dp.toPx(), size.height)) }
+                            .padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s3),
+                        style = NhakoType.body.style(c.textPrimary),
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (noSpace) {
+                    NBanner(t("incoming.noSpace", "needed" to formatBytes(request.totalBytes - app.freeSpace)), tone = BannerTone.Danger, icon = "warning-circle")
+                }
+                NToggle(always, t("incoming.alwaysAccept", "device" to name), { always = it })
+                Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+                    val pad = if (link) NhakoSpace.s2 else ButtonSize.Lg.padding
+                    NButton(t("incoming.decline"), { commit(false) }, Modifier.weight(1f), variant = ButtonVariant.Secondary, size = ButtonSize.Lg, full = true, padding = pad)
+                    if (text != null) {
+                        NButton(t("text.copy"), { commit(true, then = "copy") }, Modifier.weight(1f), variant = if (link) ButtonVariant.Secondary else ButtonVariant.Primary, size = ButtonSize.Lg, full = true, sparks = false, padding = pad)
+                        if (link) NButton(t("text.open"), { commit(true, then = "open") }, Modifier.weight(1f), size = ButtonSize.Lg, full = true, sparks = false, padding = pad)
+                    } else {
+                        NButton(t("incoming.accept"), { commit(true) }, Modifier.weight(1f), size = ButtonSize.Lg, full = true, enabled = !noSpace, sparks = false)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    PhIcon("hand-swipe-right", size = 14.dp, tint = c.textTertiary)
+                    Spacer(Modifier.width(NhakoSpace.s2))
+                    BasicText(t("incoming.hint.gesture"), style = NhakoType.footnote.style(c.textTertiary))
+                }
             }
-            if (noSpace) {
-                NBanner(t("incoming.noSpace", "needed" to formatBytes(request.totalBytes - app.freeSpace)), tone = BannerTone.Danger, icon = "warning-circle")
-            }
-            NToggle(always, t("incoming.alwaysAccept", "device" to name), { always = it })
-            Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
-                NButton(t("incoming.decline"), { commit(false) }, Modifier.weight(1f), variant = ButtonVariant.Secondary, size = ButtonSize.Lg, full = true)
-                NButton(t("incoming.accept"), { commit(true) }, Modifier.weight(1f), size = ButtonSize.Lg, full = true, enabled = !noSpace)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                PhIcon("hand-swipe-right", size = 14.dp, tint = c.textTertiary)
-                Spacer(Modifier.width(NhakoSpace.s2))
-                BasicText(t("incoming.hint.gesture"), style = NhakoType.footnote.style(c.textTertiary))
-            }
+            // Edge labels that grow as the card nears the commit point.
+            BasicText(
+                t("incoming.accept"),
+                Modifier.align(Alignment.TopStart).alpha(if (x.value > 0) progress else 0f).clip(RoundedCornerShape(NhakoRadius.xs)).background(c.successSubtle).padding(horizontal = 8.dp, vertical = 2.dp),
+                style = NhakoType.caption.style(c.success),
+            )
+            BasicText(
+                t("incoming.decline"),
+                Modifier.align(Alignment.TopEnd).alpha(if (x.value < 0) progress else 0f).clip(RoundedCornerShape(NhakoRadius.xs)).background(c.dangerSubtle).padding(horizontal = 8.dp, vertical = 2.dp),
+                style = NhakoType.caption.style(c.danger),
+            )
+            // The charge meter along the bottom edge fills toward the side you're swiping to and is
+            // full at the commit point (yellow once past it on the accept side).
+            val meterColor = if (x.value < 0) c.danger else if (progress >= 1f) NhakoBrand.yellow else c.success
+            Box(
+                Modifier.align(Alignment.BottomCenter).offset(y = NhakoSpace.s6 - 10.dp).fillMaxWidth().height(3.dp).drawBehind {
+                    if (progress <= 0f) return@drawBehind
+                    val w = size.width * progress
+                    drawRoundRect(meterColor, Offset(if (x.value < 0) size.width - w else 0f, 0f), Size(w, size.height), CornerRadius(size.height / 2))
+                },
+            )
         }
-        // Edge labels that grow as the card nears the commit point.
-        BasicText(
-            t("incoming.accept"),
-            Modifier.align(Alignment.TopStart).alpha(if (x.value > 0) progress else 0f).clip(RoundedCornerShape(NhakoRadius.xs)).background(c.successSubtle).padding(horizontal = 8.dp, vertical = 2.dp),
-            style = NhakoType.caption.style(c.success),
-        )
-        BasicText(
-            t("incoming.decline"),
-            Modifier.align(Alignment.TopEnd).alpha(if (x.value < 0) progress else 0f).clip(RoundedCornerShape(NhakoRadius.xs)).background(c.dangerSubtle).padding(horizontal = 8.dp, vertical = 2.dp),
-            style = NhakoType.caption.style(c.danger),
-        )
     }
 }
 
@@ -354,6 +438,8 @@ private fun ToastView(toast: Toast, leaving: Boolean, onGone: () -> Unit, onDism
     val scope = rememberCoroutineScope()
     val enter = remember { Animatable(if (reduced) 1f else 0f) }
     val x = remember { Animatable(0f) }
+    val left = remember { Animatable(if (reduced) 0f else 1f) }
+    LaunchedEffect(toast.id) { if (!reduced) left.animateTo(0f, tween(toast.ms.toInt(), easing = LinearEasing)) }
     LaunchedEffect(leaving) {
         if (!leaving) {
             if (!reduced) enter.animateTo(1f, NhakoMotion.smooth.spec())
@@ -381,6 +467,7 @@ private fun ToastView(toast: Toast, leaving: Boolean, onGone: () -> Unit, onDism
                 }) { _, dx -> scope.launch { x.snapTo(x.value + dx) } }
             }
             .shadow(8.dp, RoundedCornerShape(NhakoRadius.full)).clip(RoundedCornerShape(NhakoRadius.full)).background(c.surfaceRaised)
+            .timeLeft(left.value, tint)
             .heightIn(min = 52.dp).padding(horizontal = NhakoSpace.s5, vertical = NhakoSpace.s3),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -390,5 +477,44 @@ private fun ToastView(toast: Toast, leaving: Boolean, onGone: () -> Unit, onDism
         if (toast.actionLabel != null && toast.action != null) {
             BasicText(toast.actionLabel, Modifier.clickable(role = Role.Button, onClick = withTap { toast.action.invoke(); onDismiss() }).padding(NhakoSpace.s2), style = NhakoType.callout.style(c.accentText).copy(fontWeight = FontWeight(600)))
         }
+    }
+}
+
+/** A thin bar along the toast's bottom that drains as its time runs out. Hidden in reduced motion. */
+private fun Modifier.timeLeft(left: Float, color: Color): Modifier = drawWithContent {
+    drawContent()
+    if (left <= 0f) return@drawWithContent
+    val h = 2.dp.toPx()
+    drawRect(color, Offset(0f, size.height - h), Size(size.width * left, h), alpha = 0.35f)
+}
+
+/** "Not one of your devices" on a request card: pops in just after the card (fades in with reduced motion). */
+@Composable
+private fun NotYoursBadge(key: String) {
+    val c = Nhako.colors
+    val reduced = Nhako.reducedMotion
+    val pop = remember(key) { Animatable(0f) }
+    LaunchedEffect(key) {
+        delay(120)
+        pop.animateTo(1f, (if (reduced) NhakoMotion.smooth else NhakoMotion.bouncy).spec())
+    }
+    Row(
+        Modifier.padding(top = NhakoSpace.s2)
+            .graphicsLayer {
+                alpha = pop.value.coerceIn(0f, 1f)
+                if (!reduced) {
+                    val s = 0.85f + 0.15f * pop.value
+                    scaleX = s
+                    scaleY = s
+                    translationY = (1 - pop.value) * 4.dp.toPx()
+                }
+            }
+            .clip(RoundedCornerShape(NhakoRadius.full)).background(c.warningSubtle)
+            .padding(start = NhakoSpace.s2, end = NhakoSpace.s3, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PhIcon("warning-circle", size = 14.dp, tint = c.warning, weight = IconWeight.Fill)
+        Spacer(Modifier.width(NhakoSpace.s1))
+        BasicText(t("incoming.notYours"), style = NhakoType.caption.style(c.warning).copy(fontWeight = FontWeight(600)))
     }
 }

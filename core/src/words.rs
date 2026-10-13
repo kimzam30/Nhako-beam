@@ -13,12 +13,15 @@ pub fn is_word(w: &str) -> bool {
     WORDS.binary_search(&w.as_str()).is_ok()
 }
 
-pub fn random_words() -> [String; 3] {
+/// How many words a pairing code has. Four from 256 is 4.3 billion codes (see docs/protocol/nhako-1.md, section 7).
+pub const CODE_WORDS: usize = 4;
+
+pub fn random_words() -> [String; CODE_WORDS] {
     let mut rng = rand::rng();
     std::array::from_fn(|_| WORDS[rng.random_range(0..WORDS.len())].to_string())
 }
 
-/// Splits typed or pasted text like "River-lantern seven" or "nhakobeam://pair/river-lantern-seven" into words.
+/// Splits typed or pasted text like "River-lantern seven harbor" or "nhakobeam://pair/river-lantern-seven-harbor" into words.
 pub fn split_code(text: &str) -> Vec<String> {
     let text = text.trim();
     let text = text.strip_prefix("nhakobeam://pair/").unwrap_or(text);
@@ -44,8 +47,11 @@ mod tests {
     fn checks_and_splits() {
         assert!(is_word(" River "));
         assert!(!is_word("rivers"));
-        assert_eq!(split_code("River-lantern  seven"), ["river", "lantern", "seven"]);
-        assert_eq!(split_code("nhakobeam://pair/river-lantern-seven"), ["river", "lantern", "seven"]);
+        assert_eq!(split_code("River-lantern  seven harbor"), ["river", "lantern", "seven", "harbor"]);
+        assert_eq!(
+            split_code("nhakobeam://pair/river-lantern-seven-harbor"),
+            ["river", "lantern", "seven", "harbor"]
+        );
         let w = random_words();
         assert!(w.iter().all(|w| is_word(w)));
     }

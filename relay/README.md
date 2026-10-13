@@ -45,11 +45,11 @@ nhako server public            # back to n0's servers
 
 Every device that should reach the others over the internet needs the same setting. Devices on the same Wi-Fi find each other either way.
 
-To prove a transfer really goes through your relay, add `--relay-only` (no direct paths) and `--no-mdns` on both sides:
+To prove a transfer really goes through your relay, add `--relay-only` (no direct paths) and `--no-nearby` on both sides:
 
 ```bash
-nhako --relay-only --no-mdns send big.iso          # on one device
-nhako --relay-only --no-mdns receive WORD WORD WORD # on the other
+nhako --relay-only --no-nearby send big.iso          # on one device
+nhako --relay-only --no-nearby receive WORD WORD WORD # on the other
 ```
 
 ## Everyday

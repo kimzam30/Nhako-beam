@@ -1,3 +1,4 @@
+import java.util.Properties
 import javax.inject.Inject
 import org.gradle.process.ExecOperations
 
@@ -17,6 +18,18 @@ val repoRoot: File = rootProject.projectDir.parentFile
 
 /** Phone architectures to build the engine for. Faster local builds: `-Pnhako.abis=arm64-v8a`. */
 val engineAbis: List<String> = (findProperty("nhako.abis") as String? ?: "arm64-v8a,armeabi-v7a,x86_64").split(",").map { it.trim() }
+
+/**
+ * The release key (docs/releasing.md): from the NHAKO_KEYSTORE_* variables (the Release workflow)
+ * or android/keystore.properties (your computer). Android only installs an update signed with the
+ * same key as the app already on the phone, so every published APK must use this one key.
+ */
+val keystoreProperties = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+fun releaseKey(env: String, property: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProperties.getProperty(property)
+val releaseStoreFile: String? = releaseKey("NHAKO_KEYSTORE_FILE", "storeFile")
 
 android {
     namespace = "io.github.kimzam30.nhakobeam"
@@ -42,6 +55,18 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseKey("NHAKO_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = releaseKey("NHAKO_KEY_ALIAS", "keyAlias")
+                // A PKCS12 keystore (keytool's default) has one password for the store and the key.
+                keyPassword = releaseKey("NHAKO_KEY_PASSWORD", "keyPassword") ?: storePassword
+            }
+        }
+    }
+
     buildTypes {
         debug { applicationIdSuffix = ".debug" }
         release {
@@ -50,9 +75,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with this computer's debug key so it installs, until there's a real release
-            // key for the Play Store (the store build will need a fresh install).
-            signingConfig = signingConfigs.getByName("debug")
+            // Without the release key, this computer's debug key: fine for trying things, never for
+            // publishing (the Release workflow refuses to build without the real key).
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

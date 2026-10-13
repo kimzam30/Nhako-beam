@@ -49,6 +49,8 @@ Skipping is allowed on 1.2 to 1.4; defaults are used.
 | 2.8 | Files waiting to be sent (Android, after picking or share sheet) | | ✓ | P | File stack at the top, orbs breathe as targets. |
 | 2.9 | Many devices (more than 8) | ✓ | ✓ | | Radar shows the 8 closest; a "More devices" list row opens the full list. |
 | 2.10 | Your own server has a problem | ✓ | ✓ | P | Banner: it turned the token down, or it doesn't answer, with a Settings action. The engine checks at start, on every rescan, every 5 minutes, every 30 s while something is wrong, and when a code fails. Added in Phase 5. |
+| 2.12 | Not on Wi-Fi (mobile data) | | ✓ | P | Phase 14. Android knows from the system's network (Wi-Fi or a cable counts as local). A banner says only your own devices show up; with none in reach the empty state says why and offers "Use a code". The desktop app is always on a local network when it's online. The prototype shows it from the scenario panel. |
+| 2.13 | A device's own sheet | ✓ | ✓ | P | Phase 14. Right-click (desktop) or long press (both) on an orb: what it is, its fingerprint, Send files, Send a folder, Send text, and for a nearby device that isn't yours, "Trust this device". |
 | 2.11 | A trusted phone is asleep | ✓ | ✓ | P | Phase 8. Android paused the app there, but it can be woken (push wake-up, wake/README.md). Its orb is slightly faded with "Asleep" under it (not "Offline") and can still be picked: the transfer says "Waking {device}" while the engine wakes it and keeps dialling for up to 45 s. |
 
 Layouts: compact = radar full width with actions under it. Expanded = radar on the left, activity (current and recent transfers) on the right.
@@ -64,6 +66,9 @@ Layouts: compact = radar full width with actions under it. Expanded = radar on t
 | 3.5 | Still waiting (60s) | ✓ | ✓ | P | Keep waiting or cancel. |
 | 3.6 | Declined | ✓ | ✓ | P | Files return, short message. |
 | 3.7 | Device went away before accepting | ✓ | ✓ | P | "Aisyah's laptop is no longer reachable" with Try again. |
+| 3.9 | A folder | ✓ | ✓ | P | Phase 14. Home's Folder button (desktop: the system folder dialog, or drop a folder; Android: the system folder picker). It goes with everything inside it, keeping its shape; the tray says "Trip folder, 240 files". On Android each file is opened only when it's sent. Empty folders and system clutter (.DS_Store, Thumbs.db, desktop.ini) are left out. |
+| 3.10 | Text, a link, the clipboard | ✓ | ✓ | P | Phase 14. Text opens a box to type or paste into (up to 64 KB), then choose a device. Clipboard puts the clipboard's text in the tray straight away. Ctrl+V on Home (desktop) and sharing text or a link to Nhako Beam (Android) start one too. The tray shows its first line. |
+| 3.11 | Trust this device | ✓ | ✓ | P | Phase 14. From a nearby device's sheet, the "Trust" button in Send to, or Settings > Nearby, not yours yet. A sheet waits with both orbs and a charging line, then shows the code both screens should show. It ends with the paired sheet ("{device} is one of your devices now"), or a toast: said no, needs a newer Nhako Beam, couldn't reach it, busy. |
 | 3.8 | File unreadable | ✓ | ✓ | | Permission or missing file. Lets you skip that file and send the rest. |
 
 ## 4. Pairing with a code
@@ -90,6 +95,9 @@ Can appear on top of any screen. On desktop also as a system notification with A
 | 5.3 | Not enough space for this transfer | ✓ | ✓ | P | Accept disabled, reason shown, "Change save location". |
 | 5.4 | Several requests at once | ✓ | ✓ | | Cards stack (max 3 visible, offset 8 each). Top one is active. |
 | 5.5 | Auto-accepted (trusted) | ✓ | ✓ | P | No card; a toast "Receiving from Aisyah's laptop" and the transfer view. |
+| 5.7 | Text request | ✓ | ✓ | P | Phase 14. The card shows the text (up to 5 lines) instead of files, with Decline and Copy, plus Open link for a link. Accepting copies (or opens) it. From your own devices with "Accept files automatically" on there's no card: it goes to the clipboard with a toast "Copied text from {device}" (desktop: also a notification while in the tray; Android: while out of sight). |
+| 5.8 | A folder request | ✓ | ✓ | P | Phase 14. The card shows the folder's name with "44 files · 311 MB". It arrives in a folder of its own ("Trip", or "Trip (1)" when that's taken); Open and Show in folder open that folder. |
+| 5.9 | Asked to trust another device | ✓ | ✓ | P | Phase 14. A sheet: "Add {device} to your devices?", both orbs, the code both screens show, Not now and Add. A notification while the app is out of sight. If the other device stops asking, the sheet closes with a toast. |
 | 5.6 | Request withdrawn by sender | ✓ | ✓ | P | Card fades out with a short toast. |
 
 ## 6. Transfer

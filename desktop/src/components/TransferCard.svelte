@@ -2,10 +2,11 @@
   import type { Transfer } from '../lib/engine/types';
   import { app } from '../lib/state/app.svelte';
   import { t } from '../lib/copy';
-  import { formatBytes, formatEta, formatSpeed, percent, summarizeFiles } from '../lib/format';
+  import { formatBytes, formatEta, formatSpeed, isLink, percent, summarizeFiles, textPreview } from '../lib/format';
   import { shake } from '../lib/motion/springs';
-  import { springIn } from '../lib/motion/transitions';
   import Beam from './Beam.svelte';
+  import Bolt from './Bolt.svelte';
+  import RollingNumber from './RollingNumber.svelte';
   import Button from './Button.svelte';
   import ConnectionBadge from './ConnectionBadge.svelte';
   import Icon from './Icon.svelte';
@@ -33,6 +34,9 @@
     tr.status === 'transferring' ? 'moving' : tr.status === 'paused' ? 'paused' : tr.status === 'reconnecting' ? 'reconnecting' : tr.status === 'done' ? 'done' : tr.status === 'failed' ? 'failed' : 'idle',
   );
   const kindIcon = { laptop: 'laptop', desktop: 'desktop-tower', phone: 'device-mobile', tablet: 'device-tablet' } as const;
+  /** Text (a note, a link): it travels in the request, so there's no beam, just the outcome. */
+  const isText = $derived(tr.text !== undefined);
+  const link = $derived(isText && isLink(tr.text ?? ''));
 
   const title = $derived.by(() => {
     switch (tr.status) {
@@ -41,9 +45,10 @@
       case 'connecting':
         return tr.waking ? t('transfer.waking', { device: name }) : t('transfer.connecting');
       case 'done':
+        if (isText) return t(tr.direction === 'send' ? (link ? 'text.link.to' : 'text.to') : link ? 'text.link.from' : 'text.from', { device: name });
         return tr.direction === 'send' ? t('transfer.done.sent', { device: name }) : t('transfer.done.received', { device: name });
       case 'declined':
-        return t('send.declined', { device: name });
+        return tr.error === 'notAllowed' ? t('send.notAllowed', { device: name }) : t('send.declined', { device: name });
       case 'failed':
         return tr.error === 'peerGone' && tr.doneBytes === 0 ? t('send.unreachable', { device: name }) : t('transfer.failed');
       case 'cancelled':
@@ -61,10 +66,12 @@
       return t('transfer.paused');
     }
     if (tr.status === 'reconnecting') return t('transfer.reconnecting');
+    if (tr.status === 'declined' && tr.error === 'notAllowed') return t('send.notAllowed.hint');
     if (tr.status === 'failed' && tr.error && !(tr.error === 'peerGone' && tr.doneBytes === 0)) {
       const key = `error.${tr.error}` as const;
       return t(key as Parameters<typeof t>[0], { device: name, fileName: tr.files[0]?.name ?? 'A file' });
     }
+    if (isText) return textPreview(tr.text ?? '');
     return `${summarizeFiles(tr.files)} · ${formatBytes(tr.totalBytes)}`;
   });
 
@@ -99,25 +106,28 @@
   <header>
     <span class="avatar" class:done={tr.status === 'done'}>
       {#if tr.status === 'done'}
-        <span class="check" in:springIn={{ preset: 'bouncy', scale: 0.3, y: 0 }}><Icon name="check-circle" size={22} weight="fill" /></span>
+        <!-- The bolt strikes, throws a few sparks, then turns into a check. -->
+        <span class="check"><Bolt size={26} mode="check" strike testid="done-bolt" /></span>
+      {:else if tr.status === 'failed'}
+        <span class="check"><Bolt size={24} mode="cracked" tone="current" testid="failed-bolt" /></span>
       {:else}
         <Icon name={tr.direction === 'send' ? kindIcon[device?.kind ?? 'laptop'] : 'download-simple'} size={20} />
       {/if}
     </span>
     <div class="titles">
       <h3 class="title">{title}</h3>
-      <p class="detail" class:warn={tr.status === 'reconnecting' || tr.error === 'diskFull' || tr.error === 'diskFullPeer'} class:bad={tr.status === 'failed'}>{detail}</p>
+      <p class="detail" class:warn={tr.status === 'reconnecting' || tr.error === 'diskFull' || tr.error === 'diskFullPeer' || tr.error === 'notAllowed'} class:bad={tr.status === 'failed'}>{detail}</p>
     </div>
   </header>
 
-  {#if tr.status !== 'waiting' && tr.status !== 'declined' && !(tr.status === 'failed' && tr.doneBytes === 0)}
+  {#if !isText && tr.status !== 'waiting' && tr.status !== 'declined' && !(tr.status === 'failed' && tr.doneBytes === 0)}
     <Beam progress={tr.doneBytes / tr.totalBytes} intensity={tr.speed / 92e6} {mode} collapsed={tr.status === 'done'} />
   {/if}
 
   <footer>
     {#if tr.status === 'transferring' || tr.status === 'paused' || tr.status === 'reconnecting' || tr.status === 'connecting'}
       <p class="numbers tabular" aria-live="off">
-        <span class="pct">{pct}%</span>
+        <span class="pct"><RollingNumber value={pct} suffix="%" /></span>
         {#if moving && tr.speed > 0}<span>{formatSpeed(tr.speed)}</span>{/if}
         {#if moving}<span class="eta">{showEta && eta ? t('transfer.eta', { time: eta }) : t('transfer.eta.calculating')}</span>{/if}
         <ConnectionBadge route={tr.route} />
@@ -142,7 +152,14 @@
     {:else if tr.status === 'done'}
       <div class="actions grow">
         <!-- Only received files are saved here, so there's nothing to open after sending. -->
-        {#if tr.direction === 'receive'}
+        {#if isText}
+          <Button variant="secondary" size="sm" icon="copy" testid="text-card-copy" onclick={() => void app.copyText(tr.text ?? '')}>{t('text.copy')}</Button>
+          {#if link}
+            <Button variant="plain" size="sm" icon="arrow-square-out" testid="text-card-open" onclick={() => void app.openLink(tr.text ?? '')}>{t('text.open')}</Button>
+          {:else}
+            <Button variant="plain" size="sm" icon="text-aa" testid="text-card-show" onclick={() => (app.sheet = { kind: 'text', id: tr.id })}>{t('text.show')}</Button>
+          {/if}
+        {:else if tr.direction === 'receive'}
           <Button variant="secondary" size="sm" icon="arrow-square-out" testid="open" onclick={() => app.openReceived(tr.id, false)}>{t('transfer.done.open')}</Button>
           {#if app.isAndroid}
             <Button variant="plain" size="sm" icon="share-network" onclick={() => app.toast('Prototype: would open the share sheet')}>{t('transfer.done.share')}</Button>
@@ -155,7 +172,11 @@
       </div>
     {:else}
       <div class="actions grow">
-        {#if tr.status === 'failed' || tr.status === 'declined' || (tr.status === 'cancelled' && tr.cancelledBy === 'peer')}
+        {#if tr.status === 'declined' && tr.error === 'notAllowed'}
+          <!-- Showing a code here and typing it there makes this one of their devices; then Try again works. -->
+          <Button variant="secondary" size="sm" icon="qr-code" testid="pair-instead" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('send.notAllowed.pair')}</Button>
+          <Button variant="plain" size="sm" icon="arrow-clockwise" testid="retry" sound="resume" onclick={() => app.engine.retry(tr.id)}>{t('transfer.failed.retry')}</Button>
+        {:else if tr.status === 'failed' || tr.status === 'declined' || (tr.status === 'cancelled' && tr.cancelledBy === 'peer')}
           <Button variant="secondary" size="sm" icon="arrow-clockwise" testid="retry" sound="resume" onclick={() => app.engine.retry(tr.id)}>{t('transfer.failed.retry')}</Button>
           {#if tr.status === 'failed' && tr.doneBytes > 0}<span class="hint">{t('transfer.failed.retry.hint')}</span>{/if}
         {/if}

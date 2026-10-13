@@ -8,12 +8,15 @@
 //! Events arrive on an engine thread through [`EventListener`].
 
 use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
-use nhako_core::{Connection, Engine, EngineConfig, EngineEvent, Network, OwnServer, check_server, store};
+use nhako_core::{Connection, Engine, EngineConfig, EngineEvent, Network, Outgoing, OwnServer, WhoCanSend, check_server, store};
 use serde::Serialize;
 use tokio::{runtime::Runtime, sync::broadcast::error::RecvError, task::JoinHandle};
 
@@ -38,11 +41,22 @@ pub trait EventListener: Send + Sync {
 }
 
 /// A file to send. `path` can be `/proc/self/fd/N` for a file shared from another app, which must
-/// stay open until the transfer is finished; `name` is what the other device sees.
+/// stay open until the transfer is finished, or a `content://` address for a file in a folder
+/// picked in the system picker, opened through [`FileOpener`] when it's needed. `name` is what the
+/// other device sees; `folder` is the folder it's in, for a file inside a folder being sent.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct SendFile {
     pub path: String,
     pub name: String,
+    pub folder: Option<String>,
+}
+
+/// Opens `content://` addresses for the engine, one file at a time as each is sent, so a folder
+/// of thousands of files never holds thousands open.
+#[uniffi::export(foreign)]
+pub trait FileOpener: Send + Sync {
+    /// Opens it for reading and hands over the descriptor (the engine closes it), or -1.
+    fn open(&self, uri: String) -> i32;
 }
 
 #[derive(Serialize)]
@@ -65,6 +79,8 @@ pub struct NhakoEngine {
     /// Starting, stopping and restarting happen one at a time, and settings on disk are only
     /// touched under it (the first open creates the device key).
     lifecycle: Mutex<()>,
+    /// The app is on screen. Kept here too, so an engine started later starts with it.
+    foreground: AtomicBool,
 }
 
 #[uniffi::export]
@@ -73,7 +89,7 @@ impl NhakoEngine {
     /// a fresh install (Download/Nhako Beam).
     #[uniffi::constructor]
     pub fn new(config_dir: String, default_save_dir: String, listener: Arc<dyn EventListener>) -> Result<Arc<Self>, NhakoError> {
-        init_logging();
+        init_logging(Path::new(&config_dir));
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("nhako")
@@ -88,6 +104,7 @@ impl NhakoEngine {
             engine: Mutex::new(None),
             forward: Mutex::new(None),
             lifecycle: Mutex::new(()),
+            foreground: AtomicBool::new(true),
         }))
     }
 
@@ -95,11 +112,11 @@ impl NhakoEngine {
     /// picked during onboarding, saved before the network starts.
     pub fn start(&self, name: Option<String>) -> Result<String, NhakoError> {
         let _g = self.lifecycle.lock().expect("lifecycle lock");
-        if let Some(name) = name.filter(|n| !n.trim().is_empty())
+        if let Some(name) = name.map(|n| clean_name(&n)).filter(|n| !n.is_empty())
             && self.running().is_none()
         {
             let mut s = self.store()?;
-            s.state.name = clean_name(&name);
+            s.state.name = name;
             s.save().map_err(|e| failed(e.to_string()))?;
         }
         let engine = match self.running() {
@@ -144,6 +161,15 @@ impl NhakoEngine {
         .and_then(|info| json(&info))
     }
 
+    /// The app came on screen or went to the background: devices are checked less often there.
+    pub fn set_foreground(&self, on: bool) -> Result<(), NhakoError> {
+        self.foreground.store(on, Ordering::Relaxed);
+        if let Some(e) = self.running() {
+            self.in_rt(|| e.set_foreground(on));
+        }
+        Ok(())
+    }
+
     pub fn rescan(&self) -> Result<(), NhakoError> {
         let e = self.engine()?;
         self.in_rt(|| e.rescan());
@@ -153,12 +179,60 @@ impl NhakoEngine {
     /// Returns the transfer id.
     pub fn send(&self, device_id: String, files: Vec<SendFile>) -> Result<String, NhakoError> {
         let e = self.engine()?;
-        let named: Vec<(PathBuf, String)> = files.into_iter().map(|f| (PathBuf::from(f.path), f.name)).collect();
-        self.in_rt(|| e.send_named(&device_id, &named)).map_err(|err| match err {
-            nhako_core::EngineError::File { .. } => failed("Couldn't read that file. It may have been moved or deleted."),
-            nhako_core::EngineError::UnknownDevice => failed("That device isn't known any more."),
-            other => failed(other.to_string()),
+        let out: Vec<Outgoing> = files
+            .into_iter()
+            .map(|f| Outgoing {
+                path: PathBuf::from(f.path),
+                name: f.name,
+                folder: f.folder,
+            })
+            .collect();
+        self.in_rt(|| e.send_files(&device_id, &out)).map_err(send_error)
+    }
+
+    /// Sends text (a note, a link, a clipboard). Returns the transfer id.
+    pub fn send_text(&self, device_id: String, text: String) -> Result<String, NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.send_text(&device_id, &text)).map_err(send_error)
+    }
+
+    /// Lets the engine open `content://` addresses (files in a picked folder). Set once.
+    pub fn set_file_opener(&self, opener: Arc<dyn FileOpener>) {
+        nhako_core::files::set_content_opener(Box::new(move |uri| {
+            let fd = opener.open(uri.to_string());
+            if fd < 0 {
+                return Err(std::io::Error::other("couldn't open it"));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::fd::FromRawFd;
+                // SAFETY: the app detached this descriptor and handed it over; nothing else closes it.
+                Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+            }
+            #[cfg(not(unix))]
+            Err(std::io::Error::other("not on this platform"))
+        }));
+    }
+
+    /// Asks a nearby device to trust this one, and to be trusted back (see `Engine::ask_trust`).
+    pub fn ask_trust(&self, device_id: String) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.ask_trust(&device_id)).map_err(|err| match err {
+            nhako_core::EngineError::NotNearby => failed("That device isn't nearby any more."),
+            _ => failed("That device isn't known any more."),
         })
+    }
+
+    pub fn cancel_trust(&self, device_id: String) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.cancel_trust(&device_id));
+        Ok(())
+    }
+
+    pub fn answer_trust(&self, device_id: String, yes: bool) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.answer_trust(&device_id, yes));
+        Ok(())
     }
 
     pub fn accept(&self, request_id: String, trust: bool, auto_accept: bool) -> Result<Option<String>, NhakoError> {
@@ -286,6 +360,23 @@ impl NhakoEngine {
         self.save_and_restart(|e| e.set_lan_discovery(on).map_err(|e| failed(e.to_string())), |s| s.state.lan_discovery = on)
     }
 
+    /// Who can send to me: `yourDevices` or `everyoneNearby`. Applies to the next request.
+    pub fn get_who_can_send(&self) -> Result<String, NhakoError> {
+        let who = self.settings(|e| e.who_can_send(), |s| Ok(s.state.who_can_send))?;
+        Ok(serde_json::to_value(who).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default())
+    }
+
+    pub fn set_who_can_send(&self, who: String) -> Result<(), NhakoError> {
+        let who: WhoCanSend = serde_json::from_value(serde_json::Value::String(who)).map_err(|e| failed(format!("Not a setting: {e}")))?;
+        self.settings(
+            |e| e.set_who_can_send(who).map_err(|e| failed(e.to_string())),
+            |s| {
+                s.state.who_can_send = who;
+                Ok(s.save().map_err(|e| failed(e.to_string())))
+            },
+        )?
+    }
+
     /// This phone's wake token from Firebase, or none when push isn't set up. Saved also before the
     /// engine starts; trusted devices get it in the next hello.
     pub fn set_wake_token(&self, token: Option<String>) -> Result<(), NhakoError> {
@@ -307,6 +398,15 @@ impl NhakoEngine {
     pub fn clear_history(&self) -> Result<(), NhakoError> {
         self.engine()?.clear_history();
         Ok(())
+    }
+
+    /// Settings > About > Copy diagnostics. `app` is the app's own line, for example
+    /// "android 0.1.0 (Android 15)". Works while the engine is stopped too.
+    pub fn diagnostics(&self, app: String) -> String {
+        match self.running() {
+            Some(e) => e.diagnostics(&app),
+            None => nhako_core::diagnostics_without_engine(&app),
+        }
     }
 
     /// Where a received transfer's files are on disk (only the ones that arrived and checked out).
@@ -373,6 +473,7 @@ impl NhakoEngine {
         let mut cfg = EngineConfig::new(&self.config_dir);
         cfg.default_save_dir = Some(self.default_save_dir.clone());
         let engine = self.rt.block_on(Engine::start(cfg)).map_err(|e| failed(e.to_string()))?;
+        self.in_rt(|| engine.set_foreground(self.foreground.load(Ordering::Relaxed)));
         let listener = self.listener.clone();
         let forwarded = engine.clone();
         let task = self.rt.spawn(async move {
@@ -411,26 +512,40 @@ impl NhakoEngine {
     }
 }
 
+fn send_error(err: nhako_core::EngineError) -> NhakoError {
+    match err {
+        nhako_core::EngineError::File { .. } => failed("Couldn't read that file. It may have been moved or deleted."),
+        nhako_core::EngineError::UnknownDevice => failed("That device isn't known any more."),
+        nhako_core::EngineError::TextTooLong => failed("That's too long to send as text. Save it in a file and send that."),
+        nhako_core::EngineError::NoFiles => failed("There's nothing to send."),
+        other => failed(other.to_string()),
+    }
+}
+
 fn clean_name(name: &str) -> String {
-    name.trim().chars().filter(|c| !c.is_control()).take(32).collect()
+    nhako_core::text::device_name(name)
 }
 
 fn json<T: Serialize>(value: &T) -> Result<String, NhakoError> {
     serde_json::to_string(value).map_err(|e| failed(e.to_string()))
 }
 
-fn init_logging() {
+/// Logs to logcat and to the log file in the app's files folder (for Copy diagnostics).
+fn init_logging(config_dir: &Path) {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        use tracing_subscriber::{EnvFilter, prelude::*};
+        use tracing_subscriber::{EnvFilter, fmt, prelude::*};
         let filter = EnvFilter::new("info,iroh=warn,iroh_relay=warn,netwatch=warn,portmapper=warn");
+        let file = nhako_core::logfile::install(config_dir);
+        let to_file = fmt::layer().with_ansi(false).with_writer(move || file.writer());
         #[cfg(target_os = "android")]
         let _ = tracing_subscriber::registry()
             .with(filter)
             .with(tracing_android::layer("nhako").expect("logcat layer"))
+            .with(to_file)
             .try_init();
         #[cfg(not(target_os = "android"))]
-        let _ = tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).try_init();
+        let _ = tracing_subscriber::registry().with(filter).with(fmt::layer()).with(to_file).try_init();
     });
 }

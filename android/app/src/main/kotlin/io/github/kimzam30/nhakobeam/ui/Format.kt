@@ -66,16 +66,49 @@ private fun kind(f: FileItem): Kind {
 /** For picking an icon: "photo", "video", "song", "document", "archive" or "file". */
 fun fileKindName(f: FileItem) = kind(f).one
 
-private fun count(n: Int, k: Kind) = "$n ${if (n == 1) k.one else k.many}"
+private fun count(n: Int, k: Kind) = "${String.format(Locale.US, "%,d", n)} ${if (n == 1) k.one else k.many}"
 
-/** "3 photos and 1 video", "12 files", or the file name for a single file. */
+/** "3 photos and 1 video", "12 files", or the file name for a single file. Files inside a sent
+ *  folder count as the folder: "Trip folder, 240 files", "2 folders, 31 files", "Trip folder and 3 photos". */
 fun summarizeFiles(files: List<FileItem>): String {
+    val (inFolders, loose) = files.partition { !it.folder.isNullOrEmpty() }
+    if (inFolders.isEmpty()) return summarizeLoose(files)
+    val tops = inFolders.map { it.folder!!.substringBefore('/') }.distinct()
+    val folders = if (tops.size == 1) "${tops[0]} folder" else "${String.format(Locale.US, "%,d", tops.size)} folders"
+    if (loose.isEmpty()) return "$folders, ${count(inFolders.size, Kind.File)}"
+    return "$folders and ${summarizeLoose(loose)}"
+}
+
+private fun summarizeLoose(files: List<FileItem>): String {
     if (files.isEmpty()) return "No files"
     if (files.size == 1) return files[0].name
     val groups = files.groupingBy { kind(it) }.eachCount()
     if (groups.size > 2) return count(files.size, Kind.File)
     return groups.entries.sortedByDescending { it.value }.joinToString(" and ") { count(it.value, it.key) }
 }
+
+/** When every file is inside one sent folder: its name and how many files ("Trip", "240 files"). */
+fun singleFolder(files: List<FileItem>): Pair<String, String>? {
+    val top = files.firstOrNull()?.folder?.substringBefore('/') ?: return null
+    if (top.isEmpty() || !files.all { it.folder?.substringBefore('/') == top }) return null
+    return top to count(files.size, Kind.File)
+}
+
+/** The start of a text, on one line, for titles and lists: "Meet at 6 by the…". */
+fun textPreview(text: String, max: Int = 48): String {
+    val line = text.trim().lines().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    val flat = line.replace(Regex("""\s+"""), " ")
+    return if (flat.length > max) flat.take(max - 1).trimEnd() + "…" else flat
+}
+
+/** The text is one web link and nothing else (the engine's `text::is_link`). */
+fun isLink(text: String): Boolean {
+    val t = text.trim()
+    return (t.startsWith("https://") || t.startsWith("http://")) && t.length > 8 && t.none { it.isWhitespace() }
+}
+
+/** A transfer, request or History entry in a few words: the text's start for text, otherwise [summarizeFiles]. */
+fun summarize(files: List<FileItem>, text: String?): String = if (text != null) textPreview(text) else summarizeFiles(files)
 
 /** Truncates in the middle so the extension stays visible: "holiday-vid…final.mp4". */
 fun middleTruncate(name: String, max: Int = 28): String {
@@ -128,3 +161,15 @@ fun dayLabel(at: Long, now: Long, today: String, yesterday: String): String {
 /** The time of day, 12 or 24 hour as the phone is set. */
 fun timeOfDay(at: Long, is24Hour: Boolean): String =
     java.text.SimpleDateFormat(if (is24Hour) "HH:mm" else "h:mm a", java.util.Locale.getDefault()).format(java.util.Date(at))
+
+/** File types that run something when opened, so the app asks first (twin of `isRunnable` in desktop/src/lib/format.ts). */
+private val RUNNABLE = setOf(
+    "exe", "msi", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta",
+    "lnk", "url", "reg", "jar", "sh", "bash", "run", "bin", "appimage", "desktop", "deb", "rpm", "py", "pl", "apk", "xapk", "apks",
+)
+
+/** Whether opening [name] would run it (a program, script, installer or shortcut). */
+fun isRunnable(name: String): Boolean {
+    val dot = name.lastIndexOf('.')
+    return dot > 0 && name.substring(dot + 1).lowercase() in RUNNABLE
+}

@@ -67,5 +67,6 @@ for apk in app/build/outputs/apk/release/app-*-release.apk; do
 done
 echo "Most phones need the arm64-v8a one. Not sure? Settings > About phone usually says 'ARM64' or '64-bit'."
 [[ -f app/google-services.json ]] || echo "Push wake-up is off in this build (no app/google-services.json; see wake/README.md)."
+[[ -f keystore.properties || -n "${NHAKO_KEYSTORE_FILE:-}" ]] || echo "Signed with this computer's debug key, not the release key (see docs/releasing.md)."
 ((FAST)) || echo "Screenshots of every screen: android/app/build/screenshots/"
 echo "To install it, see 'Install the .apk on your phone' in docs/building.md."

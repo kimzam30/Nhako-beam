@@ -57,9 +57,9 @@ The first build takes a while (it compiles the engine once per phone type). Late
 
 Things to know:
 
-- It's a **shrunk release build** (R8 removes the code the app never uses, about half the size of a debug build), signed with your computer's own debug key until there's a real release key for the Play Store.
+- It's a **shrunk release build** (R8 removes the code the app never uses, about half the size of a debug build). It's signed with the release key if you've set up `android/keystore.properties` ([releasing.md](releasing.md)), otherwise with your computer's own debug key.
 - Before Phase 8 the script made debug builds, whose app id ends in `.debug`. Android treats that as a different app, so uninstall the old "Nhako Beam" if you see two.
-- Each computer signs with its own key, and so does the Build workflow. If Android says **"App not installed"** when you update, the new .apk came from a different computer: uninstall Nhako Beam first, then install. That also resets the app's device key, so pair your devices again.
+- Without the release key, each computer signs with its own debug key, and so does the Build workflow. If Android says **"App not installed"** when you update, the new .apk was signed with a different key: uninstall Nhako Beam first, then install. That also resets the app's device key, so pair your devices again.
 - Google Play Protect may warn about an app it hasn't seen. Choose "Install anyway".
 
 ### From VS Code
@@ -99,7 +99,7 @@ scripts/build-linux.sh --check     # first the same checks as the Build workflow
 sudo apt install --reinstall ./out/*.deb
 ```
 
-`--reinstall` matters when you update: every build is version 0.1.0 for now, and without it apt says "already the newest version" and keeps the old one.
+`--reinstall` matters when you rebuild the same version: without it apt says "already the newest version" and keeps the old one. Versions only change with a release ([releasing.md](releasing.md)).
 
 ## Windows (.exe)
 
@@ -124,4 +124,6 @@ The installer lands in `out\`. It isn't signed yet, so Windows SmartScreen asks 
 
 - **Linux:** format, lints and every test (engine, command line, desktop app, UI, browser flows), then the .deb.
 - **Windows:** lints and tests, then the installer.
-- **Android:** the unit and screenshot tests, then the .apk for every phone. The screenshots are uploaded too (`android-screenshots`).
+- **Android:** the unit and screenshot tests, then the .apk for every phone. The screenshots are uploaded too (`android-screenshots`). With the release key in the repository secrets, the .apk is signed with it; otherwise with the runner's throwaway debug key.
+
+To publish a release (a version tag, the same checks and builds, then a draft release on GitHub), see [releasing.md](releasing.md).

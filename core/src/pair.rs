@@ -1,4 +1,4 @@
-//! Three-word codes: showing one (host) and typing one (joiner). See docs/protocol/nhako-1.md, section 7.
+//! Four-word codes: showing one (host) and typing one (joiner). See docs/protocol/nhako-1.md, section 7.
 
 use std::time::Duration;
 
@@ -178,7 +178,7 @@ impl Engine {
         if let Some(index) = words.iter().position(|w| !words::is_word(w)) {
             return RedeemResult::Err(RedeemFailure::UnknownWord { index });
         }
-        let Ok(words): Result<[String; 3], _> = words.try_into() else {
+        let Ok(words): Result<[String; words::CODE_WORDS], _> = words.try_into() else {
             return RedeemResult::Err(RedeemFailure::NoMatch);
         };
         let own = self.current_code().map(|c| c.words);

@@ -4,9 +4,10 @@
   import { app } from '../lib/state/app.svelte';
   import type { HistoryEntry } from '../lib/engine/types';
   import { t } from '../lib/copy';
-  import { dayLabel, dayStart, formatBytes, summarizeFiles, timeOfDay } from '../lib/format';
+  import { dayLabel, dayStart, formatBytes, isLink, summarize, timeOfDay } from '../lib/format';
   import { springIn, quickOut, springFlip, stagger } from '../lib/motion/transitions';
   import Button from '../components/Button.svelte';
+  import Bolt from '../components/Bolt.svelte';
   import Icon from '../components/Icon.svelte';
   import IconButton from '../components/IconButton.svelte';
 
@@ -65,14 +66,14 @@
           {@const s = status(e)}
           <li animate:springFlip in:springIn={{ delay: stagger(order.get(e.id) ?? 0), y: 12 }} out:quickOut={{ x: -16, y: 0 }}>
             {#if i > 0}<div class="sep"></div>{/if}
-            <button class="row" onclick={() => (app.sheet = { kind: 'historyItem', id: e.id })} data-testid="history-row-{e.id}">
+            <button class="row" onclick={() => (app.sheet = e.text !== undefined && e.status === 'done' ? { kind: 'text', id: e.id } : { kind: 'historyItem', id: e.id })} data-testid="history-row-{e.id}">
               <span class="dir" class:receive={e.direction === 'receive'} class:muted-dir={!!s}>
                 <Icon name={e.direction === 'send' ? 'upload-simple' : 'download-simple'} size={18} />
               </span>
               <span class="text">
-                <strong>{summarizeFiles(e.files)}</strong>
+                <strong>{summarize(e)}</strong>
                 <span class="sub tabular">
-                  {t(e.direction === 'send' ? 'history.sent' : 'history.received', { device: e.deviceName })} · {formatBytes(e.totalBytes)}
+                  {t(e.direction === 'send' ? 'history.sent' : 'history.received', { device: e.deviceName })} · {e.text !== undefined ? t(isLink(e.text) ? 'staged.link' : 'staged.text') : formatBytes(e.totalBytes)}
                 </span>
               </span>
               <span class="side">
@@ -86,7 +87,8 @@
     </section>
   {:else}
     <div class="empty" in:springIn={{ delay: 80 }} data-testid="history-empty">
-      <span class="empty-icon"><Icon name="clock-counter-clockwise" size={32} /></span>
+      <!-- A sleeping bolt: it breathes once when you arrive, then rests. -->
+      <span class="empty-icon"><Bolt size={34} mode="asleep" testid="sleeping-bolt" /></span>
       <p>{t('history.empty')}</p>
     </div>
   {/each}

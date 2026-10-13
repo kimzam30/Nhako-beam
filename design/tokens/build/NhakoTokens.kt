@@ -246,6 +246,17 @@ object NhakoMotion {
         val toastOffset = 24.dp
     }
 
+    /** The bolt language from the logo: charge, zap, settle. Sparks are tiny bolts thrown from a point when something commits. Nothing here loops. Reduced motion skips sparks, arcs and cracks. */
+    object Bolt {
+        const val sparkCount = 5
+        const val sparkReach = 32f // dp
+        const val sparkSize = 14f // dp
+        const val sparkMs = 300
+        const val flashMs = 320
+        const val arcMs = 420
+        const val morphMs = 360
+    }
+
     const val staggerStepMs = 30
     const val staggerMaxItems = 6
 }

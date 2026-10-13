@@ -59,7 +59,17 @@ data class Device(
 )
 
 @Serializable
-data class FileItem(val id: String, val name: String, val size: Long, val mime: String = "application/octet-stream")
+data class FileItem(
+    val id: String,
+    val name: String,
+    val size: Long,
+    val mime: String = "application/octet-stream",
+    /** The folder it's in, inside a folder that was sent ("Photos/2024"). Null for files sent on their own. */
+    val folder: String? = null,
+)
+
+/** The longest text sent as text, in bytes of UTF-8. Longer text goes as a file. */
+const val TEXT_MAX = 64 * 1024
 
 @Serializable
 enum class TransferDirection {
@@ -92,6 +102,8 @@ enum class TransferError {
     @SerialName("permission") Permission,
     @SerialName("diskFull") DiskFull,
     @SerialName("diskFullPeer") DiskFullPeer,
+    /** The receiver only takes files from its own devices (Who can send to me). */
+    @SerialName("notAllowed") NotAllowed,
     @SerialName("unknown") Unknown,
 }
 
@@ -122,6 +134,8 @@ data class Transfer(
     val waitingLong: Boolean = false,
     /** Sender: the other device was asleep and has been asked to wake up. */
     val waking: Boolean = false,
+    /** A text transfer (a note, a link, a clipboard): the text. */
+    val text: String? = null,
 )
 
 /** A transfer that ended, as History lists it. Kept after a restart, and after the device is removed. */
@@ -144,11 +158,37 @@ data class HistoryEntry(
     val finishedAt: Long,
     /** Bytes per second while bytes were moving (pauses left out). 0 when nothing moved. */
     val averageSpeed: Double = 0.0,
+    /** A text transfer: the text. */
+    val text: String? = null,
 )
 
 @Serializable
-data class IncomingRequest(val id: String, val deviceId: String, val files: List<FileItem>, val totalBytes: Long, val receivedAt: Long = 0)
+data class IncomingRequest(
+    val id: String,
+    val deviceId: String,
+    val files: List<FileItem>,
+    val totalBytes: Long,
+    val receivedAt: Long = 0,
+    /** Text rather than files: the text, to read before accepting. */
+    val text: String? = null,
+)
 
+/** Another device on the same network asking to be one of your devices, and you one of its own
+ *  (Trust this device, from Nearby). Both screens show [check]. */
+@Serializable
+data class TrustRequest(val deviceId: String, val check: String, val receivedAt: Long = 0)
+
+/** How a trust ask ended without both devices trusting each other. */
+@Serializable
+enum class TrustOutcome {
+    @SerialName("declined") Declined,
+    @SerialName("withdrawn") Withdrawn,
+    @SerialName("outdated") Outdated,
+    @SerialName("unreachable") Unreachable,
+    @SerialName("busy") Busy,
+}
+
+/** Four words (since Phase 11). */
 @Serializable
 data class PairingCode(val words: List<String>, val expiresAt: Long, val uri: String)
 
@@ -160,10 +200,23 @@ enum class DiscoveryState {
     @SerialName("offline") Offline,
 }
 
+/** Settings > Receiving > Who can send to me. Trusted devices, and devices connected with a code, can always send. */
+@Serializable
+enum class WhoCanSend(val wire: String) {
+    @SerialName("yourDevices") YourDevices("yourDevices"),
+    @SerialName("everyoneNearby") EveryoneNearby("everyoneNearby");
+
+    companion object {
+        fun fromWire(s: String) = entries.firstOrNull { it.wire == s } ?: YourDevices
+    }
+}
+
 @Serializable
 enum class PairVia {
     @SerialName("shown") Shown,
     @SerialName("entered") Entered,
+    /** Trust this device, from Nearby, agreed on both. */
+    @SerialName("nearby") Nearby,
 }
 
 @Serializable
@@ -187,6 +240,8 @@ data class Snapshot(
     val serverProblem: ServerProblem? = null,
     /** Newest first. */
     val history: List<HistoryEntry> = emptyList(),
+    /** Trust asks waiting for an answer here. */
+    val trustAsks: List<TrustRequest> = emptyList(),
 )
 
 @Serializable
@@ -243,6 +298,17 @@ sealed interface EngineEvent {
     @Serializable @SerialName("transfer")
     data class TransferChanged(val transfer: Transfer) : EngineEvent
 
+    /** A transfer moved: only what changed since its last `transfer` or `transferProgress` event, to merge in. */
+    @Serializable @SerialName("transferProgress")
+    data class TransferProgress(
+        val id: String,
+        val doneBytes: Long,
+        val speed: Double = 0.0,
+        val movingSince: Long? = null,
+        /** Only the files whose count changed. */
+        val fileBytes: Map<String, Long> = emptyMap(),
+    ) : EngineEvent
+
     @Serializable @SerialName("paired")
     data class Paired(val device: Device, val via: PairVia, val check: String) : EngineEvent
 
@@ -258,6 +324,18 @@ sealed interface EngineEvent {
     /** A transfer ended and was added to History (or replaced its own entry after a retry). */
     @Serializable @SerialName("history")
     data class History(val entry: HistoryEntry) : EngineEvent
+
+    /** A device nearby asks to trust this one, and this one it. */
+    @Serializable @SerialName("trustAsk")
+    data class TrustAsk(val request: TrustRequest) : EngineEvent
+
+    /** On the device that asked: the other device has the ask, and both screens show [check]. */
+    @Serializable @SerialName("trustWaiting")
+    data class TrustWaiting(val deviceId: String, val check: String) : EngineEvent
+
+    /** A trust ask ended without a match (on either device). A match ends with [Paired] instead. */
+    @Serializable @SerialName("trustEnded")
+    data class TrustEnded(val deviceId: String, val outcome: TrustOutcome) : EngineEvent
 
     @Serializable @SerialName("snapshot")
     data class SnapshotEvent(val snapshot: Snapshot) : EngineEvent

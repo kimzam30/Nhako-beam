@@ -382,6 +382,16 @@ export const distance = {
   "toastOffset": 24
 };
 
+export const bolt = {
+  "sparkCount": 5,
+  "sparkReach": 32,
+  "sparkSize": 14,
+  "sparkMs": 300,
+  "flashMs": 320,
+  "arcMs": 420,
+  "morphMs": 360
+};
+
 export const gesture = {
   "dragSlopPointer": 4,
   "dragSlopTouch": 8,

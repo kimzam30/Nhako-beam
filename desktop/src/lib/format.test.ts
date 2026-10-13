@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dayLabel, fill, formatBytes, formatDuration, formatEta, formatSpeed, middleTruncate, percent, summarizeFiles } from './format';
-import { isWord, splitCode, suggest, WORDS } from './engine/words';
+import { singleFolder, dayLabel, fill, formatBytes, formatDuration, formatEta, formatSpeed, isLink, isRunnable, middleTruncate, percent, summarize, summarizeFiles, textPreview, utf8Bytes } from './format';
+import { CODE_WORDS, isWord, randomWords, splitCode, suggest, WORDS } from './engine/words';
 
 describe('formatBytes', () => {
   it('uses at most one decimal and drops trailing .0', () => {
@@ -43,6 +43,16 @@ describe('summarizeFiles', () => {
   it('names a single file', () => expect(summarizeFiles([img])).toBe('a.jpg'));
   it('groups up to two kinds', () => expect(summarizeFiles([img, img, img, vid])).toBe('3 photos and 1 video'));
   it('falls back to a file count for mixed sets', () => expect(summarizeFiles([img, vid, doc])).toBe('3 files'));
+  it('groups thousands', () => expect(summarizeFiles(Array(1240).fill(img))).toBe('1,240 photos'));
+  it('names a sent folder', () => {
+    const inTrip = (folder: string) => ({ ...img, folder });
+    expect(summarizeFiles([inTrip('Trip'), inTrip('Trip/day 2'), inTrip('Trip/day 2/raw')])).toBe('Trip folder, 3 files');
+    expect(summarizeFiles([inTrip('Trip'), { ...img, folder: 'Work' }])).toBe('2 folders, 2 files');
+    expect(summarizeFiles([inTrip('Trip'), img, img])).toBe('Trip folder and 2 photos');
+    expect(summarizeFiles([inTrip('Trip'), doc])).toBe('Trip folder and ' + doc.name);
+    expect(singleFolder([inTrip('Trip'), inTrip('Trip/day 2')])).toEqual({ name: 'Trip', files: '2 files' });
+    expect(singleFolder([inTrip('Trip'), { folder: undefined }])).toBe(null);
+  });
 });
 
 describe('middleTruncate', () => {
@@ -69,7 +79,17 @@ describe('words', () => {
     expect(isWord('notaword')).toBe(false);
   });
   it('suggests by prefix', () => expect(suggest('lan')).toContain('lantern'));
-  it('splits pasted codes', () => expect(splitCode('River-lantern  seven')).toEqual(['river', 'lantern', 'seven']));
+  it('splits pasted codes', () => expect(splitCode('River-lantern  seven harbor')).toEqual(['river', 'lantern', 'seven', 'harbor']));
+  it('makes four-word codes', () => expect(randomWords().every(isWord) && randomWords().length === CODE_WORDS && CODE_WORDS === 4).toBe(true));
+});
+
+describe('isRunnable', () => {
+  it('flags programs, scripts, installers and shortcuts', () => {
+    for (const name of ['setup.exe', 'Invoice.PDF.exe', 'run.bat', 'tool.ps1', 'app.msi', 'link.lnk', 'install.sh', 'game.apk', 'Thing.AppImage']) expect(isRunnable(name), name).toBe(true);
+  });
+  it('leaves documents and media alone', () => {
+    for (const name of ['photo.jpg', 'notes.pdf', 'song.mp3', 'archive.zip', 'README', '.exe', 'exe']) expect(isRunnable(name), name).toBe(false);
+  });
 });
 
 describe('History formatting', () => {
@@ -90,4 +110,19 @@ describe('History formatting', () => {
     expect(older).toMatch(/9/);
     expect(dayLabel(new Date(2025, 9, 9, 12).getTime(), now, 'Today', 'Yesterday')).toMatch(/2025/);
   });
+});
+
+describe('text', () => {
+  it('previews the first line', () => {
+    expect(textPreview('\n  Meet at 6\nby the gate')).toBe('Meet at 6');
+    expect(textPreview('x'.repeat(60), 10)).toBe('xxxxxxxxx…');
+  });
+  it('knows a link', () => {
+    expect(isLink(' https://nhako.example/a?b=c \n')).toBe(true);
+    expect(isLink('see https://nhako.example')).toBe(false);
+    expect(isLink('javascript:alert(1)')).toBe(false);
+    expect(isLink('https://')).toBe(false);
+  });
+  it('summarizes text by its start', () => expect(summarize({ files: [], text: 'Hello there' })).toBe('Hello there'));
+  it('counts bytes like the engine', () => expect(utf8Bytes('é📱')).toBe(6));
 });

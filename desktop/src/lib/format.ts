@@ -58,10 +58,33 @@ const plural: Record<Kind, [string, string]> = {
   file: ['file', 'files'],
 };
 
-const count = (n: number, k: Kind) => `${n} ${plural[k][n === 1 ? 0 : 1]}`;
+const count = (n: number, k: Kind) => `${n.toLocaleString('en-US')} ${plural[k][n === 1 ? 0 : 1]}`;
 
-/** "3 photos and 1 video", "12 files", or the file name for a single file. */
-export function summarizeFiles(files: Pick<FileItem, 'mime' | 'name'>[]): string {
+/** "3 photos and 1 video", "12 files", or the file name for a single file. Files inside a sent
+ *  folder count as the folder: "Trip folder, 240 files", "2 folders, 31 files", "Trip folder and 3 photos". */
+export function summarizeFiles(files: Pick<FileItem, 'mime' | 'name' | 'folder'>[]): string {
+  const tops = new Map<string, number>();
+  const loose: Pick<FileItem, 'mime' | 'name'>[] = [];
+  for (const f of files) {
+    const top = f.folder?.split('/')[0];
+    if (top) tops.set(top, (tops.get(top) ?? 0) + 1);
+    else loose.push(f);
+  }
+  if (!tops.size) return summarizeLoose(files);
+  const inFolders = files.length - loose.length;
+  const folders = tops.size === 1 ? `${[...tops.keys()][0]} folder` : `${tops.size.toLocaleString('en-US')} folders`;
+  if (!loose.length) return `${folders}, ${count(inFolders, 'file')}`;
+  return `${folders} and ${summarizeLoose(loose)}`;
+}
+
+/** When every file is inside one sent folder: its name and how many files ("Trip", "240 files"). */
+export function singleFolder(files: Pick<FileItem, 'folder'>[]): { name: string; files: string } | null {
+  const top = files[0]?.folder?.split('/')[0];
+  if (!top || !files.every((f) => f.folder?.split('/')[0] === top)) return null;
+  return { name: top, files: count(files.length, 'file') };
+}
+
+function summarizeLoose(files: Pick<FileItem, 'mime' | 'name'>[]): string {
   if (files.length === 0) return 'No files';
   if (files.length === 1) return files[0]!.name;
   const groups = new Map<Kind, number>();
@@ -69,6 +92,30 @@ export function summarizeFiles(files: Pick<FileItem, 'mime' | 'name'>[]): string
   if (groups.size > 2) return count(files.length, 'file');
   const parts = [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => count(n, k));
   return parts.join(' and ');
+}
+
+/** The start of a text, on one line, for titles and lists: "Meet at 6 by the…". */
+export function textPreview(text: string, max = 48): string {
+  const line = text.trim().split('\n').find((l) => l.trim())?.trim() ?? '';
+  const flat = line.replace(/\s+/g, ' ');
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+}
+
+/** The text is one web link and nothing else (the engine's `text::is_link`). */
+export function isLink(text: string): boolean {
+  const t = text.trim();
+  return /^https?:\/\//.test(t) && t.length > 8 && !/\s/.test(t);
+}
+
+/** A transfer, request or History entry in a few words: the text's start for text, otherwise
+ *  `summarizeFiles`. */
+export function summarize(x: { files: Pick<FileItem, 'mime' | 'name' | 'folder'>[]; text?: string | null }): string {
+  return x.text ? textPreview(x.text) : summarizeFiles(x.files);
+}
+
+/** UTF-8 length, the way the engine counts TEXT_MAX. */
+export function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
 }
 
 /** Truncates in the middle so the extension stays visible: "holiday-vid…final.mp4". */
@@ -124,4 +171,16 @@ export function dayLabel(at: number, now: number, today: string, yesterday: stri
 /** The time of day, in the system's own style ("14:05" or "2:05 PM"). */
 export function timeOfDay(at: number): string {
   return new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** File types that run something when opened, so the app asks first (Windows, Linux and Android). */
+const RUNNABLE = new Set([
+  'exe', 'msi', 'msix', 'appx', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'hta',
+  'lnk', 'url', 'reg', 'jar', 'sh', 'bash', 'run', 'bin', 'appimage', 'desktop', 'deb', 'rpm', 'py', 'pl', 'apk', 'xapk', 'apks',
+]);
+
+/** Whether opening `name` would run it (a program, script, installer or shortcut). */
+export function isRunnable(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && RUNNABLE.has(name.slice(dot + 1).toLowerCase());
 }

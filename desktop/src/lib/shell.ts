@@ -5,13 +5,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { open } from '@tauri-apps/plugin-dialog';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import type { FileItem } from './engine/types';
 
 export interface Picked {
   files: FileItem[];
-  /** Folders and unreadable items, which aren't sent in this version. */
+  /** Unreadable items and empty folders. */
   skipped: number;
 }
 
@@ -22,22 +21,39 @@ export interface DropHandlers {
   leave(): void;
 }
 
-/** Turns paths into file items; the desktop app remembers which path each item id is. */
+/**
+ * Turns dropped paths (or files from "Send with Nhako Beam") into file items; the desktop app
+ * remembers which path each item id is. It only takes paths it saw you hand over itself, so
+ * anything else comes back as skipped.
+ */
 export function filesFromPaths(paths: string[]): Promise<Picked> {
   return invoke<Picked>('files_from_paths', { paths });
 }
 
-/** The native "choose files" dialog. Resolves to null when cancelled. */
-export async function pickFiles(): Promise<Picked | null> {
-  const paths = await open({ multiple: true, directory: false, title: 'Choose files to send' });
-  if (!paths || !paths.length) return null;
-  return filesFromPaths(Array.isArray(paths) ? paths : [paths]);
+/** The native "choose files" dialog (opened by the app, not the page). Null when cancelled. */
+export function pickFiles(): Promise<Picked | null> {
+  return invoke<Picked | null>('pick_files');
 }
 
-/** The native "choose folder" dialog, starting at `current`. Resolves to null when cancelled. */
-export async function pickFolder(current?: string): Promise<string | null> {
-  const dir = await open({ directory: true, multiple: false, defaultPath: current, title: 'Where should received files go?' });
-  return typeof dir === 'string' ? dir : null;
+/** The native "choose folders" dialog, for folders to send (everything inside, keeping its
+ *  shape). Null when cancelled. */
+export function pickFoldersToSend(): Promise<Picked | null> {
+  return invoke<Picked | null>('pick_folders');
+}
+
+/** What's on the clipboard as text ("" when there's none). */
+export function readClipboard(): Promise<string> {
+  return invoke<string>('read_clipboard');
+}
+
+/** Puts text on the clipboard, with the window in front or not. */
+export function writeClipboard(text: string): Promise<void> {
+  return invoke('write_clipboard', { text });
+}
+
+/** The native "choose folder" dialog, starting at `current`. Null when cancelled. */
+export function pickFolder(current?: string): Promise<string | null> {
+  return invoke<string | null>('pick_save_dir', { current: current ?? null });
 }
 
 /** Opens a received transfer's file (or its folder when there are several), or shows it in its folder. */

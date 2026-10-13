@@ -111,6 +111,7 @@ mod tests {
                 started_at: finished_at - 5,
                 finished_at,
                 average_speed: 2.0,
+                text: None,
             },
             saved: vec![PathBuf::from("/tmp/a.txt")],
         }

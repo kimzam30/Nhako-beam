@@ -22,6 +22,9 @@ import io.github.kimzam30.nhakobeam.model.Snapshot
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
+import io.github.kimzam30.nhakobeam.model.TrustOutcome
+import io.github.kimzam30.nhakobeam.model.TrustRequest
+import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 
@@ -30,6 +33,13 @@ import kotlinx.coroutines.flow.SharedFlow
  * tests. Nothing moves on its own: tests push states with the `sim*` calls, so screenshots are exact.
  */
 class FakeEngine : Engine {
+    companion object {
+        /** What both screens show during a trust ask from Nearby (the desktop prototype's too). */
+        const val TRUST_CHECK = "A3F0 7C21"
+        const val SAMPLE_TEXT = "Meet at 6 by the north gate.\nBring the charger, mine died."
+        const val SAMPLE_LINK = "https://nhako.example/trip/photos"
+    }
+
     private val _events = MutableSharedFlow<EngineEvent>(extraBufferCapacity = 256)
     override val events: SharedFlow<EngineEvent> = _events
 
@@ -42,12 +52,13 @@ class FakeEngine : Engine {
     )
     var discovery = DiscoveryState.Idle
     var lanDiscovery = true
+    var whoCanSend = WhoCanSend.YourDevices
     /** Earlier transfers, the same as the desktop prototype's. */
     var history = sampleHistory(System.currentTimeMillis())
     var connection: Connection = Connection.Public
     var name = "Hakim's phone"
     /** The code "the other device" shows, for entering a code. */
-    val peerCode = listOf("river", "lantern", "seven")
+    val peerCode = listOf("river", "lantern", "seven", "harbor")
     private var seq = 0
 
     private fun emit(e: EngineEvent) {
@@ -61,11 +72,20 @@ class FakeEngine : Engine {
 
     override fun stop() {}
     override fun rescan() = emit(EngineEvent.Discovery(DiscoveryState.Searching))
+    override fun setForeground(on: Boolean) {}
 
     override suspend fun stage(uris: List<String>) = Staged(uris.map { file(it.substringAfterLast('/'), 2_400_000, "image/jpeg") }, 0)
+    override suspend fun stageFolder(treeUri: String) = Staged(tree(), 0)
 
     override suspend fun send(deviceId: String, files: List<FileItem>): String {
         val t = transfer(TransferDirection.Send, deviceId, files, TransferStatus.Waiting)
+        emit(EngineEvent.TransferChanged(t))
+        return t.id
+    }
+
+    override suspend fun sendText(deviceId: String, text: String): String {
+        if (text.isBlank()) throw EngineException("There's nothing to send.")
+        val t = transfer(TransferDirection.Send, deviceId, listOf(file("Text.txt", text.toByteArray().size.toLong(), "text/plain")), TransferStatus.Waiting).copy(text = text)
         emit(EngineEvent.TransferChanged(t))
         return t.id
     }
@@ -78,7 +98,7 @@ class FakeEngine : Engine {
     override fun retry(transferId: String) {}
 
     override suspend fun createCode(): PairingCode {
-        val code = PairingCode(listOf("ember", "marigold", "meadow"), System.currentTimeMillis() + 600_000, "nhakobeam://pair/ember-marigold-meadow")
+        val code = PairingCode(listOf("ember", "marigold", "meadow", "willow"), System.currentTimeMillis() + 600_000, "nhakobeam://pair/ember-marigold-meadow-willow")
         emit(EngineEvent.Code(code))
         return code
     }
@@ -106,6 +126,26 @@ class FakeEngine : Engine {
         update(deviceId) { it.copy(trusted = trusted, autoAccept = it.autoAccept && trusted) }
     }
     override fun setAutoAccept(deviceId: String, on: Boolean) = update(deviceId) { it.copy(autoAccept = on) }
+
+    /** What the next device asked to trust this one does: null leaves it waiting (for screenshots). */
+    var nextTrustReply: Boolean? = null
+    override suspend fun askTrust(deviceId: String) {
+        emit(EngineEvent.TrustWaiting(deviceId, TRUST_CHECK))
+        when (nextTrustReply) {
+            true -> {
+                update(deviceId) { it.copy(trusted = true) }
+                devices.find { it.id == deviceId }?.let { emit(EngineEvent.Paired(it, PairVia.Nearby, TRUST_CHECK)) }
+            }
+            false -> emit(EngineEvent.TrustEnded(deviceId, TrustOutcome.Declined))
+            null -> {}
+        }
+    }
+    override fun cancelTrust(deviceId: String) {}
+    override fun answerTrust(deviceId: String, yes: Boolean) {
+        if (!yes) return emit(EngineEvent.TrustEnded(deviceId, TrustOutcome.Declined))
+        update(deviceId) { it.copy(trusted = true) }
+        devices.find { it.id == deviceId }?.let { emit(EngineEvent.Paired(it, PairVia.Nearby, TRUST_CHECK)) }
+    }
     override suspend fun renameSelf(name: String) {
         this.name = name
     }
@@ -127,10 +167,23 @@ class FakeEngine : Engine {
 
     override suspend fun savedFiles(transferId: String) = emptyList<String>()
 
+    override suspend fun getWhoCanSend() = whoCanSend
+    override suspend fun setWhoCanSend(who: WhoCanSend) {
+        whoCanSend = who
+    }
+
     override suspend fun getLanDiscovery() = lanDiscovery
     override suspend fun setLanDiscovery(on: Boolean) {
         lanDiscovery = on
     }
+
+    override suspend fun diagnostics(): String = listOf(
+        "Nhako Beam diagnostics",
+        "App: prototype (pretend engine)",
+        "",
+        "Nearby discovery",
+        "  Setting: ${if (lanDiscovery) "on" else "off"}",
+    ).joinToString("\n")
 
     override fun clearHistory() {
         history = emptyList()
@@ -158,6 +211,13 @@ class FakeEngine : Engine {
         file("Wedding highlights final final.mp4", 820_000_000, "video/mp4"),
     )
 
+    /** A folder sent as a folder, the desktop prototype's "Langkawi trip". */
+    fun tree(): List<FileItem> =
+        listOf(file("Itinerary.pdf", 380_000, "application/pdf").copy(folder = "Langkawi trip")) +
+            (0 until 24).map { file("IMG_${5101 + it}.jpg", 2_400_000L + (it * 7919L) % 1_900_000, "image/jpeg").copy(folder = "Langkawi trip/Day 1") } +
+            (0 until 18).map { file("IMG_${5201 + it}.jpg", 2_200_000L + (it * 6007L) % 1_700_000, "image/jpeg").copy(folder = "Langkawi trip/Day 2") } +
+            listOf(file("Cable car.mp4", 210_000_000, "video/mp4").copy(folder = "Langkawi trip/Day 2/Videos"))
+
     fun transfer(direction: TransferDirection, deviceId: String, files: List<FileItem>, status: TransferStatus, done: Double = 0.0): Transfer {
         val total = files.sumOf { it.size }
         val doneBytes = (total * done).toLong()
@@ -178,6 +238,14 @@ class FakeEngine : Engine {
         emit(EngineEvent.Incoming(r))
         return r
     }
+    fun simIncomingText(deviceId: String = "d-studio", text: String = SAMPLE_TEXT): IncomingRequest {
+        val files = listOf(file(if (text.startsWith("http")) "Link.txt" else "Text.txt", text.toByteArray().size.toLong(), "text/plain"))
+        val r = IncomingRequest("r${++seq}", deviceId, files, files.sumOf { it.size }, System.currentTimeMillis(), text = text)
+        emit(EngineEvent.Incoming(r))
+        return r
+    }
+    fun simTrustAsk(deviceId: String = "d-studio") = emit(EngineEvent.TrustAsk(TrustRequest(deviceId, TRUST_CHECK, System.currentTimeMillis())))
+    fun simTrustEnded(deviceId: String, outcome: TrustOutcome) = emit(EngineEvent.TrustEnded(deviceId, outcome))
     fun simDiscovery(state: DiscoveryState) = emit(EngineEvent.Discovery(state))
     fun simHistory(entry: HistoryEntry) = emit(EngineEvent.History(entry))
     fun simServer(problem: ServerProblem?) = emit(EngineEvent.Server(problem))

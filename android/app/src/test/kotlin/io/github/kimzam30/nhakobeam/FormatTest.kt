@@ -6,9 +6,14 @@ import io.github.kimzam30.nhakobeam.ui.components.wordsFromCodeUri
 import io.github.kimzam30.nhakobeam.ui.formatBytes
 import io.github.kimzam30.nhakobeam.ui.formatEta
 import io.github.kimzam30.nhakobeam.ui.formatSpeed
+import io.github.kimzam30.nhakobeam.ui.isRunnable
 import io.github.kimzam30.nhakobeam.ui.middleTruncate
 import io.github.kimzam30.nhakobeam.ui.percent
+import io.github.kimzam30.nhakobeam.ui.isLink
+import io.github.kimzam30.nhakobeam.ui.singleFolder
+import io.github.kimzam30.nhakobeam.ui.summarize
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
+import io.github.kimzam30.nhakobeam.ui.textPreview
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -50,6 +55,24 @@ class FormatTest {
         assertEquals("a.jpg", summarizeFiles(listOf(img)))
         assertEquals("3 photos and 1 video", summarizeFiles(listOf(img, img, img, vid)))
         assertEquals("3 files", summarizeFiles(listOf(img, vid, doc)))
+        assertEquals("1,240 photos", summarizeFiles(List(1240) { img }))
+        fun inTrip(folder: String) = img.copy(folder = folder)
+        assertEquals("Trip folder, 3 files", summarizeFiles(listOf(inTrip("Trip"), inTrip("Trip/day 2"), inTrip("Trip/day 2/raw"))))
+        assertEquals("2 folders, 2 files", summarizeFiles(listOf(inTrip("Trip"), img.copy(folder = "Work"))))
+        assertEquals("Trip folder and 2 photos", summarizeFiles(listOf(inTrip("Trip"), img, img)))
+        assertEquals("Trip folder and c.pdf", summarizeFiles(listOf(inTrip("Trip"), doc)))
+        assertEquals("Trip" to "2 files", singleFolder(listOf(inTrip("Trip"), inTrip("Trip/day 2"))))
+        assertNull(singleFolder(listOf(inTrip("Trip"), img)))
+    }
+
+    @Test fun text() {
+        assertEquals("Meet at 6", textPreview("\n  Meet at 6\nby the gate"))
+        assertEquals("xxxxxxxxx…", textPreview("x".repeat(60), 10))
+        assertTrue(isLink(" https://nhako.example/a?b=c \n"))
+        assertFalse(isLink("see https://nhako.example"))
+        assertFalse(isLink("javascript:alert(1)"))
+        assertFalse(isLink("https://"))
+        assertEquals("Hello there", summarize(emptyList(), "Hello there"))
     }
 
     @Test fun truncatesInTheMiddle() {
@@ -60,13 +83,19 @@ class FormatTest {
         assertEquals("a.txt", middleTruncate("a.txt"))
     }
 
+    @Test fun asksBeforeOpeningPrograms() {
+        for (name in listOf("setup.exe", "Invoice.PDF.exe", "run.bat", "tool.ps1", "app.msi", "link.lnk", "install.sh", "game.apk", "Thing.AppImage")) assertTrue(name, isRunnable(name))
+        for (name in listOf("photo.jpg", "notes.pdf", "song.mp3", "archive.zip", "README", ".exe", "exe")) assertFalse(name, isRunnable(name))
+    }
+
     @Test fun knowsTheCodeWords() {
         assertEquals(256, Words.all.size)
         assertEquals(256, Words.all.toSet().size)
         assertTrue(Words.isWord("River"))
         assertFalse(Words.isWord("notaword"))
         assertTrue("lantern" in Words.complete("lan"))
-        assertEquals(listOf("river", "lantern", "seven"), wordsFromCodeUri("nhakobeam://pair/river-lantern-seven"))
+        assertEquals(listOf("river", "lantern", "seven", "harbor"), wordsFromCodeUri("nhakobeam://pair/river-lantern-seven-harbor"))
+        assertNull("a three-word link from an older build", wordsFromCodeUri("nhakobeam://pair/river-lantern-seven"))
         assertNull(wordsFromCodeUri("https://example.com"))
     }
 }

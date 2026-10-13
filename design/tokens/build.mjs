@@ -117,6 +117,9 @@ function css() {
   for (const [k, v] of Object.entries(t.motion.scale)) root.push(`  --scale-${kebab(k)}: ${v};`);
   for (const [k, v] of Object.entries(t.motion.distance)) root.push(`  --distance-${kebab(k)}: ${px(v)};`);
   root.push(`  --stagger-step: ${t.motion.stagger.step}ms;`);
+  for (const [k, v] of Object.entries(t.motion.bolt)) {
+    if (k !== 'note') root.push(`  --bolt-${kebab(k)}: ${k.endsWith('Ms') ? `${v}ms` : k === 'sparkCount' ? v : px(v)};`);
+  }
   for (const s of springs) {
     root.push(`  --spring-${kebab(s.name)}: ${s.cssFallback};`);
     root.push(`  --spring-${kebab(s.name)}-duration: ${s.settleMs}ms;`);
@@ -213,6 +216,7 @@ function jsData() {
     stagger: t.motion.stagger,
     scale: t.motion.scale,
     distance: t.motion.distance,
+    bolt: strip(t.motion.bolt),
     gesture: t.gesture,
     haptic,
   };
@@ -276,6 +280,10 @@ function kotlin() {
     .join('\n');
   const distances = Object.entries(t.motion.distance)
     .map(([k, v]) => `        val ${k} = ${v}.dp`)
+    .join('\n');
+  const bolts = Object.entries(t.motion.bolt)
+    .filter(([k]) => k !== 'note')
+    .map(([k, v]) => `        const val ${k} = ${k.endsWith('Ms') || k === 'sparkCount' ? v : `${kf(v)} // dp`}`)
     .join('\n');
   const gestureUnits = { dragSlopPointer: 'dp', dragSlopTouch: 'dp', swipeCommitVelocity: 'dp/s', swipeFlyOutVelocityMin: 'dp/s', magnetRadius: 'dp', magnetSnapRadius: 'dp', longPressMs: 'ms', sheetDismissVelocity: 'dp/s', swipeMaxRotationDeg: 'degrees' };
   const gestures = Object.entries(t.gesture)
@@ -377,6 +385,11 @@ ${scales}
 
     object Distance {
 ${distances}
+    }
+
+    /** ${t.motion.bolt.note} */
+    object Bolt {
+${bolts}
     }
 
     const val staggerStepMs = ${t.motion.stagger.step}

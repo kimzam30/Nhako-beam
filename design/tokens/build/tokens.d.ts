@@ -344,6 +344,16 @@ export declare const distance: {
   readonly toastOffset: 24;
 };
 
+export declare const bolt: {
+  readonly sparkCount: 5;
+  readonly sparkReach: 32;
+  readonly sparkSize: 14;
+  readonly sparkMs: 300;
+  readonly flashMs: 320;
+  readonly arcMs: 420;
+  readonly morphMs: 360;
+};
+
 export declare const gesture: {
   readonly dragSlopPointer: 4;
   readonly dragSlopTouch: 8;

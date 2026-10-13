@@ -56,13 +56,30 @@ class MainActivity : ComponentActivity() {
         receiveShared(intent)
     }
 
+    // On screen or not: the engine checks on your devices less often in the background.
+    override fun onStart() {
+        super.onStart()
+        nhako.app.engine.setForeground(true)
+    }
+
+    override fun onStop() {
+        nhako.app.engine.setForeground(false)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         if (nhako.app.platform === platform) nhako.app.platform = object : PlatformHooks {}
         super.onDestroy()
     }
 
-    /** Files shared from another app ("Share" then Nhako Beam): stage them and pick a device. */
+    /** Files shared from another app ("Share" then Nhako Beam): stage them and pick a device.
+     *  A link or text shared from the browser or a notes app goes as text. */
     private fun receiveShared(intent: Intent?) {
+        val text = intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
+        if (text != null && IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) == null) {
+            nhako.app.shareText(text)
+            return
+        }
         val uris: List<Uri> = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
             Intent.ACTION_SEND_MULTIPLE -> IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()

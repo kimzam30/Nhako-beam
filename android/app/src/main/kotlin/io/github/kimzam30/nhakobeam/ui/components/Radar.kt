@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -41,6 +45,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.kimzam30.nhakobeam.design.NhakoBrand
+import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
@@ -105,6 +111,8 @@ fun DeviceOrb(
     progress: Float? = null,
     pulse: Int = 0,
     onClick: (() -> Unit)? = null,
+    /** A long press: the device's own sheet. */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val c = Nhako.colors
     val reduced = Nhako.reducedMotion
@@ -138,7 +146,16 @@ fun DeviceOrb(
         modifier
             .alpha(if (offline) 0.5f else if (asleep) 0.8f else 1f)
             .semantics { contentDescription = "$name, $status" }
-            .then(if (onClick != null && !offline) Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = withTap(onClick)) else Modifier),
+            .then(
+                if (onClick != null && !offline) {
+                    val tap = withTap(onClick)
+                    val view = LocalView.current
+                    Modifier.combinedClickable(
+                        interaction, indication = null, role = Role.Button, onClick = tap,
+                        onLongClick = onLongClick?.let { long -> { NhakoHaptic.DragStart.perform(view); long() } },
+                    )
+                } else Modifier,
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(size + 16.dp).graphicsLayer { scaleX = bump.value; scaleY = bump.value }.pressScale(interaction, 0.94f), contentAlignment = Alignment.Center) {
@@ -156,6 +173,11 @@ fun DeviceOrb(
                         size = androidx.compose.ui.geometry.Size(r * 2, r * 2),
                         style = Stroke(3.dp.toPx(), cap = StrokeCap.Round),
                     )
+                    // A bolt rides the head of the ring.
+                    if (shownProgress in 0.01f..0.995f) {
+                        val a = (-90f + 360f * shownProgress) * (PI.toFloat() / 180f)
+                        drawBolt(androidx.compose.ui.geometry.Offset(center.x + cos(a) * r, center.y + sin(a) * r), 12.dp.toPx(), rotation = 360f * shownProgress)
+                    }
                 }
             }
             Box(
@@ -204,7 +226,28 @@ fun Radar(app: AppState, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit,
     val s1 = sonar.animateFloat(0f, 1f, infiniteRepeatable(tween(sweep, easing = NhakoMotion.Easing.enter)), label = "s1")
     val s2 = sonar.animateFloat(0f, 1f, infiniteRepeatable(tween(sweep, delayMillis = 0, easing = NhakoMotion.Easing.enter), initialStartOffset = androidx.compose.animation.core.StartOffset(sweep / 2)), label = "s2")
 
+    // A device that turns up gets a bolt arc from you to it, timed with its pop.
+    val known = remember { mutableSetOf<String>() }
+    val arcs = remember { mutableStateListOf<RadarArc>() }
+    val seq = remember { intArrayOf(0) }
+    LaunchedEffect(shown.map { it.id to (it.reachable || it.wakeable) }) {
+        val slotsNow = radarSlots(shown.size, size.value)
+        val first = known.isEmpty()
+        shown.forEachIndexed { i, d ->
+            if (d.id in known) return@forEachIndexed
+            known += d.id
+            val (sx, sy) = slotsNow.getOrElse(i) { 0f to 0f }
+            // Only something you can actually reach gets the arc.
+            if (reduced || !(d.reachable || d.wakeable)) return@forEachIndexed
+            arcs += RadarArc(++seq[0], sx, sy, if (first) min(i, 5) * NhakoMotion.staggerStepMs else 0)
+        }
+        known.retainAll(shown.map { it.id }.toSet())
+    }
+
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        for (arc in arcs.toList()) androidx.compose.runtime.key(arc.key) {
+            ArcStrike(arc, size, selfSize, orbSize) { arcs.remove(arc) }
+        }
         Canvas(Modifier.size(size)) {
             val r = this.size.minDimension / 2
             drawCircle(c.separator, radius = r * 0.66f, style = Stroke(1.dp.toPx()))
@@ -244,6 +287,7 @@ fun Radar(app: AppState, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit,
                         progress = tr?.takeIf { it.status != TransferStatus.Waiting }?.let { percent(it.doneBytes, it.totalBytes) / 100f },
                         pulse = app.pulse[d.id] ?: 0,
                         onClick = { onPick(d.id) },
+                        onLongClick = { app.sheet = io.github.kimzam30.nhakobeam.state.Sheet.DeviceSheet(d.id) },
                     )
                 }
             }
@@ -260,5 +304,38 @@ fun Radar(app: AppState, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit,
         if (searching) {
             BasicText(t("home.searching"), Modifier.offset(y = selfSize / 2 + 28.dp), style = NhakoType.footnote.style(c.textSecondary))
         }
+    }
+}
+
+class RadarArc(val key: Int, val x: Float, val y: Float, val delayMs: Int)
+
+/** One arc from the middle to a slot: drawn in along its length, held, then faded (arcMs). */
+@Composable
+private fun ArcStrike(arc: RadarArc, size: Dp, selfSize: Dp, orbSize: Dp, onDone: () -> Unit) {
+    val t = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(arc.delayMs.toLong())
+        t.animateTo(1f, tween(NhakoMotion.Bolt.arcMs, easing = LinearEasing))
+        onDone()
+    }
+    Canvas(Modifier.size(size)) {
+        val p = t.value
+        if (p <= 0f) return@Canvas
+        val c = center
+        val len = kotlin.math.hypot(arc.x, arc.y).takeIf { it > 0f } ?: 1f
+        val ux = arc.x / len
+        val uy = arc.y / len
+        val from = androidx.compose.ui.geometry.Offset(c.x + ux * (selfSize.toPx() / 2 + 6.dp.toPx()), c.y + uy * (selfSize.toPx() / 2 + 6.dp.toPx()))
+        val to = androidx.compose.ui.geometry.Offset(c.x + arc.x.dp.toPx() - ux * (orbSize.toPx() / 2 + 6.dp.toPx()), c.y + arc.y.dp.toPx() - uy * (orbSize.toPx() / 2 + 6.dp.toPx()))
+        val pts = arcPoints(from, to, arc.key, 6.dp.toPx())
+        val path = androidx.compose.ui.graphics.Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } }
+        val drawn = (p / 0.4f).coerceAtMost(1f)
+        val alpha = if (p < 0.6f) 1f else 1f - (p - 0.6f) / 0.4f
+        val measure = androidx.compose.ui.graphics.PathMeasure().apply { setPath(path, false) }
+        val part = androidx.compose.ui.graphics.Path()
+        measure.getSegment(0f, measure.length * drawn, part, true)
+        val stroke = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        translate(1.5.dp.toPx(), 2.dp.toPx()) { drawPath(part, NhakoBrand.navy, alpha = alpha, style = stroke) }
+        drawPath(part, NhakoBrand.yellow, alpha = alpha, style = stroke)
     }
 }

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { app } from '../lib/state/app.svelte';
   import { t } from '../lib/copy';
-  import { formatBytes } from '../lib/format';
+  import { formatBytes, isLink, textPreview } from '../lib/format';
   import { gesture } from '../lib/tokens';
   import { beginDrag, endDrag, moveDrag } from '../lib/drag';
   import { springIn, quickOut, springFlip } from '../lib/motion/transitions';
   import Banner from '../components/Banner.svelte';
+  import Bolt from '../components/Bolt.svelte';
   import Button from '../components/Button.svelte';
   import FileStack from '../components/FileStack.svelte';
   import Icon from '../components/Icon.svelte';
@@ -14,6 +15,7 @@
   import TransferCard from '../components/TransferCard.svelte';
 
   let fileInput: HTMLInputElement | undefined = $state();
+  let folderInput: HTMLInputElement | undefined = $state();
   let pendingTarget: string | null = null;
 
   const expanded = $derived(app.layout === 'expanded');
@@ -31,6 +33,9 @@
   );
   const nothingNearby = $derived(app.discovery !== 'searching' && app.reachable.length === 0);
   const stagedBytes = $derived(app.staged.reduce((n, f) => n + f.size, 0));
+  const staging = $derived(app.staged.length > 0 || app.stagedText !== null);
+  const stagedTitle = $derived(app.stagedText !== null ? textPreview(app.stagedText) : app.stagedSummary);
+  const stagedWhat = $derived(app.stagedText !== null ? t(isLink(app.stagedText) ? 'staged.link' : 'staged.text') : formatBytes(stagedBytes));
   const transfers = $derived(app.visibleTransfers);
   const compactTransfers = $derived(transfers.slice(0, 2));
 
@@ -43,6 +48,36 @@
     }
     pendingTarget = target;
     fileInput?.click();
+  }
+
+  /** A folder, with everything inside it. The browser prototype uses a folder input. */
+  async function pickFolders(target: string | null = null) {
+    if (app.native) {
+      const files = await app.pickFolders();
+      if (target && files.length) app.sendTo(target);
+      return;
+    }
+    pendingTarget = target;
+    folderInput?.click();
+  }
+
+  // A device's sheet asked for files or a folder to send it.
+  $effect(() => {
+    const r = app.pickRequest;
+    if (!r) return;
+    app.pickRequest = null;
+    if (r.kind === 'folder') void pickFolders(r.deviceId);
+    else void pickFiles(r.deviceId);
+  });
+
+  /** Ctrl+V anywhere on Home (outside a field) starts a text with what was pasted. */
+  function onPaste(e: ClipboardEvent) {
+    const el = e.target instanceof Element ? e.target : null;
+    if (app.sheet || app.screen !== 'home' || el?.closest('input, textarea, [contenteditable]')) return;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!text.trim()) return;
+    e.preventDefault();
+    app.sheet = { kind: 'compose', text };
   }
 
   function searchAgain() {
@@ -62,7 +97,7 @@
   function onPick(deviceId: string) {
     const d = app.device(deviceId);
     if (!d?.reachable && !d?.wakeable) return;
-    if (app.staged.length) app.sendTo(deviceId);
+    if (staging) app.sendTo(deviceId);
     else pickFiles(deviceId);
   }
 
@@ -82,7 +117,7 @@
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) < slop) return;
       draggingStack = true;
       stackEl?.setPointerCapture(e.pointerId);
-      beginDrag('stack', e.clientX, e.clientY, app.staged.length);
+      beginDrag('stack', e.clientX, e.clientY, app.staged.length || 1);
       return;
     }
     moveDrag(e.clientX, e.clientY);
@@ -104,7 +139,9 @@
   }
 </script>
 
+<svelte:window onpaste={onPaste} />
 <input bind:this={fileInput} type="file" multiple hidden onchange={onFiles} data-testid="file-input" />
+<input bind:this={folderInput} type="file" webkitdirectory multiple hidden onchange={onFiles} data-testid="folder-input" />
 
 <div class="home" class:expanded data-testid="home">
   <main class="main">
@@ -122,6 +159,8 @@
     <div class="banners">
       {#if app.discovery === 'offline'}
         <Banner icon="wifi-slash" text={t('home.banner.offline')} testid="banner-offline" />
+      {:else if !app.onLan}
+        <Banner icon="cell-signal-full" text={t('home.banner.noLan')} testid="banner-no-lan" />
       {:else if app.discovery === 'blocked'}
         <Banner icon="warning-circle" text={t('home.banner.discoveryBlocked')} testid="banner-blocked">
           {#snippet action()}
@@ -142,7 +181,7 @@
       {/if}
     </div>
 
-    {#if app.staged.length}
+    {#if staging}
       <div class="tray" in:springIn={{ preset: 'bouncy', y: -16 }} out:quickOut={{ y: -8 }} data-testid="staged-tray">
         <span
           class="grab"
@@ -150,31 +189,42 @@
           bind:this={stackEl}
           role="button"
           tabindex="0"
-          aria-label="Drag files onto a device"
+          aria-label={app.stagedText !== null ? 'Drag the text onto a device' : 'Drag files onto a device'}
           onpointerdown={stackDown}
           onpointermove={stackMove}
           onpointerup={stackUp}
           onpointercancel={stackUp}
           data-testid="staged-stack"
         >
-          <FileStack files={app.staged} size={44} />
+          <FileStack files={app.staged} text={app.stagedText} size={44} />
         </span>
         <div class="tray-text">
-          <strong>{app.stagedSummary}</strong>
-          <span class="muted tabular">{formatBytes(stagedBytes)} · {app.isAndroid ? t('home.staged.hint') : t('home.staged.hint.pointer')}</span>
+          <strong data-testid="staged-title">{stagedTitle}</strong>
+          <span class="muted tabular">{stagedWhat} · {app.isAndroid ? t('home.staged.hint') : t('home.staged.hint.pointer')}</span>
         </div>
         <Button variant="plain" size="sm" testid="clear-staged" onclick={() => app.clearStaged()}>{t('send.clear')}</Button>
       </div>
     {/if}
 
-    <div class="radar-wrap" class:staged={app.staged.length > 0} bind:clientWidth={wrapWidth} bind:clientHeight={wrapHeight}>
+    <div class="radar-wrap" class:staged={staging} bind:clientWidth={wrapWidth} bind:clientHeight={wrapHeight}>
       <div class="radar-box">
         <Radar size={radarSize} onpick={onPick} onmore={() => (app.sheet = { kind: 'send' })} />
       </div>
     </div>
 
-    {#if nothingNearby}
+    {#if nothingNearby && !app.onLan && app.discovery !== 'offline'}
+      <!-- On mobile data: nearby can't work, so say why and offer the way that does. -->
+      <div class="empty" in:springIn={{ delay: 120 }} data-testid="empty-no-lan">
+        <span class="empty-bolt"><Bolt size={26} mode="asleep" /></span>
+        <h2>{t('home.empty.noLan.title')}</h2>
+        <p class="muted">{t('home.empty.noLan.body')}</p>
+        <div class="empty-action">
+          <Button variant="secondary" size="sm" icon="qr-code" testid="no-lan-code" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('home.empty.noLan.action')}</Button>
+        </div>
+      </div>
+    {:else if nothingNearby}
       <div class="empty" in:springIn={{ delay: 120 }} data-testid="empty-state">
+        <span class="empty-bolt"><Bolt size={26} mode="asleep" /></span>
         <h2>{t('home.empty.title')}</h2>
         <p class="muted">{t('home.empty.body')}</p>
       </div>
@@ -191,18 +241,23 @@
     {/if}
 
     <nav class="actions" aria-label="Actions">
-      {#if app.staged.length}
+      {#if staging}
         <Button size="lg" icon="paper-plane-tilt" iconWeight="fill" testid="choose-device" onclick={() => (app.sheet = { kind: 'send' })}>{t('send.choose.title')}…</Button>
       {:else}
         <Button size="lg" icon="paper-plane-tilt" iconWeight="fill" testid="send-files" onclick={() => pickFiles()}>
           {app.isAndroid ? t('home.action.sendFiles') : t('home.action.chooseFiles')}
         </Button>
+        <div class="kinds" in:springIn={{ y: 6, delay: 60 }}>
+          <Button variant="ghost" size="sm" icon="folder-simple" testid="send-folder" onclick={() => pickFolders()}>{t('home.action.folder')}</Button>
+          <Button variant="ghost" size="sm" icon="text-aa" testid="send-text" onclick={() => (app.sheet = { kind: 'compose' })}>{t('home.action.text')}</Button>
+          <Button variant="ghost" size="sm" icon="clipboard-text" testid="send-clipboard" onclick={() => void app.stageClipboard()}>{t('home.action.clipboard')}</Button>
+        </div>
       {/if}
       <div class="code-actions">
         <Button variant="secondary" icon="qr-code" testid="send-code" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('home.action.sendCode')}</Button>
         <Button variant="secondary" icon="download-simple" testid="receive-code" onclick={() => (app.sheet = { kind: app.isAndroid ? 'scan' : 'enterCode' })}>{t('home.action.receiveCode')}</Button>
       </div>
-      {#if !app.isAndroid && !app.staged.length}
+      {#if !app.isAndroid && !staging}
         <p class="drop-hint" data-testid="home-drop-hint"><Icon name="download-simple" size={16} />{t('home.dropHint')}</p>
       {/if}
     </nav>
@@ -324,12 +379,30 @@
     max-width: 40ch;
     margin: 0 auto;
   }
+  .empty-bolt {
+    display: grid;
+    justify-items: center;
+  }
   .empty h2 {
     font-size: var(--type-headline-size);
     font-weight: 600;
   }
   .empty p {
     font-size: var(--type-callout-size);
+  }
+  .empty-action {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-2);
+  }
+  .kinds {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    margin-top: calc(var(--space-1) * -1);
+  }
+  .kinds :global(.btn) {
+    padding: 0 var(--space-2);
   }
   .compact-activity {
     display: grid;

@@ -1,5 +1,6 @@
 package io.github.kimzam30.nhakobeam
 
+import io.github.kimzam30.nhakobeam.core.NhakoException
 import io.github.kimzam30.nhakobeam.core.EventListener
 import io.github.kimzam30.nhakobeam.core.NhakoEngine
 import io.github.kimzam30.nhakobeam.model.Connection
@@ -60,7 +61,7 @@ class RealEngineTest {
         assertEquals("Kitchen tablet", ContractJson.decodeFromString<SelfInfo>(engine.getSelf()).name)
 
         val code = ContractJson.decodeFromString<PairingCode>(engine.createCode())
-        assertEquals(3, code.words.size)
+        assertEquals(4, code.words.size)
         assertTrue(code.words.all(Words::isWord))
         assertEquals(code.words, wordsFromCodeUri(code.uri))
         engine.cancelCode()
@@ -76,11 +77,27 @@ class RealEngineTest {
         engine.setLanDiscovery(false)
         assertEquals(false, engine.getLanDiscovery())
         engine.setLanDiscovery(true)
+
+        // Phase 11: who can send to me, saved and read back as the contract's names.
+        assertEquals("yourDevices", engine.getWhoCanSend())
+        engine.setWhoCanSend("everyoneNearby")
+        assertEquals("everyoneNearby", engine.getWhoCanSend())
+        engine.setWhoCanSend("yourDevices")
         assertTrue(ContractJson.decodeFromString<Snapshot>(engine.snapshot()).history.isEmpty())
         engine.clearHistory()
         engine.setWakeToken("dQw4w9WgXcQ:APA91bHn-test_token-0123456789abcdefghijklmnopqrstuvwxyz")
         engine.setWakeToken(null)
         assertEquals(false, engine.wakeAvailable())
+
+        // Phase 14: text and trust asks to a device that isn't there say so in plain words; the
+        // snapshot carries the asks waiting here.
+        val noSuch = "not-a-device"
+        val textErr = runCatching { engine.sendText(noSuch, "hi") }.exceptionOrNull()
+        assertTrue("sending text to nobody fails: $textErr", textErr is NhakoException.Failed)
+        assertTrue(runCatching { engine.askTrust(noSuch) }.isFailure)
+        engine.cancelTrust(noSuch)
+        engine.answerTrust(noSuch, false)
+        assertTrue(ContractJson.decodeFromString<Snapshot>(engine.snapshot()).trustAsks.isEmpty())
 
         // Everything the engine said along the way is something the app understands.
         Thread.sleep(300)

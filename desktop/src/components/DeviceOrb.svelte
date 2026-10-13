@@ -5,6 +5,7 @@
   import type { Device, DeviceKind } from '../lib/engine/types';
   import { SpringValue } from '../lib/motion/springs';
   import { app } from '../lib/state/app.svelte';
+  import Bolt from './Bolt.svelte';
   import Icon from './Icon.svelte';
   import { t } from '../lib/copy';
 
@@ -20,10 +21,47 @@
     progress?: number | null;
     register?: boolean;
     onclick?: () => void;
+    /** Right-click, or a long press on touch: the device's own sheet. */
+    onmenu?: () => void;
     testid?: string;
   }
 
-  let { device, self = false, selfName = '', size = 64, showName = true, target = false, snapped = false, waiting = false, progress = null, register = false, onclick, testid }: Props = $props();
+  let { device, self = false, selfName = '', size = 64, showName = true, target = false, snapped = false, waiting = false, progress = null, register = false, onclick, onmenu, testid }: Props = $props();
+
+  // A long press opens the menu, and the click that follows it doesn't also send.
+  const LONG_PRESS_MS = 500;
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let pressAt: { x: number; y: number } | null = null;
+  let pressed = false;
+  function pressDown(e: PointerEvent) {
+    if (!onmenu || e.pointerType === 'mouse') return;
+    pressed = false;
+    pressAt = { x: e.clientX, y: e.clientY };
+    pressTimer = setTimeout(() => {
+      pressed = true;
+      pressTimer = null;
+      onmenu?.();
+    }, LONG_PRESS_MS);
+  }
+  function pressMove(e: PointerEvent) {
+    if (pressTimer && pressAt && Math.hypot(e.clientX - pressAt.x, e.clientY - pressAt.y) > 8) pressEnd();
+  }
+  function pressEnd() {
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+  function click() {
+    if (pressed) {
+      pressed = false;
+      return;
+    }
+    onclick?.();
+  }
+  function menu(e: MouseEvent) {
+    if (!onmenu) return;
+    e.preventDefault();
+    onmenu();
+  }
 
   const kindIcon: Record<DeviceKind, string> = { laptop: 'laptop', desktop: 'desktop-tower', phone: 'device-mobile', tablet: 'device-tablet' };
   const icon = $derived(self ? (app.isAndroid ? 'device-mobile' : 'laptop') : kindIcon[device?.kind ?? 'laptop']);
@@ -81,7 +119,12 @@
   aria-label="{name}, {status}"
   data-testid={testid ?? (self ? 'orb-self' : `orb-${device?.id}`)}
   data-state={snapped ? 'snapped' : target ? 'target' : waiting ? 'waiting' : progress !== null ? 'busy' : offline ? 'offline' : 'idle'}
-  {onclick}
+  onclick={click}
+  oncontextmenu={menu}
+  onpointerdown={pressDown}
+  onpointermove={pressMove}
+  onpointerup={pressEnd}
+  onpointercancel={pressEnd}
 >
   <span class="scale" bind:this={scaleEl}>
     <span class="circle" bind:this={circle}>
@@ -107,6 +150,12 @@
       {/if}
       <circle class="snapring" cx={size / 2 + 8} cy={size / 2 + 8} r={ringR} />
     </svg>
+    {#if progress !== null && progress > 0.01 && progress < 0.995}
+      <!-- A bolt rides the head of the progress ring. -->
+      <span class="ringhead" style:transform="rotate({Math.min(1, progress) * 360}deg)" aria-hidden="true">
+        <span><Bolt size={12} /></span>
+      </span>
+    {/if}
   </span>
   {#if showName}
     <span class="name">{name}</span>
@@ -212,6 +261,18 @@
     stroke-linecap: round;
     transform: rotate(-90deg);
     transition: stroke-dashoffset var(--spring-smooth-duration) var(--spring-smooth);
+  }
+  .ringhead {
+    position: absolute;
+    inset: -8px;
+    pointer-events: none;
+    transition: transform var(--spring-smooth-duration) var(--spring-smooth);
+  }
+  .ringhead > span {
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    translate: -50% -50%;
   }
   .wait {
     stroke: var(--color-accent);

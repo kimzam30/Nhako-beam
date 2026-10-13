@@ -1,6 +1,8 @@
 <script lang="ts">
   import { playHaptic } from '../lib/haptics.svelte';
   import { playSound } from '../lib/sounds.svelte';
+  import { spark } from '../lib/motion/bolt';
+  import Bolt from './Bolt.svelte';
 
   interface Props {
     checked: boolean;
@@ -13,8 +15,15 @@
   let { checked = $bindable(), label, hint, testid, onchange }: Props = $props();
   const id = `t-${Math.random().toString(36).slice(2, 8)}`;
 
+  let track: HTMLElement | undefined = $state();
+
   function flip() {
     checked = !checked;
+    // On: the bolt in the thumb lights up and zaps where the thumb lands.
+    if (checked && track) {
+      const r = track.getBoundingClientRect();
+      spark({ x: r.right - r.height / 2, y: r.top + r.height / 2 }, { count: 3, reach: 22, size: 11 });
+    }
     playHaptic(checked ? 'toggleOn' : 'toggleOff');
     playSound(checked ? 'toggleOn' : 'toggleOff');
     onchange?.(checked);
@@ -26,8 +35,8 @@
     <span class="label">{label}</span>
     {#if hint}<span class="hint">{hint}</span>{/if}
   </label>
-  <button {id} role="switch" aria-checked={checked} aria-label={label} class="track" class:on={checked} data-testid={testid} onclick={flip}>
-    <span class="thumb"></span>
+  <button {id} role="switch" aria-checked={checked} aria-label={label} class="track" class:on={checked} data-testid={testid} onclick={flip} bind:this={track}>
+    <span class="thumb"><span class="mini"><Bolt size={14} tone={checked ? 'brand' : 'current'} /></span></span>
   </button>
 </div>
 
@@ -79,6 +88,19 @@
   }
   .on .thumb {
     transform: translateX(20px);
+  }
+  .thumb {
+    display: grid;
+    place-items: center;
+  }
+  .mini {
+    display: grid;
+    color: var(--color-text-disabled);
+    transform: scale(0.85);
+    transition: transform var(--spring-bouncy-duration) var(--spring-bouncy);
+  }
+  .on .mini {
+    transform: scale(1);
   }
   .track:active .thumb {
     width: 28px;

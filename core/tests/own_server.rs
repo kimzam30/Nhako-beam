@@ -102,6 +102,7 @@ impl Node {
         cfg.save_dir = Some(dir.join("save"));
         cfg.relay_only = true;
         cfg.mdns = false;
+        cfg.beacon = None;
         cfg.kdf = KdfCost::TEST;
         cfg.code_lookup_for = Duration::from_secs(15);
         if let Some(c) = save {
@@ -109,6 +110,7 @@ impl Node {
             let mut first = EngineConfig::new(dir.join("config"));
             first.network = Some(Network::LocalOnly);
             first.mdns = false;
+            first.beacon = None;
             let e = Engine::start(first).await?;
             e.set_connection(c)?;
             e.stop().await;

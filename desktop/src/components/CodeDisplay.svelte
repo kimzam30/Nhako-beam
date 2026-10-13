@@ -28,16 +28,20 @@
   const n = $derived(qr.size);
   const isFinder = (x: number, y: number, size: number) =>
     (x < 7 && y < 7) || (x >= size - 7 && y < 7) || (x < 7 && y >= size - 7);
-  // All data modules as one path of round dots (one DOM node instead of hundreds).
-  const dotsPath = $derived.by(() => {
+  // The data modules as round dots, in a few diagonal bands (a handful of DOM nodes instead of
+  // hundreds), so the code can draw itself in from the top left corner.
+  const BANDS = 7;
+  const dotBands = $derived.by(() => {
     const r = 0.42;
-    let d = '';
+    const bands = Array.from({ length: BANDS }, () => '');
     qr.data.forEach((row, y) =>
       row.forEach((on, x) => {
-        if (on && !isFinder(x, y, n)) d += `M${x + 0.5 - r} ${y + 0.5}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+        if (!on || isFinder(x, y, n)) return;
+        const b = Math.min(BANDS - 1, Math.floor(((x + y) / (2 * n)) * BANDS));
+        bands[b] += `M${x + 0.5 - r} ${y + 0.5}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
       }),
     );
-    return d;
+    return bands;
   });
   const finders = $derived([
     [0, 0],
@@ -80,11 +84,15 @@
       />
     </svg>
     <svg class="qr" viewBox="-1 -1 {n + 2} {n + 2}" role="img" aria-label="QR code for pairing" in:springIn={{ y: 0, preset: 'smooth' }}>
-      {#each finders as [fx, fy]}
-        <rect x={fx! + 0.5} y={fy! + 0.5} width="6" height="6" rx="1.8" class="finder-outer" />
-        <rect x={fx! + 2} y={fy! + 2} width="3" height="3" rx="0.9" class="finder-inner" />
+      {#each finders as [fx, fy], i}
+        <g class="draw" style:animation-delay="{[0, 2, 4][i]! * 45}ms">
+          <rect x={fx! + 0.5} y={fy! + 0.5} width="6" height="6" rx="1.8" class="finder-outer" />
+          <rect x={fx! + 2} y={fy! + 2} width="3" height="3" rx="0.9" class="finder-inner" />
+        </g>
       {/each}
-      <path d={dotsPath} />
+      {#each dotBands as d, i}
+        <path class="draw" {d} style:animation-delay="{40 + i * 45}ms" />
+      {/each}
     </svg>
     {#if expired}
       <div class="veil" in:springIn={{ y: 0, scale: 0.96 }}>
@@ -156,6 +164,20 @@
     fill: #121418;
     box-shadow: var(--elevation-1);
     transition: opacity var(--duration-base) var(--ease-standard);
+  }
+  .draw {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: draw-in var(--spring-smooth-duration) var(--spring-smooth) both;
+  }
+  @keyframes draw-in {
+    from {
+      opacity: 0;
+      transform: scale(0.82);
+    }
+  }
+  :global([data-reduced='true']) .draw {
+    animation: none;
   }
   .finder-outer {
     fill: none;

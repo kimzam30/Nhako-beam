@@ -63,6 +63,7 @@
         {@const action = toast.action}
         <button class="action" onclick={() => (action.run(), app.dismissToast(toast.id))}>{action.label}</button>
       {/if}
+      <span class="left" style:animation-duration="{toast.ms}ms" aria-hidden="true"></span>
     </div>
   {/each}
 </div>
@@ -80,6 +81,8 @@
     pointer-events: none;
   }
   .toast {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
     gap: var(--space-3);
@@ -95,6 +98,29 @@
   }
   .text {
     flex: 1;
+  }
+  /* A thin bar along the bottom drains as the toast's time runs out. */
+  .left {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: currentColor;
+    opacity: 0.35;
+    transform-origin: left center;
+    animation: drain linear both;
+  }
+  :global([data-reduced='true']) .left {
+    display: none;
+  }
+  @keyframes drain {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
   }
   .success {
     color: var(--color-success);

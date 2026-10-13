@@ -5,3 +5,8 @@
 /android/app/google-services.json
 /wake/node_modules
 /wake/.wrangler
+
+# The Android release key and its passwords (docs/releasing.md). Never commit these.
+/android/keystore.properties
+*.jks
+*.keystore

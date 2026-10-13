@@ -35,7 +35,7 @@ are encrypted end to end and never stored anywhere in between.
 |---|---|
 | **No cloud** | Files go device to device. Nothing is uploaded or kept on a server. |
 | **No size limit** | Only your disk decides. A dropped connection picks up from the last confirmed byte. |
-| **No account** | Devices pair once with a three-word code or a QR code, and remember each other. |
+| **No account** | Devices pair once with a four-word code or a QR code, and remember each other. |
 | **Your own servers, if you want** | The relay and address lookup run on any computer with Docker. By default the apps use n0's free public ones. |
 | **Free and open source** | MIT or Apache 2.0. No ads, no tracking, no subscription. |
 
@@ -131,7 +131,7 @@ Step by step, including which APK your phone needs and how to install it:
 ## Usage
 
 **In the apps:** open Nhako Beam on both devices. On the same Wi-Fi they show up under Nearby.
-Pair once with the three-word code or the QR code and check that both screens show the same short
+Pair once with the four-word code or the QR code and check that both screens show the same short
 value. After that, send by dropping or sharing files onto the device.
 
 **From the command line:** `nhako` is a small client of the same engine.
@@ -139,8 +139,8 @@ value. After that, send by dropping or sharing files onto the device.
 ```bash
 cargo build --release -p nhako-cli        # binary: target/release/nhako
 
-nhako send holiday.mp4 notes.pdf          # prints three words for the other device
-nhako receive river lantern seven         # on the other device
+nhako send holiday.mp4 notes.pdf          # prints four words for the other device
+nhako receive river lantern seven harbor  # on the other device
 
 nhako pair                                # pair once, then send by name
 nhako send report.pdf --to "Work phone"
@@ -166,7 +166,7 @@ All commands: [cli/README.md](cli/README.md).
   device keys, discovery, pairing codes and the `nhako/1` transfer protocol
   ([docs/protocol/nhako-1.md](docs/protocol/nhako-1.md)). The desktop apps run it inside Tauri;
   the Android app runs it through UniFFI (`ffi/`).
-- **Fast.** The engine moves about 365 MB/s in its own benchmark.
+- **Fast.** The engine moves about 360 MB/s for one big file and about 230 MB/s for a folder of 5,000 photos in its own benchmark (`scripts/bench.sh`).
 - **Shared design.** Colors, type, spacing, motion, UI copy and sounds each come from one source
   and are built for both the desktop and Android apps.
 

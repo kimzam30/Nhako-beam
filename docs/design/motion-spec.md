@@ -1,6 +1,6 @@
 # Nhako Beam motion spec
 
-Version 0.1, Phase 1. Values come from [`design/tokens/tokens.json`](../../design/tokens/tokens.json) under `motion`, `gesture` and `haptic`. Open [`design/tokens/preview.html`](../../design/tokens/preview.html) (served over http) to see and play every spring.
+Version 0.3 (Phase 13 added the bolt, section 4.15; Phase 14 folders, text and trust, 4.16). Values come from [`design/tokens/tokens.json`](../../design/tokens/tokens.json) under `motion`, `gesture` and `haptic`. Open [`design/tokens/preview.html`](../../design/tokens/preview.html) (served over http) to see and play every spring.
 
 ---
 
@@ -156,6 +156,7 @@ Reduced motion: no shimmer and no glow pulse. Fill updates in steps with a `fast
 
 ### 4.10 Done
 - Beam fill reaches 100%, glow fades out over `slow`.
+- The card's avatar bolt strikes and morphs into a check (section 4.15).
 - The beam collapses into a check mark inside the device orb: bar scales down horizontally toward the orb (`smooth`), check draws in (stroke animation, `base`), orb pulses once with `bouncy`. `transferDone` haptic.
 - Actions fade in after 120ms: "Open", "Show in folder" (desktop) or "Open", "Share" (Android).
 - The card auto-collapses into History after 6s, unless hovered or focused.
@@ -200,6 +201,47 @@ Plays once on a fresh launch: from the launcher on Android, on every start of th
 
 Reduced motion: the blue fades out over 200 ms. Nothing moves.
 
+### 4.15 The bolt (Phase 13)
+The logo's yellow bolt is the motion language: **charge, zap, settle**. A press or a swipe charges, the moment something commits it zaps, and things land on the springs above. Values are under `motion.bolt` in the tokens. Code: `desktop/src/lib/motion/bolt.ts` with `Bolt.svelte`, and `android/.../ui/components/Bolt.kt`. Every effect can be played in the prototype's **Motion lab** (Scenarios > Open the motion lab, or `localhost:5173/#motion`).
+
+**Shared parts**
+- **Bolt icon:** the logo bolt, yellow with its dark blue offset. It can **morph** into a check (its seven corners move to a check's seven corners on `snappy`), **crack** (it splits along its own zig, the halves part and turn 9 degrees), **sleep** (grey, breathes once on arrival, then rests) and **twitch** (one small shake).
+- **Strike:** the bolt drops in from above on `bouncy` and throws sparks when it lands.
+- **Sparks:** 5 tiny bolts thrown from a point, out to 32 and gone in 300 ms (`sparkCount`, `sparkReach`, `sparkSize`, `sparkMs`). Drawn above everything, transform and opacity only, never looping.
+- **Arc:** a jagged lightning line between two points, drawn in along its length, held, then faded (`arcMs` 420).
+
+**Where it plays**
+| Moment | Motion |
+|---|---|
+| Button released | A thin yellow rim flashes out (`flashMs` 320). A primary button also throws 4 sparks from where it was clicked |
+| Icon button pressed | The icon answers in its own way: gear turns 60, bin lid lifts, x spins a quarter, back caret leans back, history hand winds back; others pop |
+| Switch turned on | The bolt in the thumb lights up (grey to yellow, `bouncy` scale) and 3 sparks fly where the thumb lands |
+| Segmented choice | The chosen option's icon pops in on `snappy` while the pill slides |
+| Text field focused | A 2 px accent "charge" line draws along the bottom, left to right, on `smooth` |
+| A device turns up | An arc strikes from your orb to its slot, timed with its pop. Only reachable devices get one. A device that leaves drifts outward as it fades |
+| Bytes moving | A small bolt rides the front of the beam's fill and the head of the orb's progress ring. Paused: it stops and greys out |
+| Percent | Digits roll up (or down) in their own place, on `snappy` |
+| Done | In the card's avatar the bolt strikes, sparks, then morphs into a green check |
+| Failed | The avatar bolt cracks (red), plus the card's one shake |
+| Incoming request | A bolt badge on the sender twitches once the card lands. Swiping fills a charge meter along the bottom toward the side you're heading (yellow once past the accept point). Committing throws sparks the way the card flies |
+| Pairing | The QR draws itself in from the top left in 7 diagonal bands, 45 ms apart. All code words right: each slot zaps, 60 ms apart. Matched: where the two orbs meet a bolt pops in on `bouncy` with 6 sparks, and the check code is read off by a thin line moving left to right |
+| Toast | A thin bar along the bottom drains over the toast's life (4 s, 6 s with an action) |
+| Empty History and "nothing nearby" | A sleeping bolt |
+| Tray popover (desktop) | Each time it opens it drops in from the tray, 10 down, on `snappy` |
+
+Reduced motion: no sparks, arcs, strikes, nudges, twitches, rolls, cracks moving or breathing. The states stay: the check, the cracked bolt and the grey bolt still show, the rim flash and the charge line fade instead of moving, the code scan is a fade, and the toast bar is hidden.
+
+### 4.16 Folders, text and trust (Phase 14)
+| Moment | Motion |
+|---|---|
+| Text box | The same charge line as other fields draws along its bottom on focus; it turns red when the text is too long |
+| A text or a folder in the tray | One card with a text, link or folder glyph, landing on `bouncy` like files |
+| Text request | The text sits in the card in a block with a yellow edge; the card moves like any request |
+| A device's sheet | The orb pops in on `bouncy`, the three send rows follow `stagger` 30 ms apart |
+| Trust ask (both sides) | Your orb and the other device's sit apart with a thin line between them; while the ask is out a short yellow charge runs along it, 1100 ms a lap (the asker's other orb also has the waiting ring). The code appears with the same left to right scan as pairing. A yes ends in the paired sheet's meeting orbs and bolt |
+
+Reduced motion: the charge line is a still half-strength yellow, the scan is a fade, the field line fades in.
+
 ---
 
 ## 5. Haptics map (Android)
@@ -238,6 +280,8 @@ Triggered by: Android "Remove animations" (animator duration scale 0), desktop `
 | Bouncy arrivals | Plain fade in |
 | Shake on error | Color change plus icon, no movement |
 | Stagger | Kept but halved (15 ms), since it is a fade |
+| Sparks, arcs, bolt strike, icon nudges, digit roll | Off (section 4.15) |
+| Rim flash, field charge line, check code scan | A fade |
 
 Information is never carried by motion alone, so nothing is lost in reduced mode.
 

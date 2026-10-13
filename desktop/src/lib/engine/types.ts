@@ -34,6 +34,9 @@ export interface FileItem {
   name: string;
   size: number;
   mime: string;
+  /** The folder it's in, inside a folder that was sent ("Photos/2024", "/" between folders).
+   *  Missing for files sent on their own. */
+  folder?: string;
 }
 
 export type TransferDirection = 'send' | 'receive';
@@ -58,6 +61,8 @@ export type TransferError =
   | 'permission'
   | 'diskFull'
   | 'diskFullPeer'
+  /** The receiver only takes files from its own devices (Who can send to me). */
+  | 'notAllowed'
   | 'unknown';
 
 export interface Transfer {
@@ -85,6 +90,9 @@ export interface Transfer {
   waitingLong: boolean;
   /** Sender: the other device was asleep and has been asked to wake up. */
   waking: boolean;
+  /** A text transfer (a note, a link, a clipboard): the text. Its one file is the same text, for
+   *  devices on a version without text. */
+  text?: string;
 }
 
 /** A transfer that ended, as History lists it. Kept after a restart, and after the device is removed. */
@@ -109,6 +117,8 @@ export interface HistoryEntry {
   finishedAt: number;
   /** Bytes per second while bytes were moving (pauses left out). 0 when nothing moved. */
   averageSpeed: number;
+  /** A text transfer: the text. */
+  text?: string;
 }
 
 export interface IncomingRequest {
@@ -117,10 +127,29 @@ export interface IncomingRequest {
   files: FileItem[];
   totalBytes: number;
   receivedAt: number;
+  /** Text rather than files: the text, to read before accepting. */
+  text?: string;
 }
 
+/** Another device on the same network asking to be one of your devices, and you one of its own
+ *  (Trust this device, from Nearby). Both screens show `check`. */
+export interface TrustRequest {
+  deviceId: string;
+  check: string;
+  receivedAt: number;
+}
+
+/** How a trust ask ended without both devices trusting each other.
+ *  Asker: declined, outdated (a version without trust asks), unreachable, busy.
+ *  Asked: declined (you said no), withdrawn (the asker gave up or went away). */
+export type TrustOutcome = 'declined' | 'withdrawn' | 'outdated' | 'unreachable' | 'busy';
+
+/** The longest text sent as text, in bytes of UTF-8. Longer text goes as a file. */
+export const TEXT_MAX = 64 * 1024;
+
 export interface PairingCode {
-  words: [string, string, string];
+  /** Four words (since Phase 11). */
+  words: [string, string, string, string];
   /** Epoch ms. Codes live 10 minutes. */
   expiresAt: number;
   /** Encoded in the QR code. */
@@ -128,6 +157,12 @@ export interface PairingCode {
 }
 
 export type DiscoveryState = 'searching' | 'idle' | 'blocked' | 'offline';
+
+export type PairVia = 'shown' | 'entered' | 'nearby';
+
+/** Settings > Receiving > Who can send to me. Trusted devices, and devices connected with a code,
+ *  can always send. */
+export type WhoCanSend = 'yourDevices' | 'everyoneNearby';
 
 export type RedeemResult =
   | { ok: true; device: Device }
@@ -149,6 +184,8 @@ export interface Snapshot {
   serverProblem: ServerProblem | null;
   /** Newest first. */
   history: HistoryEntry[];
+  /** Trust asks waiting for an answer here. */
+  trustAsks: TrustRequest[];
 }
 
 /** This device, as the engine knows it. */
@@ -195,8 +232,12 @@ export type EngineEvent =
   | { type: 'incoming'; request: IncomingRequest }
   | { type: 'incomingWithdrawn'; requestId: string }
   | { type: 'transfer'; transfer: Transfer }
-  /** `check` is the same short value on both screens ("Check that both screens show"). */
-  | { type: 'paired'; device: Device; via: 'shown' | 'entered'; check: string }
+  /** A transfer moved: only what changed since its last `transfer` or `transferProgress` event, to merge in.
+   * `fileBytes` lists only the files whose count changed. */
+  | { type: 'transferProgress'; id: string; doneBytes: number; speed: number; movingSince: number | null; fileBytes: Record<string, number> }
+  /** `check` is the same short value on both screens ("Check that both screens show").
+   *  `nearby`: Trust this device, from Nearby, agreed on both. */
+  | { type: 'paired'; device: Device; via: PairVia; check: string }
   /** The code this device is showing changed (new, expiring, or gone). */
   | { type: 'code'; code: PairingCode | null }
   | { type: 'freeSpace'; bytes: number }
@@ -204,6 +245,12 @@ export type EngineEvent =
   | { type: 'server'; problem: ServerProblem | null }
   /** A transfer ended and was added to History (or replaced its own entry after a retry). */
   | { type: 'history'; entry: HistoryEntry }
+  /** A device nearby asks to trust this one, and this one it. Answer with `answerTrust`. */
+  | { type: 'trustAsk'; request: TrustRequest }
+  /** On the device that asked: the other device has the ask, and both screens show `check`. */
+  | { type: 'trustWaiting'; deviceId: string; check: string }
+  /** A trust ask ended without a match (on either device). A match ends with `paired` instead. */
+  | { type: 'trustEnded'; deviceId: string; outcome: TrustOutcome }
   /** Redraw from this (the engine restarted, or the window fell behind). Replaces devices and requests. */
   | { type: 'snapshot'; snapshot: Snapshot };
 
@@ -216,6 +263,9 @@ export interface Engine {
   /** Resolves to the transfer id. Rejects with a plain-language message (for example a file that was moved).
    *  On the desktop app the FileItem ids come from the shell, which knows each file's path. */
   send(deviceId: string, files: FileItem[]): Promise<string>;
+  /** Sends text (a note, a link, a clipboard). Resolves to the transfer id. Rejects with a
+   *  plain-language message (for example text over TEXT_MAX). */
+  sendText(deviceId: string, text: string): Promise<string>;
   accept(requestId: string, opts?: { trust?: boolean; autoAccept?: boolean }): Promise<string | null>;
   decline(requestId: string): void;
   pause(transferId: string): void;
@@ -229,6 +279,12 @@ export interface Engine {
   redeemCode(words: string[]): Promise<RedeemResult>;
 
   setTrusted(deviceId: string, trusted: boolean): void;
+  /** Asks a nearby device to trust this one, and to be trusted back. `trustWaiting` follows, then
+   *  `paired` (via nearby) or `trustEnded`. Rejects if the device isn't nearby. */
+  askTrust(deviceId: string): Promise<void>;
+  cancelTrust(deviceId: string): void;
+  /** Answers another device's ask. */
+  answerTrust(deviceId: string, yes: boolean): void;
   setAutoAccept(deviceId: string, on: boolean): void;
   renameSelf(name: string): void;
   getSelf(): Promise<SelfInfo>;
@@ -247,6 +303,14 @@ export interface Engine {
   /** Saves it and reconnects. Rejects with a plain-language message if it can't (transfers still running). */
   setLanDiscovery(on: boolean): Promise<void>;
 
+  /** Who may send requests here. Applies to the next request, no reconnect. */
+  getWhoCanSend(): Promise<WhoCanSend>;
+  setWhoCanSend(who: WhoCanSend): Promise<void>;
+
   /** Forgets every History entry. Received files stay where they are. */
   clearHistory(): void;
+
+  /** Settings > About > Copy diagnostics: a plain-text report on the network and nearby
+   *  discovery, with recent logs. Leaves out device names, file names and internet addresses. */
+  diagnostics(): Promise<string>;
 }

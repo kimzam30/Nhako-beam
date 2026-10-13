@@ -1,10 +1,17 @@
 # Checks, tests and installers for Windows, Linux and Android.
 # Start it by hand: GitHub > Actions > "Build" > Run workflow. Free on public repositories.
 # When it finishes, the .exe, .deb and .apk are under "Artifacts" on the run's page (kept 14 days).
+# The Release workflow (release.yml) runs this too, with release: true (docs/releasing.md).
 name: Build
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: Sign the .apk with the release key, and fail without it.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -131,19 +138,39 @@ jobs:
           retention-days: 14
 
   android:
-    name: Android (tests, debug .apk)
+    name: Android (tests, .apk)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       NDK_VERSION: 29.0.14206865
       # Your Firebase project's google-services.json, as the repository secret GOOGLE_SERVICES_JSON.
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      # The release key (docs/releasing.md). Without it, the .apk is signed with the runner's own
+      # throwaway debug key: fine for trying a build, but it can't update an installed app.
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      NHAKO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      NHAKO_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Firebase config for push wake-up
         if: env.GOOGLE_SERVICES_JSON != ''
         run: printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+
+      - name: Release signing key
+        env:
+          RELEASE: ${{ inputs.release }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            if [ "$RELEASE" = "true" ]; then
+              echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing. A release must be signed with the release key (docs/releasing.md)."
+              exit 1
+            fi
+            echo "No release key: the .apk is signed with a throwaway debug key."
+            exit 0
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          echo "NHAKO_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:

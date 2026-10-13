@@ -147,7 +147,17 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Files dropped on a window: the window may now stage them (see `Host::offered`).
+pub fn on_webview_event<R: Runtime>(webview: &tauri::Webview<R>, event: &tauri::WebviewEvent) {
+    if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        webview.state::<Host>().offer(paths.iter().cloned());
+    }
+}
+
 pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        window.state::<Host>().offer(paths.iter().cloned());
+    }
     if window.label() == popover::LABEL {
         // Like any tray popover: it goes away when you click elsewhere.
         if matches!(event, WindowEvent::Focused(false)) {
@@ -186,6 +196,14 @@ pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
         app.state::<Host>().stop().await;
         app.exit(0);
     });
+}
+
+/// The main window or the tray popover is open (not hidden or minimized).
+pub fn on_screen<R: Runtime>(app: &AppHandle<R>) -> bool {
+    ["main", popover::LABEL]
+        .iter()
+        .filter_map(|l| app.get_webview_window(l))
+        .any(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
 }
 
 fn looking<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -276,8 +294,10 @@ impl Shell {
 
 /// Files from `--send` the window hasn't shown yet. Each file is handed out once.
 #[tauri::command]
-pub fn take_send_paths(shell: State<'_, Shell>) -> Vec<PathBuf> {
-    std::mem::take(&mut *shell.send_queue.lock().expect("send queue lock"))
+pub fn take_send_paths(shell: State<'_, Shell>, host: State<'_, Host>) -> Vec<PathBuf> {
+    let paths = std::mem::take(&mut *shell.send_queue.lock().expect("send queue lock"));
+    host.offer(paths.iter().cloned());
+    paths
 }
 
 #[tauri::command]

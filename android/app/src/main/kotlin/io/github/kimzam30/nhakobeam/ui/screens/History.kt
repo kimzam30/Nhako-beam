@@ -34,7 +34,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,13 +54,18 @@ import io.github.kimzam30.nhakobeam.design.NhakoType
 import io.github.kimzam30.nhakobeam.model.HistoryEntry
 import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.TransferDirection
+import io.github.kimzam30.nhakobeam.model.TransferError
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.Screen
 import io.github.kimzam30.nhakobeam.state.Sheet
 import io.github.kimzam30.nhakobeam.ui.Copy.t
+import io.github.kimzam30.nhakobeam.ui.components.Bolt
+import io.github.kimzam30.nhakobeam.ui.components.BoltMode
 import io.github.kimzam30.nhakobeam.ui.components.ButtonSize
 import io.github.kimzam30.nhakobeam.ui.components.ButtonVariant
+import io.github.kimzam30.nhakobeam.ui.components.FILES_PAGE
+import io.github.kimzam30.nhakobeam.ui.components.MoreFiles
 import io.github.kimzam30.nhakobeam.ui.components.NButton
 import io.github.kimzam30.nhakobeam.ui.components.NIconButton
 import io.github.kimzam30.nhakobeam.ui.components.RouteBadge
@@ -68,7 +76,9 @@ import io.github.kimzam30.nhakobeam.ui.dayStart
 import io.github.kimzam30.nhakobeam.ui.formatBytes
 import io.github.kimzam30.nhakobeam.ui.formatDuration
 import io.github.kimzam30.nhakobeam.ui.formatSpeed
+import io.github.kimzam30.nhakobeam.ui.isLink
 import io.github.kimzam30.nhakobeam.ui.middleTruncate
+import io.github.kimzam30.nhakobeam.ui.summarize
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
@@ -101,7 +111,8 @@ fun HistoryScreen(app: AppState, now: Long = System.currentTimeMillis()) {
             Rise(0, Modifier.fillMaxWidth().padding(top = NhakoSpace.s9)) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = NhakoSpace.s7), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
                     Box(Modifier.size(64.dp).clip(CircleShape).background(c.fill), contentAlignment = Alignment.Center) {
-                        PhIcon("clock-counter-clockwise", size = 32.dp, tint = c.textTertiary)
+                        // A sleeping bolt: it breathes once when you arrive, then rests.
+                        Bolt(34.dp, mode = BoltMode.Asleep)
                     }
                     BasicText(t("history.empty"), style = NhakoType.callout.style(c.textSecondary).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
                 }
@@ -135,7 +146,7 @@ fun HistoryScreen(app: AppState, now: Long = System.currentTimeMillis()) {
                     Rise(order[e.id] ?: 0, Modifier.animateItem()) {
                         Column(Modifier.widthIn(max = 640.dp).clip(shape).background(c.surface)) {
                             if (!first) Separator(Modifier.padding(start = NhakoSpace.s5 + 36.dp + NhakoSpace.s4))
-                            HistoryRow(e, is24) { app.sheet = Sheet.HistoryItem(e.id) }
+                            HistoryRow(e, is24) { app.sheet = if (e.text != null && e.status == io.github.kimzam30.nhakobeam.model.TransferStatus.Done) Sheet.TextSheet(e.id) else Sheet.HistoryItem(e.id) }
                         }
                     }
                 }
@@ -184,9 +195,9 @@ private fun HistoryRow(e: HistoryEntry, is24: Boolean, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(NhakoSpace.s4))
         Column(Modifier.weight(1f)) {
-            BasicText(summarizeFiles(e.files), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(summarize(e.files, e.text), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText(
-                "${t(if (receive) "history.received" else "history.sent", "device" to e.deviceName)} · ${formatBytes(e.totalBytes)}",
+                "${t(if (receive) "history.received" else "history.sent", "device" to e.deviceName)} · ${e.text?.let { t(if (isLink(it)) "staged.link" else "staged.text") } ?: formatBytes(e.totalBytes)}",
                 style = NhakoType.footnote.style(c.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -208,7 +219,7 @@ fun ColumnScope.HistoryDetails(e: HistoryEntry, now: Long = System.currentTimeMi
     val done = e.status == TransferStatus.Done
     val headline = when (e.status) {
         TransferStatus.Done -> t(if (e.direction == TransferDirection.Send) "transfer.done.sent" else "transfer.done.received", "device" to e.deviceName)
-        TransferStatus.Declined -> t("send.declined", "device" to e.deviceName)
+        TransferStatus.Declined -> t(if (e.error == TransferError.NotAllowed) "send.notAllowed" else "send.declined", "device" to e.deviceName)
         TransferStatus.Cancelled -> if (e.cancelledBy == Side.Peer) t("transfer.cancelled.byOther", "device" to e.deviceName) else t("transfer.cancelled.byYou")
         else -> t("history.status.failed")
     }
@@ -238,12 +249,14 @@ fun ColumnScope.HistoryDetails(e: HistoryEntry, now: Long = System.currentTimeMi
     Spacer(Modifier.height(NhakoSpace.s5))
     BasicText(t("transfer.files"), style = NhakoType.footnote.style(c.textSecondary).copy(fontWeight = FontWeight(600)))
     Spacer(Modifier.height(NhakoSpace.s2))
-    e.files.take(50).forEach { f ->
+    var shown by remember(e.id) { mutableIntStateOf(FILES_PAGE) }
+    e.files.take(shown).forEach { f ->
         Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s2)) {
-            BasicText(middleTruncate(f.name, 34), Modifier.weight(1f), style = NhakoType.callout.style(c.textPrimary), maxLines = 1)
+            FileName(f, Modifier.weight(1f))
             BasicText(formatBytes(f.size), style = NhakoType.callout.style(c.textSecondary))
         }
     }
+    MoreFiles(e.files.size, shown) { shown += FILES_PAGE }
 }
 
 @Composable

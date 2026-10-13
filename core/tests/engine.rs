@@ -7,8 +7,8 @@ use std::{
 };
 
 use nhako_core::{
-    Engine, EngineConfig, EngineEvent, MemoryLookup, Network, PairVia, RedeemFailure, RedeemResult, Side, Transfer, TransferDirection, TransferError,
-    TransferStatus, codekeys::KdfCost, device_id,
+    Engine, EngineConfig, EngineError, EngineEvent, IncomingRequest, MemoryLookup, Network, Outgoing, PairVia, RedeemFailure, RedeemResult, Side, Transfer,
+    TransferDirection, TransferError, TransferStatus, TrustOutcome, WhoCanSend, codekeys::KdfCost, device_id, engine_limits, files,
 };
 use tokio::sync::broadcast;
 
@@ -18,6 +18,10 @@ struct Node {
     engine: Engine,
     events: broadcast::Receiver<EngineEvent>,
     dir: PathBuf,
+    /// How long `wait` waits. Benchmarks raise it.
+    patience: Duration,
+    /// Transfers as events have described them so far.
+    seen: std::collections::HashMap<String, Transfer>,
 }
 
 impl Node {
@@ -36,6 +40,7 @@ impl Node {
         cfg.save_dir = Some(dir.join("save"));
         cfg.network = Some(Network::LocalOnly);
         cfg.mdns = false;
+        cfg.beacon = None;
         cfg.kdf = KdfCost::TEST;
         cfg.reconnect_for = Duration::from_secs(10);
         cfg.code_lookup_for = Duration::from_secs(3);
@@ -45,8 +50,17 @@ impl Node {
         tweak(&mut cfg);
         let engine = Engine::start(cfg).await.unwrap();
         engine.rename_self(name);
+        // Most tests send between devices that never paired; only_your_devices_can_send_by_default
+        // covers the default.
+        engine.set_who_can_send(WhoCanSend::EveryoneNearby).unwrap();
         let events = engine.subscribe();
-        Self { engine, events, dir }
+        Self {
+            engine,
+            events,
+            dir,
+            patience: WAIT,
+            seen: Default::default(),
+        }
     }
 
     fn id(&self) -> String {
@@ -59,6 +73,7 @@ impl Node {
 
     /// Waits for an event matching `f`, skipping others.
     async fn wait<T>(&mut self, what: &str, mut f: impl FnMut(&EngineEvent) -> Option<T>) -> T {
+        let patience = self.patience;
         let fut = async {
             loop {
                 match self.events.recv().await {
@@ -72,15 +87,47 @@ impl Node {
                 }
             }
         };
-        tokio::time::timeout(WAIT, fut).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"))
+        tokio::time::timeout(patience, fut)
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
     }
 
+    /// Waits until a transfer matches `f`, as the app would see it: progress events merged into
+    /// the last full one.
     async fn wait_transfer(&mut self, what: &str, f: impl Fn(&Transfer) -> bool) -> Transfer {
-        self.wait(what, |e| match e {
-            EngineEvent::Transfer { transfer } if f(transfer) => Some(transfer.clone()),
-            _ => None,
-        })
-        .await
+        let engine = self.engine.clone();
+        let mut seen = std::mem::take(&mut self.seen);
+        let found = self
+            .wait(what, |e| {
+                let t = match e {
+                    EngineEvent::Transfer { transfer } => {
+                        seen.insert(transfer.id.clone(), transfer.clone());
+                        seen.get(&transfer.id)
+                    }
+                    EngineEvent::TransferProgress {
+                        id,
+                        done_bytes,
+                        speed,
+                        moving_since,
+                        file_bytes,
+                    } => {
+                        if !seen.contains_key(id) {
+                            seen.insert(id.clone(), engine.transfer(id)?);
+                        }
+                        let t = seen.get_mut(id)?;
+                        t.done_bytes = *done_bytes;
+                        t.speed = *speed;
+                        t.moving_since = *moving_since;
+                        t.file_bytes.extend(file_bytes.iter().map(|(k, v)| (k.clone(), *v)));
+                        Some(&*t)
+                    }
+                    _ => None,
+                };
+                t.filter(|t| f(t)).cloned()
+            })
+            .await;
+        self.seen = seen;
+        found
     }
 
     async fn wait_incoming(&mut self) -> String {
@@ -307,6 +354,265 @@ async fn cancel_mid_transfer_cleans_up() {
     b.stop().await;
 }
 
+/// Everything under `dir`, folders included.
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for e in std::fs::read_dir(dir).map(|d| d.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+        out.push(e.path());
+        if e.path().is_dir() {
+            out.extend(walk(&e.path()));
+        }
+    }
+    out
+}
+
+/// What `walk_folder` finds, ready to send.
+fn folder_to_send(root: &Path) -> Vec<Outgoing> {
+    files::walk_folder(root, 1000)
+        .unwrap()
+        .into_iter()
+        .map(|(path, folder)| Outgoing {
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            path,
+            folder: Some(folder),
+        })
+        .collect()
+}
+
+impl Node {
+    async fn wait_request(&mut self) -> IncomingRequest {
+        self.wait("incoming request", |e| match e {
+            EngineEvent::Incoming { request } => Some(request.clone()),
+            _ => None,
+        })
+        .await
+    }
+}
+
+/// A folder keeps its shape on the other side, in a new folder of its own when the name is taken,
+/// and a cancelled one leaves nothing behind.
+#[tokio::test(flavor = "multi_thread")]
+async fn sends_a_folder_and_keeps_its_shape() {
+    let mem = MemoryLookup::new();
+    let a = Node::new(&mem, "Laptop", None).await;
+    let mut b = Node::new(&mem, "Phone", None).await;
+    let root = a.dir.join("out/Trip");
+    let inside = [
+        make_file(&root, "a.jpg", 200_000),
+        make_file(&root.join("day 2"), "b.jpg", 50_000),
+        make_file(&root.join("day 2/raw"), "c.raw", 0),
+    ];
+    let loose = make_file(&a.dir.join("out"), "notes.txt", 10);
+    let mut out = folder_to_send(&root);
+    out.push(Outgoing {
+        path: loose.clone(),
+        name: "notes.txt".into(),
+        folder: None,
+    });
+    let id = a.engine.send_files(&b.id(), &out).unwrap();
+    let req = b.wait_request().await;
+    let folders: Vec<Option<&str>> = req.files.iter().map(|f| f.folder.as_deref()).collect();
+    assert_eq!(folders, [Some("Trip"), Some("Trip/day 2"), Some("Trip/day 2/raw"), None]);
+    b.engine.accept(&req.id, false, false);
+    b.wait_transfer("folder received", |t| t.id == id && t.status == TransferStatus::Done).await;
+    same_bytes(&inside[0], &b.save().join("Trip/a.jpg"));
+    same_bytes(&inside[1], &b.save().join("Trip/day 2/b.jpg"));
+    same_bytes(&inside[2], &b.save().join("Trip/day 2/raw/c.raw"));
+    same_bytes(&loose, &b.save().join("notes.txt"));
+    no_part_files(&b.save().join("Trip"));
+    no_part_files(&b.save().join("Trip/day 2"));
+    assert_eq!(b.engine.saved_files(&id).len(), 4);
+
+    // The same folder again: it gets a folder of its own, and nothing mixes with the first.
+    std::fs::write(b.save().join("Trip/mine.txt"), b"mine").unwrap();
+    let id2 = a.engine.send_files(&b.id(), &out[..3]).unwrap();
+    let req = b.wait_request().await;
+    b.engine.accept(&req.id, false, false);
+    b.wait_transfer("second folder", |t| t.id == id2 && t.status == TransferStatus::Done).await;
+    same_bytes(&inside[1], &b.save().join("Trip (1)/day 2/b.jpg"));
+    assert!(!b.save().join("Trip (1)/mine.txt").exists());
+    assert!(b.save().join("Trip/mine.txt").exists());
+
+    // Cancelled part way: the folder made for it goes too.
+    let slow = Node::new(&mem, "Slow laptop", Some(2_000_000)).await;
+    let big = slow.dir.join("out/Big");
+    make_file(&big.join("inner"), "huge.bin", 8_000_000);
+    make_file(&big.join("inner"), "z-after.bin", 1000);
+    let id3 = slow.engine.send_files(&b.id(), &folder_to_send(&big)).unwrap();
+    let req = b.wait_request().await;
+    b.engine.accept(&req.id, false, false);
+    b.wait_transfer("bytes moving", |t| t.id == id3 && t.done_bytes > 300_000).await;
+    assert!(b.save().join("Big/inner").exists());
+    b.engine.cancel(&id3);
+    b.wait_transfer("cancelled", |t| t.id == id3 && t.status == TransferStatus::Cancelled).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let left: Vec<_> = walk(&b.save().join("Big"));
+    assert!(!b.save().join("Big").exists(), "the cancelled folder was cleared away: {left:?}");
+
+    a.stop().await;
+    b.stop().await;
+    slow.stop().await;
+}
+
+/// Text travels in the request: the card can show it, and nothing is written to disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn text_comes_in_the_request_and_never_touches_the_disk() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "Laptop", None).await;
+    let mut b = Node::new(&mem, "Phone", None).await;
+    let id = a.engine.send_text(&b.id(), "Meet at 6\r\nhttps://example.com/x\u{202E}").unwrap();
+    let req = b.wait_request().await;
+    assert_eq!(req.text.as_deref(), Some("Meet at 6\nhttps://example.com/x"));
+    assert_eq!(req.files.len(), 1, "older builds get it as a file");
+    b.engine.accept(&req.id, false, false);
+    let got = b.wait_transfer("text received", |t| t.id == id && t.status == TransferStatus::Done).await;
+    assert_eq!(got.text.as_deref(), Some("Meet at 6\nhttps://example.com/x"));
+    assert_eq!(got.done_bytes, got.total_bytes);
+    let sent = a.wait_transfer("text sent", |t| t.id == id && t.status == TransferStatus::Done).await;
+    assert!(sent.text.is_some());
+    let saved: Vec<_> = std::fs::read_dir(b.save()).map(|d| d.flatten().collect()).unwrap_or_default();
+    assert!(saved.is_empty(), "nothing saved: {saved:?}");
+    assert!(b.engine.saved_files(&id).is_empty());
+    assert_eq!(b.engine.history()[0].text.as_deref(), Some("Meet at 6\nhttps://example.com/x"));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let left: Vec<_> = std::fs::read_dir(a.dir.join("config/outgoing"))
+        .map(|d| d.flatten().collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "the sender's copy is gone: {left:?}");
+
+    assert!(matches!(a.engine.send_text(&b.id(), "   "), Err(EngineError::NoFiles)));
+    let long = "x".repeat(engine_limits::TEXT_MAX + 1);
+    assert!(matches!(a.engine.send_text(&b.id(), &long), Err(EngineError::TextTooLong)));
+    a.stop().await;
+    b.stop().await;
+}
+
+/// Trust this device, from Nearby: both screens show the same check, and nothing changes until
+/// the other device agrees.
+#[tokio::test(flavor = "multi_thread")]
+async fn trust_from_nearby_needs_both_to_agree() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "Laptop", None).await;
+    let mut b = Node::new(&mem, "Phone", None).await;
+    // They meet: a sends something, so each has seen the other on the network.
+    let id = a.engine.send_text(&b.id(), "hi").unwrap();
+    let req = b.wait_request().await;
+    b.engine.accept(&req.id, false, false);
+    a.wait_transfer("met", |t| t.id == id && t.status == TransferStatus::Done).await;
+
+    a.engine.ask_trust(&b.id()).unwrap();
+    let asked = b
+        .wait("the ask", |e| match e {
+            EngineEvent::TrustAsk { request } => Some(request.clone()),
+            _ => None,
+        })
+        .await;
+    let check = a
+        .wait("the check", |e| match e {
+            EngineEvent::TrustWaiting { check, .. } => Some(check.clone()),
+            _ => None,
+        })
+        .await;
+    assert_eq!(asked.check, check, "both screens show the same");
+    assert_eq!(asked.device_id, a.id());
+    assert_eq!(b.engine.snapshot().trust_asks.len(), 1);
+    b.engine.answer_trust(&a.id(), true);
+    let paired = |want: String| {
+        move |e: &EngineEvent| match e {
+            EngineEvent::Paired { device, via, check } if device.id == want => Some((*via, check.clone(), device.trusted)),
+            _ => None,
+        }
+    };
+    let (via, c, trusted) = a.wait("paired on the asker", paired(b.id())).await;
+    assert_eq!((via, c.as_str(), trusted), (PairVia::Nearby, check.as_str(), true));
+    let (via, c, trusted) = b.wait("paired on the asked", paired(a.id())).await;
+    assert_eq!((via, c.as_str(), trusted), (PairVia::Nearby, check.as_str(), true));
+    assert!(b.engine.snapshot().trust_asks.is_empty());
+
+    // Saying no changes nothing.
+    a.engine.set_trusted(&b.id(), false);
+    b.engine.set_trusted(&a.id(), false);
+    a.engine.ask_trust(&b.id()).unwrap();
+    b.wait("second ask", |e| matches!(e, EngineEvent::TrustAsk { .. }).then_some(())).await;
+    b.engine.answer_trust(&a.id(), false);
+    let outcome = a
+        .wait("told no", |e| match e {
+            EngineEvent::TrustEnded { outcome, .. } => Some(*outcome),
+            _ => None,
+        })
+        .await;
+    assert_eq!(outcome, TrustOutcome::Declined);
+    assert!(!b.engine.devices().iter().any(|d| d.id == a.id() && d.trusted));
+    assert!(!a.engine.devices().iter().any(|d| d.id == b.id() && d.trusted));
+
+    // Cancelled on the asker: the ask goes away on the other device too.
+    a.engine.ask_trust(&b.id()).unwrap();
+    b.wait("third ask", |e| matches!(e, EngineEvent::TrustAsk { .. }).then_some(())).await;
+    a.engine.cancel_trust(&b.id());
+    let outcome = b
+        .wait("withdrawn", |e| match e {
+            EngineEvent::TrustEnded { outcome, .. } => Some(*outcome),
+            _ => None,
+        })
+        .await;
+    assert_eq!(outcome, TrustOutcome::Withdrawn);
+    assert!(b.engine.trust_asks().is_empty());
+
+    // Only a device that's here can be asked.
+    let stranger = device_id(&iroh_base_id());
+    assert!(a.engine.ask_trust(&stranger).is_err());
+    a.stop().await;
+    b.stop().await;
+}
+
+fn iroh_base_id() -> iroh::EndpointId {
+    iroh::SecretKey::from_bytes(&[3; 32]).public()
+}
+
+/// A request of many files: part files are made one at a time as each file starts, and the app
+/// gets small progress updates instead of the whole file list every time a file finishes.
+#[tokio::test(flavor = "multi_thread")]
+async fn many_files_arrive_without_flooding_the_folder_or_the_app() {
+    let mem = MemoryLookup::new();
+    let a = Node::new(&mem, "A", Some(4_000_000)).await;
+    let mut b = Node::new(&mem, "B", None).await;
+    let src = a.dir.join("out");
+    let mut paths = vec![make_file(&src, "first.mov", 3_000_000)];
+    paths.extend((0..59).map(|i| make_file(&src, &format!("IMG_{i:03}.jpg"), 20_000)));
+    let mut app = b.engine.subscribe();
+    let id = a.engine.send(&b.id(), &paths).unwrap();
+    let req = b.wait_incoming().await;
+    b.engine.accept(&req, false, false);
+    b.wait_transfer("first file moving", |t| t.id == id && t.done_bytes > 300_000).await;
+    let parts = std::fs::read_dir(b.save())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".nhakopart"))
+        .count();
+    assert_eq!(parts, 1, "only the file that's moving has a part file");
+
+    b.wait_transfer("done", |t| t.id == id && t.status == TransferStatus::Done).await;
+    for p in &paths {
+        same_bytes(p, &b.save().join(p.file_name().unwrap()));
+    }
+    no_part_files(&b.save());
+    let (mut full, mut progress) = (0, 0);
+    while let Ok(e) = app.try_recv() {
+        match e {
+            EngineEvent::Transfer { transfer } if transfer.id == id => full += 1,
+            EngineEvent::TransferProgress { id: moved, file_bytes, .. } if moved == id => {
+                progress += 1;
+                assert!(file_bytes.len() < 30, "progress lists only files that moved, got {}", file_bytes.len());
+            }
+            _ => {}
+        }
+    }
+    assert!(progress > 0, "progress updates were sent");
+    assert!(full <= 6, "the whole transfer was sent {full} times, once per file or worse");
+    a.stop().await;
+    b.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn reconnects_after_a_drop_and_keeps_progress() {
     let mem = MemoryLookup::new();
@@ -399,12 +705,18 @@ async fn code_pairing_then_trusted_auto_accept() {
     let mut b = Node::new(&mem, "Work phone", None).await;
 
     let code = a.engine.create_code();
+    assert_eq!(code.words.len(), 4);
     assert_eq!(code.uri, format!("nhakobeam://pair/{}", code.words.join("-")));
     a.wait("code shown", |e| matches!(e, EngineEvent::Code { code: Some(_) }).then_some(())).await;
 
     // Typos are caught before any network work.
-    let r = b.engine.redeem_code(&[code.words[0].clone(), "notaword".into(), code.words[2].clone()]).await;
+    let mut typo = code.words.clone();
+    typo[1] = "notaword".into();
+    let r = b.engine.redeem_code(&typo).await;
     assert_eq!(r, RedeemResult::Err(RedeemFailure::UnknownWord { index: 1 }));
+    // Three words (a code from an older build) never match.
+    let r = b.engine.redeem_code(&code.words[..3]).await;
+    assert_eq!(r, RedeemResult::Err(RedeemFailure::NoMatch));
 
     let r = b.engine.redeem_code(&code.words).await;
     let RedeemResult::Ok(dev) = r else { panic!("redeem failed: {r:?}") };
@@ -450,6 +762,62 @@ async fn code_pairing_then_trusted_auto_accept() {
     b.stop().await;
 }
 
+/// Who can send to me: by default only trusted devices and ones connected with a code. Others
+/// are refused straight away and told why; with Everyone nearby, each may ask once at a time.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_your_devices_can_send_by_default() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "Stranger's phone", None).await;
+    let mut b = Node::new(&mem, "Kim's laptop", None).await;
+    b.engine.set_who_can_send(WhoCanSend::YourDevices).unwrap();
+    let f = make_file(&a.dir.join("out"), "hello.txt", 2000);
+
+    // A device B has never paired with is turned away, and A shows why.
+    let id = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let t = a.wait_transfer("refused", |t| t.id == id && t.status.is_final()).await;
+    assert_eq!((t.status, t.error), (TransferStatus::Declined, Some(TransferError::NotAllowed)));
+    assert!(b.engine.requests().is_empty(), "no request card for a refused device");
+
+    // Everyone nearby: A may ask, but only once at a time.
+    b.engine.set_who_can_send(WhoCanSend::EveryoneNearby).unwrap();
+    let first = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let req = b.wait_incoming().await;
+    assert_eq!(req, first);
+    let second = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let t = a.wait_transfer("second refused", |t| t.id == second && t.status.is_final()).await;
+    assert_eq!((t.status, t.error), (TransferStatus::Declined, None));
+    assert_eq!(b.engine.requests().len(), 1, "the second ask didn't add a card");
+    b.engine.decline(&req);
+    a.wait_transfer("first declined", |t| t.id == first && t.status == TransferStatus::Declined)
+        .await;
+
+    // Three asks a minute, refused ones included: the third shows, the fourth doesn't.
+    let third = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let req = b.wait_incoming().await;
+    assert_eq!(req, third);
+    b.engine.decline(&req);
+    a.wait_transfer("third declined", |t| t.id == third && t.status == TransferStatus::Declined)
+        .await;
+    let fourth = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let t = a.wait_transfer("fourth refused", |t| t.id == fourth && t.status.is_final()).await;
+    assert_eq!((t.status, t.error), (TransferStatus::Declined, None));
+    assert!(b.engine.requests().is_empty());
+
+    // Back to Your devices: after pairing with a code, A can send.
+    b.engine.set_who_can_send(WhoCanSend::YourDevices).unwrap();
+    let code = b.engine.create_code();
+    assert!(matches!(a.engine.redeem_code(&code.words).await, RedeemResult::Ok(_)));
+    let ok = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let req = b.wait_incoming().await;
+    assert_eq!(req, ok);
+    b.engine.accept(&req, false, false);
+    b.wait_transfer("done", |t| t.id == ok && t.status == TransferStatus::Done).await;
+    same_bytes(&f, &b.save().join("hello.txt"));
+
+    a.stop().await;
+    b.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn wrong_code_finds_nothing() {
     let mem = MemoryLookup::new();
@@ -480,6 +848,7 @@ async fn trusted_state_survives_restart() {
     let mut cfg = EngineConfig::new(cfg_dir.join("config"));
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;
+    cfg.beacon = None;
     cfg.memory_lookup = Some(mem.clone());
     let b2 = Engine::start(cfg).await.unwrap();
     assert_eq!(device_id(&b2.id()), b_id, "same identity after restart");
@@ -573,6 +942,7 @@ async fn history_lists_finished_transfers_and_survives_restart() {
     let mut cfg = EngineConfig::new(&cfg_dir);
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;
+    cfg.beacon = None;
     cfg.memory_lookup = Some(mem.clone());
     let b2 = Engine::start(cfg).await.unwrap();
     assert_eq!(b2.history().len(), 1);
@@ -596,32 +966,246 @@ async fn lan_discovery_setting_is_saved() {
     let mut cfg = EngineConfig::new(&cfg_dir);
     cfg.network = Some(Network::LocalOnly);
     cfg.memory_lookup = Some(mem.clone());
-    // mDNS allowed for this run, but the setting turns it off: nothing is announced or looked for.
+    // mDNS and the beacon allowed for this run, but the setting turns them off: nothing is
+    // announced or looked for.
     cfg.mdns = true;
     let a2 = Engine::start(cfg).await.unwrap();
     assert!(!a2.lan_discovery());
     assert_ne!(a2.snapshot().discovery, nhako_core::DiscoveryState::Blocked, "off by choice isn't blocked");
+    let diag = a2.diagnostics("test");
+    assert!(diag.contains("mDNS: off") && diag.contains("Beacon: off"), "{diag}");
     a2.stop().await;
     let _ = std::fs::remove_dir_all(&a.dir);
 }
 
-/// Throughput on localhost, for comparing build settings (Phase 8: smaller APK without losing speed).
-/// `cargo test --release -p nhako-core --test engine throughput -- --ignored --nocapture`
+/// Phase 10: two devices find each other through the beacon alone, with no mDNS and no shared
+/// address table, the way a Windows PC finds a phone while Windows keeps the mDNS port to itself.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "benchmark: run by hand"]
-async fn throughput() {
+async fn beacon_alone_finds_nearby_devices() {
+    let free_port = || std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let (pa, pb) = (free_port(), free_port());
     let mem = MemoryLookup::new();
-    let a = Node::new(&mem, "A", None).await;
-    let mut b = Node::new(&mem, "B", None).await;
-    let size = 512 * 1024 * 1024;
-    let f = make_file(&a.dir.join("out"), "big.bin", size);
-    let start = std::time::Instant::now();
-    let id = a.engine.send(&b.id(), &[f]).unwrap();
+    let beacon = |listen: u16, to: u16| {
+        move |cfg: &mut EngineConfig| {
+            cfg.memory_lookup = None;
+            cfg.beacon = Some(nhako_core::beacon::Config {
+                port: listen,
+                send_to: Some(vec![std::net::SocketAddr::from(([127, 0, 0, 1], to))]),
+            });
+        }
+    };
+    let mut a = Node::with(&mem, "A", None, beacon(pa, pb)).await;
+    let mut b = Node::with(&mem, "B", None, beacon(pb, pa)).await;
+    let (a_id, b_id) = (a.id(), b.id());
+    let nearby = |id: String| {
+        move |e: &EngineEvent| match e {
+            EngineEvent::Device { device } if device.id == id && device.reachable && device.route == Some(nhako_core::Route::Nearby) => Some(()),
+            _ => None,
+        }
+    };
+    a.wait("B found by the beacon", nearby(b_id.clone())).await;
+    b.wait("A found by the beacon", nearby(a_id.clone())).await;
+
+    // And the address it gave works for a transfer.
+    let f = make_file(&a.dir.join("out"), "notes.txt", 200_000);
+    let id = a.engine.send(&b_id, std::slice::from_ref(&f)).unwrap();
     let req = b.wait_incoming().await;
     b.engine.accept(&req, false, false);
     b.wait_transfer("done", |t| t.id == id && t.status == TransferStatus::Done).await;
-    let secs = start.elapsed().as_secs_f64();
-    println!("THROUGHPUT {:.0} MB/s ({size} bytes in {secs:.2} s)", size as f64 / secs / 1e6);
+    same_bytes(&f, &b.save().join("notes.txt"));
+
+    let diag = a.engine.diagnostics("test");
+    assert!(diag.contains(&format!("Beacon: listening on UDP {pa}")), "{diag}");
+    assert!(!diag.contains("Heard: 0 "), "{diag}");
+    a.stop().await;
+    b.stop().await;
+}
+
+// ---------------------------------------------------------------- benchmarks
+//
+// Run by hand, in release, one at a time (`scripts/bench.sh` runs them all):
+// `cargo test --release -p nhako-core --test engine bench_ -- --ignored --nocapture --test-threads=1`
+// Each prints BENCH lines. Both engines run in this process on localhost, so the CPU time is the
+// two together, and "UI events" is what the receiving app would have to read (as JSON).
+
+/// Wall time, CPU time, and the events the receiving app gets.
+struct Meter {
+    start: std::time::Instant,
+    cpu: f64,
+    events: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    json: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+/// CPU seconds this process has used so far.
+fn cpu_secs() -> f64 {
+    // SAFETY: getrusage only writes into the struct it's given.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    let t = |v: libc::timeval| v.tv_sec as f64 + v.tv_usec as f64 / 1e6;
+    t(u.ru_utime) + t(u.ru_stime)
+}
+
+impl Meter {
+    fn start(receiver: &Engine) -> Self {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        let (events, json) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let mut rx = receiver.subscribe();
+        let (n, b) = (events.clone(), json.clone());
+        let task = tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(e) => {
+                        n.fetch_add(1, Ordering::Relaxed);
+                        b.fetch_add(serde_json::to_vec(&e).unwrap().len() as u64, Ordering::Relaxed);
+                    }
+                    Err(broadcast::error::RecvError::Lagged(k)) => {
+                        n.fetch_add(k, Ordering::Relaxed);
+                    }
+                    Err(_) => return,
+                }
+            }
+        });
+        Self {
+            start: std::time::Instant::now(),
+            cpu: cpu_secs(),
+            events,
+            json,
+            task,
+        }
+    }
+
+    fn report(self, name: &str, files: usize, bytes: u64, extra: &str) {
+        use std::sync::atomic::Ordering;
+        let secs = self.start.elapsed().as_secs_f64();
+        let cpu = cpu_secs() - self.cpu;
+        self.task.abort();
+        let (n, json) = (self.events.load(Ordering::Relaxed), self.json.load(Ordering::Relaxed));
+        println!(
+            "BENCH {name}: {files} files, {:.0} MB in {secs:.2} s = {:.0} MB/s, {:.0} files/s, CPU {cpu:.2} s, UI events {n} ({:.1} MB JSON){extra}",
+            bytes as f64 / 1e6,
+            bytes as f64 / secs / 1e6,
+            files as f64 / secs,
+            json as f64 / 1e6
+        );
+    }
+}
+
+/// How many files a benchmark sends: `default`, or `NHAKO_BENCH_FILES` when set.
+fn bench_files(default: usize) -> usize {
+    std::env::var("NHAKO_BENCH_FILES").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Sends `paths` from A to B, accepted, and waits until both sides are done. Returns when B's
+/// transfer first showed (how long accepting took) and the transfer id.
+async fn send_and_wait(a: &mut Node, b: &mut Node, paths: &[PathBuf]) -> (Duration, String) {
+    (a.patience, b.patience) = (Duration::from_secs(900), Duration::from_secs(900));
+    let id = a.engine.send(&b.id(), paths).unwrap();
+    let req = b.wait_incoming().await;
+    let accepted = std::time::Instant::now();
+    b.engine.accept(&req, false, false);
+    b.wait_transfer("receiving", |t| t.id == id).await;
+    let to_start = accepted.elapsed();
+    b.wait_transfer("done", |t| t.id == id && t.status == TransferStatus::Done).await;
+    a.wait_transfer("done", |t| t.id == id && t.status == TransferStatus::Done).await;
+    (to_start, id)
+}
+
+/// One big file: raw speed (Phase 8 measured 345 to 365 MB/s here).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "benchmark: run by hand"]
+async fn bench_one_big_file() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "A", None).await;
+    let mut b = Node::new(&mem, "B", None).await;
+    let size = 512 * 1024 * 1024;
+    let f = make_file(&a.dir.join("out"), "big.bin", size);
+    let m = Meter::start(&b.engine);
+    send_and_wait(&mut a, &mut b, &[f]).await;
+    m.report("one big file", 1, size as u64, "");
+    a.stop().await;
+    b.stop().await;
+}
+
+/// A folder of photos: 5,000 files of 200 KB.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "benchmark: run by hand"]
+async fn bench_many_small_files() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "A", None).await;
+    let mut b = Node::new(&mem, "B", None).await;
+    let (count, size) = (bench_files(5_000), 200 * 1024);
+    let src = a.dir.join("out");
+    let paths: Vec<PathBuf> = (0..count).map(|i| make_file(&src, &format!("IMG_{i:05}.jpg"), size)).collect();
+    let m = Meter::start(&b.engine);
+    let (to_start, _) = send_and_wait(&mut a, &mut b, &paths).await;
+    m.report(
+        "many small files",
+        count,
+        (count * size) as u64,
+        &format!(", accept to start {:.2} s", to_start.as_secs_f64()),
+    );
+    a.stop().await;
+    b.stop().await;
+}
+
+/// A huge offer of tiny files: how long accepting takes before anything moves.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "benchmark: run by hand"]
+async fn bench_big_offer() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "A", None).await;
+    let mut b = Node::new(&mem, "B", None).await;
+    let (count, size) = (bench_files(20_000), 100);
+    let src = a.dir.join("out");
+    let paths: Vec<PathBuf> = (0..count).map(|i| make_file(&src, &format!("note-{i:05}.txt"), size)).collect();
+    let m = Meter::start(&b.engine);
+    let (to_start, _) = send_and_wait(&mut a, &mut b, &paths).await;
+    m.report(
+        "big offer",
+        count,
+        (count * size) as u64,
+        &format!(", accept to start {:.2} s", to_start.as_secs_f64()),
+    );
+    a.stop().await;
+    b.stop().await;
+}
+
+/// The connection drops at 80% of a 1 GB file. Measures how long the rest takes against how long
+/// moving it should take, which shows the time spent re-reading what both sides already had.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "benchmark: run by hand"]
+async fn bench_resume_after_drop() {
+    let mem = MemoryLookup::new();
+    let a = Node::new(&mem, "A", None).await;
+    let mut b = Node::new(&mem, "B", None).await;
+    let size = 1024 * 1024 * 1024;
+    let f = make_file(&a.dir.join("out"), "big.bin", size);
+    let started = std::time::Instant::now();
+    let id = a.engine.send(&b.id(), &[f]).unwrap();
+    let req = b.wait_incoming().await;
+    b.engine.accept(&req, false, false);
+    let at = b.wait_transfer("80%", |t| t.id == id && t.done_bytes >= size as u64 * 8 / 10).await.done_bytes;
+    let speed = at as f64 / started.elapsed().as_secs_f64();
+    let m = Meter::start(&b.engine);
+    b.engine.test_drop_connection(&id);
+    b.wait_transfer("done", |t| t.id == id && t.status == TransferStatus::Done).await;
+    let rest = size as u64 - at;
+    let should = rest as f64 / speed;
+    let took = m.start.elapsed().as_secs_f64();
+    m.report(
+        "resume after drop",
+        1,
+        rest,
+        &format!(
+            ", dropped at {:.0}%, the rest at full speed would take {should:.2} s, extra {:.2} s",
+            at as f64 * 100.0 / size as f64,
+            took - should
+        ),
+    );
     a.stop().await;
     b.stop().await;
 }
@@ -723,6 +1307,7 @@ async fn wakes_a_sleeping_phone_to_receive() {
     cfg.save_dir = Some(phone_dir.join("save"));
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;
+    cfg.beacon = None;
     cfg.kdf = KdfCost::TEST;
     cfg.memory_lookup = Some(mem.clone());
     cfg.wake_url = None;

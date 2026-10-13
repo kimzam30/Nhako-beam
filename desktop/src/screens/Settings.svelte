@@ -5,12 +5,15 @@
   import { t } from '../lib/copy';
   import { springIn, quickOut, springFlip, stagger } from '../lib/motion/transitions';
   import DeviceOrb from '../components/DeviceOrb.svelte';
+  import Button from '../components/Button.svelte';
   import Icon from '../components/Icon.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Segmented from '../components/Segmented.svelte';
   import Toggle from '../components/Toggle.svelte';
   import ConnectionSettings from '../components/ConnectionSettings.svelte';
+  import type { WhoCanSend } from '../lib/engine/types';
 
+  const nearbyUntrusted = $derived(app.devices.filter((d) => !d.trusted && d.reachable && d.route === 'nearby'));
   const trusted = $derived(app.devices.filter((d) => d.trusted));
 
   // Desktop app only: start at login and staying in the tray.
@@ -33,6 +36,13 @@
     }
   }
 
+  let diagnosticsCopied = $state(false);
+  async function copyDiagnostics() {
+    if (!(await app.copyDiagnostics())) return;
+    diagnosticsCopied = true;
+    setTimeout(() => (diagnosticsCopied = false), 1600);
+  }
+
   function back() {
     app.navigate('home');
   }
@@ -52,7 +62,7 @@
       <div class="card">
         <label class="field">
           <span>{t('settings.device.name')}</span>
-          <input bind:value={app.selfName} maxlength="32" onchange={() => (app.persist(), app.engine.renameSelf(app.selfName))} data-testid="settings-name" />
+          <span class="charge name"><input bind:value={app.selfName} maxlength="32" onchange={() => (app.persist(), app.engine.renameSelf(app.selfName))} data-testid="settings-name" /></span>
         </label>
         <div class="sep"></div>
         <div class="field">
@@ -67,6 +77,30 @@
     </section>
 
     <section class="group" in:springIn={{ delay: stagger(1) }}>
+      <h2>{t('settings.section.receiving')}</h2>
+      <div class="card stack">
+        <div class="field col">
+          <span>{t('settings.receive.who')}</span>
+          <Segmented
+            label={t('settings.receive.who')}
+            testid="who-can-send"
+            value={app.whoCanSend}
+            onchange={(who) => void app.setWhoCanSend(who)}
+            options={[
+              { value: 'yourDevices' as WhoCanSend, label: t('settings.receive.who.yours'), icon: 'shield-check' },
+              { value: 'everyoneNearby' as WhoCanSend, label: t('settings.receive.who.everyone'), icon: 'broadcast' },
+            ]}
+          />
+          {#key app.whoCanSend}
+            <span class="hint" data-testid="who-can-send-hint" in:springIn={{ preset: 'snappy', y: -4, scale: 1 }}>
+              {t(app.whoCanSend === 'yourDevices' ? 'settings.receive.who.yours.hint' : 'settings.receive.who.everyone.hint')}
+            </span>
+          {/key}
+        </div>
+      </div>
+    </section>
+
+    <section class="group" in:springIn={{ delay: stagger(2) }}>
       <h2>{t('settings.trusted.title')}</h2>
       <div class="card">
         {#each trusted as d, i (d.id)}
@@ -86,9 +120,28 @@
           <p class="muted empty">{t('settings.trusted.empty')}</p>
         {/each}
       </div>
+      {#if nearbyUntrusted.length}
+        <!-- Devices here right now that aren't yours yet: trusting one asks the other to agree. -->
+        <h3 class="sub-h" in:springIn={{ y: 6 }}>{t('settings.trusted.nearby')}</h3>
+        <div class="card">
+          {#each nearbyUntrusted as d, i (d.id)}
+            <div class="device" animate:springFlip in:springIn={{ delay: stagger(i), y: 8 }} out:quickOut={{ x: -24, y: 0 }} data-testid="nearby-{d.id}">
+              {#if i > 0}<div class="sep"></div>{/if}
+              <div class="device-row">
+                <DeviceOrb device={d} size={40} showName={false} />
+                <div class="device-text">
+                  <strong>{d.name}</strong>
+                  <span class="muted tabular">{d.fingerprint}</span>
+                </div>
+                <Button variant="secondary" size="sm" icon="handshake" testid="settings-trust-{d.id}" onclick={() => app.askTrust(d.id)}>{t('send.choose.trust')}</Button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </section>
 
-    <section class="group" in:springIn={{ delay: stagger(2) }}>
+    <section class="group" in:springIn={{ delay: stagger(3) }}>
       <h2>{t('settings.section.connection')}</h2>
       <div class="card lan">
         <Toggle
@@ -107,7 +160,7 @@
     </section>
 
     {#if app.native}
-      <section class="group" in:springIn={{ delay: stagger(3) }} data-testid="settings-desktop">
+      <section class="group" in:springIn={{ delay: stagger(4) }} data-testid="settings-desktop">
         <h2>{t('settings.section.desktop')}</h2>
         <div class="card">
           <Toggle
@@ -139,7 +192,7 @@
       </section>
     {/if}
 
-    <section class="group" in:springIn={{ delay: stagger(4) }}>
+    <section class="group" in:springIn={{ delay: stagger(5) }}>
       <h2>{t('settings.section.appearance')}</h2>
       <div class="card stack">
         <div class="field col">
@@ -189,7 +242,7 @@
       </div>
     </section>
 
-    <section class="group" in:springIn={{ delay: stagger(5) }}>
+    <section class="group" in:springIn={{ delay: stagger(6) }}>
       <h2>{t('settings.about.title')}</h2>
       <div class="card">
         <div class="field"><span>{t('settings.about.version', { version: app.version || '0.1.0' })}</span></div>
@@ -201,6 +254,14 @@
         <button class="field link" onclick={() => app.navigate('licenses')} data-testid="open-licenses">
           <span>{t('settings.about.licenses')}</span>
           <Icon name="caret-right" size={16} />
+        </button>
+        <div class="sep"></div>
+        <button class="field link" onclick={copyDiagnostics} data-testid="copy-diagnostics">
+          <span class="two-line">
+            <span>{t('settings.about.diagnostics')}</span>
+            <span class="hint">{t('settings.about.diagnostics.hint')}</span>
+          </span>
+          <Icon name={diagnosticsCopied ? 'check' : 'copy'} size={18} weight="duotone" />
         </button>
       </div>
     </section>
@@ -228,6 +289,12 @@
   .sections {
     display: grid;
     gap: var(--space-7);
+  }
+  .sub-h {
+    margin: var(--space-5) 0 var(--space-3) var(--space-2);
+    font-size: var(--type-footnote-size);
+    font-weight: 600;
+    color: var(--color-text-secondary);
   }
   .group h2 {
     margin: 0 0 var(--space-3) var(--space-2);
@@ -272,6 +339,11 @@
     display: grid;
     gap: var(--space-3);
     min-height: 0;
+  }
+  .field .name {
+    flex: 1;
+    min-width: 0;
+    max-width: 260px;
   }
   .field input {
     flex: 1;
@@ -326,5 +398,10 @@
   .hint {
     font-size: var(--type-footnote-size);
     color: var(--color-text-secondary);
+  }
+  .two-line {
+    display: grid;
+    gap: var(--space-1);
+    padding-block: var(--space-3);
   }
 </style>

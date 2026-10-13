@@ -26,6 +26,9 @@ use crate::{
 };
 
 const CHUNK: usize = 256 * 1024;
+/// Received files being written to disk for good (fsync) while the next ones arrive. That takes
+/// milliseconds per file, which made a folder of photos 3 to 4 times slower when done one by one.
+const FINISHING_AT_ONCE: usize = 8;
 const TICK: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
@@ -37,10 +40,35 @@ pub(crate) enum End {
 }
 
 /// A BLAKE3 hasher part way through a file, kept across pauses in one session.
-struct HashCache {
+pub(crate) struct HashCache {
     file: u32,
     pos: u64,
     hasher: blake3::Hasher,
+}
+
+/// Hasher states saved every [`MARK_EVERY`] bytes of the file being moved. They're kept in the
+/// transfer, across sessions, so resuming after a dropped connection re-reads at most that much
+/// of the file instead of everything so far (minutes for a big file on a phone).
+pub(crate) type Marks = Arc<std::sync::Mutex<Vec<HashCache>>>;
+const MARK_EVERY: u64 = 16 * 1024 * 1024;
+/// The sender's newest marks can be ahead of what the receiver got, so a few are kept.
+const MARKS_KEPT: usize = 8;
+
+/// Saves a mark when `pos` crosses a [`MARK_EVERY`] boundary (from `before`).
+fn mark(marks: &Marks, file: u32, before: u64, pos: u64, hasher: &blake3::Hasher) {
+    if before / MARK_EVERY == pos / MARK_EVERY {
+        return;
+    }
+    let mut m = marks.lock().expect("marks lock");
+    m.retain(|c| c.file == file);
+    if m.len() >= MARKS_KEPT {
+        m.remove(0);
+    }
+    m.push(HashCache {
+        file,
+        pos,
+        hasher: hasher.clone(),
+    });
 }
 
 fn failed_reason(err: TransferError) -> &'static [u8] {
@@ -99,7 +127,8 @@ struct Pump {
 fn start_pump(e: &Engine, conn: &Connection, id: TransferId, files: &[SrcFile], start: &[FileState], cache: Option<HashCache>) -> Pump {
     let (stop, stop_rx) = watch::channel(false);
     let rate = e.inner.cfg.test_rate_limit;
-    let handle = tokio::spawn(pump(conn.clone(), id, files.to_vec(), start.to_vec(), cache, stop_rx, rate));
+    let marks = e.with_tx(&id, |tx| tx.marks.clone()).unwrap_or_default();
+    let handle = tokio::spawn(pump(conn.clone(), id, files.to_vec(), start.to_vec(), cache, marks, stop_rx, rate));
     Pump { handle, stop }
 }
 
@@ -130,10 +159,18 @@ fn unchanged(f: &SrcFile) -> bool {
         .is_ok_and(|m| m.len() == f.size && m.modified().ok() == f.modified)
 }
 
-async fn hash_prefix(file: &mut tokio::fs::File, len: u64, buf: &mut [u8]) -> std::io::Result<blake3::Hasher> {
-    let mut hasher = blake3::Hasher::new();
-    file.seek(SeekFrom::Start(0)).await?;
-    let mut left = len;
+/// A hasher that has seen the first `len` bytes of file `index`: it starts from the nearest mark
+/// at or before `len` (or the start) and reads only what comes after it.
+async fn hash_prefix(file: &mut tokio::fs::File, index: u32, len: u64, marks: &Marks, buf: &mut [u8]) -> std::io::Result<blake3::Hasher> {
+    let (mut hasher, from) = marks
+        .lock()
+        .expect("marks lock")
+        .iter()
+        .filter(|c| c.file == index && c.pos <= len)
+        .max_by_key(|c| c.pos)
+        .map_or_else(|| (blake3::Hasher::new(), 0), |c| (c.hasher.clone(), c.pos));
+    file.seek(SeekFrom::Start(from)).await?;
+    let mut left = len - from;
     while left > 0 {
         let want = left.min(buf.len() as u64) as usize;
         let n = file.read(&mut buf[..want]).await?;
@@ -147,12 +184,14 @@ async fn hash_prefix(file: &mut tokio::fs::File, len: u64, buf: &mut [u8]) -> st
 }
 
 /// Streams every file that still needs it, one after another.
+#[allow(clippy::too_many_arguments)]
 async fn pump(
     conn: Connection,
     id: TransferId,
     files: Vec<SrcFile>,
     start: Vec<FileState>,
     mut cache: Option<HashCache>,
+    marks: Marks,
     stop: watch::Receiver<bool>,
     rate: Option<u64>,
 ) -> (PumpEnd, Option<HashCache>) {
@@ -171,7 +210,7 @@ async fn pump(
         };
         let mut hasher = match cache.take().filter(|c| c.file == i && c.pos == off) {
             Some(c) => c.hasher,
-            None => match hash_prefix(&mut file, off, &mut buf).await {
+            None => match hash_prefix(&mut file, i, off, &marks, &mut buf).await {
                 Ok(h) => h,
                 Err(_) => return (PumpEnd::FileChanged, None),
             },
@@ -206,6 +245,7 @@ async fn pump(
                 Ok(n) => n,
             };
             hasher.update(&buf[..n]);
+            mark(&marks, i, pos, pos + n as u64, &hasher);
             match s.write_all(&buf[..n]).await {
                 Ok(()) => {}
                 // The receiver stopped reading (it paused or ran out of space).
@@ -258,6 +298,14 @@ pub(crate) async fn run_sender(
         .collect();
     e.with_tx(&id, |tx| tx.set_have(&have));
     e.emit_tx(&id, true);
+    if verified.iter().all(|v| *v) {
+        // Nothing left to send: text the receiver took from the request, or a resume that found
+        // every file already checked.
+        let _ = wire::write_frame(&mut ctrl, &Ctrl::Done).await;
+        let _ = ctrl.finish();
+        let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+        return End::Done;
+    }
 
     let mut cache = None;
     let mut pump = Some(start_pump(&e, &conn, id, &files, &start, None));
@@ -303,7 +351,7 @@ pub(crate) async fn run_sender(
                         let i = file as usize;
                         if i < have.len() && !verified[i] {
                             have[i] = bytes.min(size(i));
-                            e.with_tx(&id, |tx| tx.set_have(&have));
+                            e.with_tx(&id, |tx| tx.set_file(i, have[i]));
                             e.emit_tx(&id, false);
                         }
                     }
@@ -312,8 +360,8 @@ pub(crate) async fn run_sender(
                         if i < have.len() {
                             verified[i] = true;
                             have[i] = size(i);
-                            e.with_tx(&id, |tx| tx.set_have(&have));
-                            e.emit_tx(&id, true);
+                            e.with_tx(&id, |tx| tx.set_file(i, have[i]));
+                            e.emit_tx(&id, false);
                         }
                         if verified.iter().all(|v| *v) {
                             let _ = wire::write_frame(&mut ctrl, &Ctrl::Done).await;
@@ -372,7 +420,7 @@ pub(crate) async fn run_sender(
             },
             _ = tick.tick() => {
                 if paused.is_none() {
-                    e.with_tx(&id, |tx| tx.set_have(&have));
+                    e.with_tx(&id, |tx| tx.tick());
                     e.emit_tx(&id, false);
                 }
             },
@@ -435,7 +483,7 @@ pub(crate) async fn run_receiver(e: Engine, id: TransferId, conn: Connection, mu
         bytes: AtomicU64::new(0),
     });
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel();
-    let acceptor = tokio::spawn(accept_files(conn.clone(), id, files.clone(), live.clone(), ev_tx));
+    let acceptor = tokio::spawn(accept_files(e.clone(), conn.clone(), id, files.clone(), live.clone(), ev_tx));
     let _abort = AbortOnDrop(acceptor);
     let mut paused: Option<Side> = None;
     let mut last_sent = (u32::MAX, 0u64);
@@ -507,9 +555,9 @@ pub(crate) async fn run_receiver(e: Engine, id: TransferId, conn: Connection, mu
                             f[i].verified = true;
                             f[i].final_path = path;
                         }
-                        tx.set_have(&have);
+                        tx.set_file(i, have[i]);
                     });
-                    e.emit_tx(&id, true);
+                    e.emit_tx(&id, false);
                     let _ = wire::write_frame(&mut ctrl, &Ctrl::Verdict { file, ok: true }).await;
                 }
                 DataEv::FileBad(file) => {
@@ -544,7 +592,7 @@ pub(crate) async fn run_receiver(e: Engine, id: TransferId, conn: Connection, mu
                     let _ = wire::write_frame(&mut ctrl, &Ctrl::Progress { file, bytes }).await;
                 }
                 if paused.is_none() {
-                    e.with_tx(&id, |tx| tx.set_have(&have));
+                    e.with_tx(&id, |tx| if i < have.len() { tx.set_file(i, have[i]) } else { tx.tick() });
                     e.emit_tx(&id, false);
                 }
             },
@@ -560,11 +608,15 @@ impl Drop for AbortOnDrop {
 }
 
 /// Takes data streams one at a time, writes them into part files and checks the hash.
-async fn accept_files(conn: Connection, id: TransferId, files: Vec<DstFile>, live: Arc<Live>, ev: mpsc::UnboundedSender<DataEv>) {
+async fn accept_files(e: Engine, conn: Connection, id: TransferId, mut files: Vec<DstFile>, live: Arc<Live>, ev: mpsc::UnboundedSender<DataEv>) {
     let mut buf = vec![0u8; CHUNK];
     let mut cache: Option<HashCache> = None;
+    let marks = e.with_tx(&id, |tx| tx.marks.clone()).unwrap_or_default();
     // Files already checked, with where they ended up.
-    let mut done: Vec<Option<std::path::PathBuf>> = files.iter().map(|f| f.verified.then(|| f.final_path.clone())).collect();
+    let done: Vec<Option<std::path::PathBuf>> = files.iter().map(|f| f.verified.then(|| f.final_path.clone())).collect();
+    // Checked files still being written to disk; each confirms itself when it's done.
+    let finishing = Arc::new(tokio::sync::Semaphore::new(FINISHING_AT_ONCE));
+    let mut handed_off = vec![false; files.len()];
     loop {
         let Ok(mut s) = conn.accept_uni().await else {
             let _ = ev.send(DataEv::Conn);
@@ -589,18 +641,44 @@ async fn accept_files(conn: Connection, id: TransferId, files: Vec<DstFile>, liv
             let _ = ev.send(DataEv::FileOk(header.file, path));
             continue;
         }
-        let part_len = std::fs::metadata(&f.part).map(|m| m.len()).unwrap_or(0);
+        if handed_off[i] {
+            // Checked and being written to disk: it confirms itself when that's done.
+            while let Ok(Some(_)) = s.read(&mut buf).await {}
+            continue;
+        }
+        // Its first data: pick its name and make its part file.
+        if f.part.is_none() {
+            let mut f = f.clone();
+            let claimed = tokio::task::spawn_blocking(move || f.claim().map(|_| f))
+                .await
+                .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+            match claimed {
+                Ok(f) => {
+                    e.with_tx(&id, |tx| {
+                        if let TxSide::Recv(all) = &mut tx.side {
+                            all[i].final_path = f.final_path.clone();
+                            all[i].part = f.part.clone();
+                        }
+                    });
+                    files[i] = f;
+                }
+                Err(err) => {
+                    let _ = ev.send(DataEv::Io(io_kind(&err)));
+                    return;
+                }
+            }
+        }
+        let f = &files[i];
+        let Some(part) = f.part.clone() else {
+            let _ = ev.send(DataEv::Io(TransferError::Unknown));
+            return;
+        };
+        let part_len = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
         if header.offset > part_len {
             let _ = ev.send(DataEv::Protocol("offset past what we have"));
             return;
         }
-        let opened = tokio::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&f.part)
-            .await;
+        let opened = files::part_options().open(&part).await;
         let mut out = match opened {
             Ok(o) => o,
             Err(err) => {
@@ -614,7 +692,7 @@ async fn accept_files(conn: Connection, id: TransferId, files: Vec<DstFile>, liv
         }
         let mut hasher = match cache.take().filter(|c| c.file == header.file && c.pos == header.offset) {
             Some(c) => c.hasher,
-            None => match hash_prefix(&mut out, header.offset, &mut buf).await {
+            None => match hash_prefix(&mut out, header.file, header.offset, &marks, &mut buf).await {
                 Ok(h) => h,
                 Err(_) => {
                     let _ = ev.send(DataEv::Protocol("part file shorter than expected"));
@@ -649,6 +727,7 @@ async fn accept_files(conn: Connection, id: TransferId, files: Vec<DstFile>, liv
                         return;
                     }
                     hasher.update(&buf[..n]);
+                    mark(&marks, header.file, pos, pos + n as u64, &hasher);
                     pos += n as u64;
                     live.bytes.store(pos, Ordering::Relaxed);
                 }
@@ -695,32 +774,41 @@ async fn accept_files(conn: Connection, id: TransferId, files: Vec<DstFile>, liv
             }
         }
         let _ = out.flush().await;
-        let _ = out.sync_all().await;
-        drop(out);
-        if hasher.finalize() == blake3::Hash::from_bytes(expected) {
-            // Someone may have created a file with our name since we reserved it.
-            let final_path = if f.final_path.exists() {
-                let dir = f.final_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-                let name = f.final_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                files::unique_path(&dir, &name, &[])
-            } else {
-                f.final_path.clone()
-            };
-            match tokio::fs::rename(&f.part, &final_path).await {
-                Ok(()) => {
-                    done[i] = Some(final_path.clone());
-                    let _ = ev.send(DataEv::FileOk(header.file, final_path));
-                }
-                Err(err) => {
-                    let _ = ev.send(DataEv::Io(io_kind(&err)));
-                    return;
-                }
-            }
-        } else {
-            let _ = tokio::fs::remove_file(&f.part).await;
+        if hasher.finalize() != blake3::Hash::from_bytes(expected) {
+            drop(out);
+            let _ = tokio::fs::remove_file(&part).await;
             let _ = ev.send(DataEv::FileBad(header.file));
             return;
         }
+        // Written to disk for good and moved to its name while the next file comes in. It only
+        // counts as received once that's done.
+        let Ok(permit) = finishing.clone().acquire_owned().await else { return };
+        handed_off[i] = true;
+        let (e, ev, wanted, file) = (e.clone(), ev.clone(), f.final_path.clone(), header.file);
+        tokio::spawn(async move {
+            let _permit = permit;
+            let _ = out.sync_all().await;
+            drop(out);
+            // Never replaces a file someone created with our name since we reserved it.
+            let finished = tokio::task::spawn_blocking(move || files::finish_part(&part, &wanted))
+                .await
+                .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+            match finished {
+                Ok(final_path) => {
+                    // Noted in the transfer first, so a resume can't ask for it again.
+                    e.with_tx(&id, |tx| {
+                        if let TxSide::Recv(all) = &mut tx.side {
+                            all[file as usize].verified = true;
+                            all[file as usize].final_path = final_path.clone();
+                        }
+                    });
+                    let _ = ev.send(DataEv::FileOk(file, final_path));
+                }
+                Err(err) => {
+                    let _ = ev.send(DataEv::Io(io_kind(&err)));
+                }
+            }
+        });
     }
 }
 
@@ -731,5 +819,44 @@ fn io_kind(err: &std::io::Error) -> TransferError {
         TransferError::Permission
     } else {
         TransferError::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resumes_hashing_from_the_nearest_mark() {
+        let dir = crate::store::tests::tempdir("marks");
+        let path = dir.join("big.bin");
+        let data: Vec<u8> = (0..40 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+        // Hashed as a transfer would, saving marks on the way.
+        let marks = Marks::default();
+        let mut hasher = blake3::Hasher::new();
+        let mut pos = 0u64;
+        for chunk in data.chunks(CHUNK) {
+            hasher.update(chunk);
+            mark(&marks, 0, pos, pos + chunk.len() as u64, &hasher);
+            pos += chunk.len() as u64;
+        }
+        let at: Vec<u64> = marks.lock().unwrap().iter().map(|c| c.pos).collect();
+        assert_eq!(at, [MARK_EVERY, 2 * MARK_EVERY]);
+
+        // Bytes before the 32 MiB mark are never read again: damage there doesn't change the result.
+        let mut damaged = data.clone();
+        damaged[1000] ^= 0xff;
+        std::fs::write(&path, &damaged).unwrap();
+        let mut file = tokio::fs::File::open(&path).await.unwrap();
+        let mut buf = vec![0u8; CHUNK];
+        let resume = 35 * 1024 * 1024;
+        let h = hash_prefix(&mut file, 0, resume, &marks, &mut buf).await.unwrap();
+        assert_eq!(h.finalize(), blake3::hash(&data[..resume as usize]));
+
+        // Before the first mark, or for another file, it reads from the start.
+        let h = hash_prefix(&mut file, 0, 2000, &marks, &mut buf).await.unwrap();
+        assert_eq!(h.finalize(), blake3::hash(&damaged[..2000]));
+        let h = hash_prefix(&mut file, 1, resume, &marks, &mut buf).await.unwrap();
+        assert_eq!(h.finalize(), blake3::hash(&damaged[..resume as usize]));
     }
 }

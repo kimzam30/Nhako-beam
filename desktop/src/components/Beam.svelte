@@ -4,6 +4,7 @@
   // at a speed tied to throughput. Everything animates transform and opacity only.
   import { SpringValue } from '../lib/motion/springs';
   import { prefs } from '../lib/state/prefs.svelte';
+  import Bolt from './Bolt.svelte';
 
   type Mode = 'moving' | 'idle' | 'paused' | 'reconnecting' | 'done' | 'failed';
 
@@ -20,11 +21,15 @@
   let fill: HTMLElement | undefined = $state();
   let glow: HTMLElement | undefined = $state();
   let wrap: HTMLElement | undefined = $state();
+  let rail: HTMLElement | undefined = $state();
+  let shown = $state(0);
 
   const p = new SpringValue(0, (v) => {
     const c = Math.max(0, Math.min(1, v));
     if (fill) fill.style.transform = `translateX(${(c - 1) * 100}%)`;
     if (glow) glow.style.transform = `scaleX(${c})`;
+    if (rail) rail.style.transform = `translateX(${(c - 1) * 100}%)`;
+    shown = c;
   });
   const shrink = new SpringValue(1, (v) => {
     if (wrap) wrap.style.transform = `scaleX(${v})`;
@@ -51,6 +56,8 @@
   });
 
   const shimmerMs = $derived(Math.round(2600 - 1700 * Math.min(1, intensity)));
+  // A small bolt rides the front of the fill while bytes move. Paused, it stops and greys out.
+  const head = $derived((mode === 'moving' || mode === 'paused' || mode === 'reconnecting') && shown > 0.02 && shown < 0.995);
   const glowOpacity = $derived(mode === 'moving' ? 0.35 + 0.65 * Math.min(1, intensity) : 0);
 </script>
 
@@ -63,9 +70,32 @@
       {/if}
     </div>
   </div>
+  <div class="rail" bind:this={rail} aria-hidden="true">
+    {#if head}
+      <span class="head" class:still={mode !== 'moving'} data-testid="beam-head"><Bolt size={14} tone={mode === 'moving' ? 'brand' : 'current'} /></span>
+    {/if}
+  </div>
 </div>
 
 <style>
+  .rail {
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    pointer-events: none;
+    will-change: transform;
+  }
+  .head {
+    position: absolute;
+    right: -7px;
+    top: 50%;
+    translate: 0 -50%;
+    color: var(--color-text-tertiary);
+    transition: opacity var(--duration-base) var(--ease-standard);
+  }
+  .head.still {
+    opacity: 0.8;
+  }
   .beam {
     position: relative;
     height: 8px;

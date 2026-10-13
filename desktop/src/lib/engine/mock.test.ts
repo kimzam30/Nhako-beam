@@ -7,7 +7,16 @@ let clock = 0;
 let events: EngineEvent[] = [];
 
 const transfers = () => events.filter((e): e is Extract<EngineEvent, { type: 'transfer' }> => e.type === 'transfer').map((e) => e.transfer);
-const latest = (id: string): Transfer => transfers().filter((t) => t.id === id).pop()!;
+/** The transfer as the app sees it: its last full event with later progress merged in. */
+function latest(id: string): Transfer {
+  let t: Transfer | undefined;
+  for (const e of events) {
+    if (e.type === 'transfer' && e.transfer.id === id) t = e.transfer;
+    else if (e.type === 'transferProgress' && e.id === id && t)
+      t = { ...t, doneBytes: e.doneBytes, speed: e.speed, movingSince: e.movingSince, fileBytes: { ...t.fileBytes, ...e.fileBytes } };
+  }
+  return t!;
+}
 
 function run(ms: number): void {
   for (let t = 0; t < ms; t += 100) {
@@ -131,15 +140,19 @@ describe('MockEngine', () => {
   });
 
   it('redeems codes: unknown word, no match, then match', async () => {
-    const bad = engine.redeemCode(['river', 'lanternx', 'seven']);
+    const bad = engine.redeemCode(['river', 'lanternx', 'seven', 'harbor']);
     run(300);
     expect(await bad).toEqual({ ok: false, reason: 'unknownWord', index: 1 });
 
-    const wrong = engine.redeemCode(['river', 'lantern', 'acorn']);
+    const wrong = engine.redeemCode(['river', 'lantern', 'seven', 'acorn']);
     run(800);
     expect(await wrong).toEqual({ ok: false, reason: 'noMatch' });
 
-    const good = engine.redeemCode(['River', 'lantern', 'seven']);
+    const short = engine.redeemCode(['river', 'lantern', 'seven']);
+    run(800);
+    expect(await short).toEqual({ ok: false, reason: 'noMatch' });
+
+    const good = engine.redeemCode(['River', 'lantern', 'seven', 'harbor']);
     run(1000);
     const r = await good;
     expect(r.ok).toBe(true);
@@ -148,7 +161,7 @@ describe('MockEngine', () => {
 
   it('creates a 10 minute code and pairs when the peer redeems it', () => {
     const code = engine.createCodeNow();
-    expect(code.words).toHaveLength(3);
+    expect(code.words).toHaveLength(4);
     expect(code.expiresAt - clock).toBe(600_000);
     engine.simPeerRedeemsCode();
     expect(events.some((e) => e.type === 'paired' && e.via === 'shown')).toBe(true);

@@ -64,14 +64,16 @@
           </div>
           <h1 class="title">{t('onboarding.name.title')}</h1>
           <p class="body">{t('onboarding.name.body')}</p>
-          <input
-            class="input"
-            bind:value={app.selfName}
-            placeholder={t('onboarding.name.placeholder')}
-            maxlength="32"
-            data-testid="name-input"
-            onkeydown={(e) => e.key === 'Enter' && app.selfName.trim() && go(1)}
-          />
+          <span class="charge name-box">
+            <input
+              class="input"
+              bind:value={app.selfName}
+              placeholder={t('onboarding.name.placeholder')}
+              maxlength="32"
+              data-testid="name-input"
+              onkeydown={(e) => e.key === 'Enter' && app.selfName.trim() && go(1)}
+            />
+          </span>
         {:else if step === 'nearby' || step === 'notify'}
           <span class="big-icon" in:springIn={{ preset: 'bouncy', scale: 0.5, y: 0 }}><Icon name={step === 'nearby' ? 'broadcast' : 'bell'} size={44} /></span>
           <h1 class="title">{t(step === 'nearby' ? 'onboarding.perm.nearby.title' : 'onboarding.perm.notify.title')}</h1>
@@ -210,10 +212,13 @@
   .preview :global(.orb) {
     width: 200px;
   }
-  .input {
+  .name-box {
     width: 100%;
     max-width: 340px;
     margin-top: var(--space-4);
+  }
+  .input {
+    width: 100%;
     padding: var(--space-4) var(--space-5);
     border: 0;
     border-radius: var(--radius-md);

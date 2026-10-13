@@ -22,10 +22,16 @@ import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.ServerProblem
 import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.Snapshot
+import io.github.kimzam30.nhakobeam.model.TEXT_MAX
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
+import io.github.kimzam30.nhakobeam.model.TrustOutcome
+import io.github.kimzam30.nhakobeam.model.TrustRequest
+import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import io.github.kimzam30.nhakobeam.ui.Copy.t
+import io.github.kimzam30.nhakobeam.ui.isLink
+import io.github.kimzam30.nhakobeam.ui.isRunnable
 import io.github.kimzam30.nhakobeam.ui.summarizeFiles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -45,11 +51,24 @@ sealed interface Sheet {
     data class ConfirmRemove(val deviceId: String) : Sheet
     data class HistoryItem(val id: String) : Sheet
     data object ConfirmClearHistory : Sheet
+    /** Opening a received program or script: asks first. [past] is a History entry rather than a transfer card. */
+    data class ConfirmOpen(val id: String, val fileName: String, val deviceName: String, val past: Boolean) : Sheet
+    /** Type or paste text to send; to [deviceId] straight away when it's set. */
+    data class Compose(val deviceId: String? = null, val text: String? = null) : Sheet
+    /** A device's own sheet (long press on it): send, trust. */
+    data class DeviceSheet(val deviceId: String) : Sheet
+    /** This device asked another to trust it; [check] arrives once the other device has the ask. */
+    data class TrustWait(val deviceId: String, val check: String? = null) : Sheet
+    /** Another device asks to trust this one. */
+    data class TrustAsk(val deviceId: String, val check: String) : Sheet
+    /** Text that was sent or received (a transfer, or a History entry). */
+    data class TextSheet(val id: String) : Sheet
 }
 
 enum class ToastTone { Neutral, Success, Warning, Danger }
 
-data class Toast(val id: Long, val text: String, val tone: ToastTone, val actionLabel: String? = null, val action: (() -> Unit)? = null)
+/** [ms] is how long it stays; its time-left bar drains over it. */
+data class Toast(val id: Long, val text: String, val tone: ToastTone, val actionLabel: String? = null, val action: (() -> Unit)? = null, val ms: Long = 4000)
 
 /** What the Android platform does for the app (open files, share, permissions). Tests use the defaults. */
 interface PlatformHooks {
@@ -59,6 +78,13 @@ interface PlatformHooks {
     fun haptic(h: NhakoHaptic) {}
     /** Pick files with the system picker; the app gets them back through [AppState.stageUris]. */
     fun pickFiles() {}
+    /** Pick a folder with the system picker; the app gets it back through [AppState.stageFolder]. */
+    fun pickFolder() {}
+    /** The clipboard's text ("" when there's none). Android only lets an app on screen read it. */
+    fun readClipboard(): String = ""
+    /** Puts text on the clipboard. False if it couldn't. */
+    fun writeClipboard(text: String): Boolean = false
+    fun openLink(url: String) {}
 }
 
 /**
@@ -71,6 +97,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var afterEvent: (EngineEvent) -> Unit = {}
     /** Plays one of the app's sounds (platform/Sounds.kt decides whether it's heard). */
     var sound: (NhakoSound) -> Unit = {}
+    /** Puts text on the clipboard, with a screen open or not. Tests keep the screen's own. */
+    var clipboard: (String) -> Boolean = { platform.writeClipboard(it) }
 
     var screen by mutableStateOf(if (prefs.onboarded) Screen.Home else Screen.Onboarding)
     /** 1 when moving forward (deeper), -1 when going back: screens slide the matching way. */
@@ -88,6 +116,12 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var freeSpace by mutableLongStateOf(0L)
     var code by mutableStateOf<PairingCode?>(null)
     var staged by mutableStateOf(listOf<FileItem>())
+    /** Text waiting to be sent, instead of files (the tray shows it; a device takes it). */
+    var stagedText by mutableStateOf<String?>(null)
+    /** On Wi-Fi or a cable, where nearby devices can be found (from the system's network callback). */
+    var onLan by mutableStateOf(true)
+    /** Trust asks from other devices, waiting for an answer here. */
+    var trustAsks by mutableStateOf(listOf<TrustRequest>())
     private var sheetState by mutableStateOf<Sheet?>(null)
     /** The open sheet. Sliding one up or away has a sound; the paired sheet has its own (Matched). */
     var sheet: Sheet?
@@ -109,6 +143,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var history by mutableStateOf(listOf<HistoryEntry>())
     /** Announce this device and look for others on the local network (saved by the engine). */
     var lanDiscovery by mutableStateOf(true)
+    /** Who can send to me (saved by the engine). */
+    var whoCanSend by mutableStateOf(WhoCanSend.YourDevices)
     /** Other devices can wake this phone while the app is closed (push is set up and has a token). */
     var wakeReady by mutableStateOf(false)
     /** The device tapped before any files were chosen: send to it once they're picked. */
@@ -124,6 +160,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     val activeTransfers by derivedStateOf { transfers.filter { it.status.isActive } }
     val visibleTransfers by derivedStateOf { transfers.filter { it.id !in dismissed } }
     val stagedSummary by derivedStateOf { summarizeFiles(staged) }
+    /** Something is waiting to be sent: files or text. */
+    val hasStaged by derivedStateOf { staged.isNotEmpty() || stagedText != null }
 
     private var toastSeq = 0L
     /** Devices whose request was accepted on the card, so no extra "Receiving" toast. */
@@ -137,6 +175,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         scope.launch {
             runCatching { connection = engine.getConnection() }
             runCatching { lanDiscovery = engine.getLanDiscovery() }
+            runCatching { whoCanSend = engine.getWhoCanSend() }
             loadSelf()
             if (onboarded) startEngine()
         }
@@ -184,7 +223,12 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
                 }
             }
             is EngineEvent.TransferChanged -> onTransfer(e.transfer)
+            is EngineEvent.TransferProgress -> transfers = transfers.map {
+                if (it.id != e.id) it
+                else it.copy(doneBytes = e.doneBytes, speed = e.speed, movingSince = e.movingSince, fileBytes = if (e.fileBytes.isEmpty()) it.fileBytes else it.fileBytes + e.fileBytes)
+            }
             is EngineEvent.Paired -> {
+                trustAsks = trustAsks.filter { it.deviceId != e.device.id }
                 sheet = Sheet.Paired(e.device.id, e.via, e.check)
                 platform.haptic(NhakoHaptic.PairMatched)
                 sound(NhakoSound.Matched)
@@ -193,6 +237,14 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             is EngineEvent.FreeSpace -> freeSpace = e.bytes
             is EngineEvent.Server -> serverProblem = e.problem
             is EngineEvent.History -> history = (listOf(e.entry) + history.filter { it.id != e.entry.id }).sortedByDescending { it.finishedAt }
+            is EngineEvent.TrustAsk -> {
+                trustAsks = trustAsks.filter { it.deviceId != e.request.deviceId } + e.request
+                // Someone is holding the other device and waiting: this comes first.
+                sheet = Sheet.TrustAsk(e.request.deviceId, e.request.check)
+                sound(NhakoSound.Incoming)
+            }
+            is EngineEvent.TrustWaiting -> (sheet as? Sheet.TrustWait)?.let { if (it.deviceId == e.deviceId) sheet = it.copy(check = e.check) }
+            is EngineEvent.TrustEnded -> trustEnded(e.deviceId, e.outcome)
             is EngineEvent.SnapshotEvent -> applySnapshot(e.snapshot)
         }
         afterEvent(e)
@@ -210,6 +262,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         s.freeSpace?.let { freeSpace = it }
         serverProblem = s.serverProblem
         history = s.history
+        trustAsks = s.trustAsks
     }
 
     private fun onTransfer(next: Transfer) {
@@ -220,7 +273,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             transfers = listOf(next) + transfers
             if (next.direction == TransferDirection.Receive && !acceptedHere.remove(next.deviceId)) {
                 val d = device(next.deviceId)
-                if (d?.autoAccept == true) {
+                if (d?.autoAccept == true && next.text != null) textArrived(next, d.name)
+                else if (d?.autoAccept == true) {
                     toast(t("incoming.autoAccepted", "device" to d.name), ToastTone.Success)
                     sound(NhakoSound.Incoming)
                 }
@@ -282,17 +336,124 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     // ---------- Toasts ----------
 
     fun toast(text: String, tone: ToastTone = ToastTone.Neutral, actionLabel: String? = null, action: (() -> Unit)? = null) {
-        val toast = Toast(++toastSeq, text, tone, actionLabel, action)
+        val toast = Toast(++toastSeq, text, tone, actionLabel, action, if (action != null) 6000 else 4000)
         if (tone == ToastTone.Danger) sound(NhakoSound.Error)
         toasts = (toasts + toast).takeLast(2)
         scope.launch {
-            delay(if (action != null) 6000 else 4000)
+            delay(toast.ms)
             dismissToast(toast.id)
         }
     }
 
     fun dismissToast(id: Long) {
         toasts = toasts.filter { it.id != id }
+    }
+
+    // ---------- Text ----------
+
+    /** Text from one of your own devices with "Accept files automatically" on goes straight to the clipboard. */
+    private fun textArrived(tr: Transfer, device: String) {
+        val text = tr.text.orEmpty()
+        clipboard(text)
+        val link = isLink(text)
+        if (link) toast(t("text.copied.link", "device" to device), ToastTone.Success, t("text.open")) { openLink(text) }
+        else toast(t("text.copied.from", "device" to device), ToastTone.Success, t("text.show")) { sheet = Sheet.TextSheet(tr.id) }
+    }
+
+    /** Copies text you chose to copy (a button), with a toast. */
+    fun copyText(text: String): Boolean {
+        if (!clipboard(text)) {
+            toast(t("text.copyFailed"), ToastTone.Danger)
+            return false
+        }
+        platform.haptic(NhakoHaptic.ButtonPress)
+        toast(t("text.copied"), ToastTone.Success)
+        return true
+    }
+
+    fun openLink(url: String) {
+        if (isLink(url)) platform.openLink(url.trim())
+    }
+
+    /** Text to send instead of files. False (with a toast) when it's empty or too long. */
+    fun stageText(text: String): Boolean {
+        if (text.isBlank()) {
+            toast(t("send.clipboard.empty"), ToastTone.Warning)
+            return false
+        }
+        if (text.toByteArray().size > TEXT_MAX) {
+            toast(t("send.text.tooLong"), ToastTone.Warning)
+            return false
+        }
+        staged = emptyList()
+        stagedText = text
+        return true
+    }
+
+    /** Home > Clipboard: whatever text is on the clipboard, ready to go to a device. */
+    fun stageClipboard() = stageText(platform.readClipboard())
+
+    /** Text shared from another app (a link from the browser): ready to go, and pick a device. */
+    fun shareText(text: String) {
+        if (!stageText(text) || !onboarded) return
+        if (screen != Screen.Home) navigate(Screen.Home)
+        if (sheet == null || sheet == Sheet.Send) sheet = Sheet.Send
+    }
+
+    fun sendTextTo(deviceId: String, text: String) {
+        stagedText = null
+        bump(deviceId)
+        if (sheet == Sheet.Send || sheet is Sheet.Compose) sheet = null
+        sound(NhakoSound.Send)
+        scope.launch {
+            try {
+                engine.sendText(deviceId, text)
+            } catch (e: Exception) {
+                if (stagedText == null && staged.isEmpty()) stagedText = text
+                toast(e.message ?: t("send.failed"), ToastTone.Danger)
+            }
+        }
+    }
+
+    // ---------- Trust from Nearby ----------
+
+    /** Asks a nearby device to trust this one, and to be trusted back; the sheet waits for it. */
+    fun askTrust(deviceId: String) {
+        sheet = Sheet.TrustWait(deviceId)
+        scope.launch {
+            try {
+                engine.askTrust(deviceId)
+            } catch (e: Exception) {
+                if ((sheet as? Sheet.TrustWait)?.deviceId == deviceId) sheet = null
+                toast(e.message ?: t("send.failed"), ToastTone.Danger)
+            }
+        }
+    }
+
+    fun cancelTrust(deviceId: String) {
+        engine.cancelTrust(deviceId)
+        if ((sheet as? Sheet.TrustWait)?.deviceId == deviceId) sheet = null
+    }
+
+    fun answerTrust(deviceId: String, yes: Boolean) {
+        trustAsks = trustAsks.filter { it.deviceId != deviceId }
+        if ((sheet as? Sheet.TrustAsk)?.deviceId == deviceId) sheet = null
+        engine.answerTrust(deviceId, yes)
+        // A yes opens the paired sheet when both have saved each other.
+    }
+
+    private fun trustEnded(deviceId: String, outcome: TrustOutcome) {
+        trustAsks = trustAsks.filter { it.deviceId != deviceId }
+        val open = sheet.let { (it is Sheet.TrustWait && it.deviceId == deviceId) || (it is Sheet.TrustAsk && it.deviceId == deviceId) }
+        val asking = sheet is Sheet.TrustWait
+        if (open) sheet = null
+        // Saying no here needs no toast; everything else says what happened.
+        if (outcome == TrustOutcome.Declined && !asking) return
+        if (!open && outcome != TrustOutcome.Withdrawn) return
+        val key = "trust.ended." + outcome.name.replaceFirstChar { it.lowercase() }
+        val quiet = outcome == TrustOutcome.Declined || outcome == TrustOutcome.Withdrawn
+        toast(t(key, "device" to deviceName(deviceId)), if (quiet) ToastTone.Neutral else ToastTone.Warning)
+        sound(if (outcome == TrustOutcome.Declined) NhakoSound.Decline else NhakoSound.Cancel)
     }
 
     // ---------- Sending ----------
@@ -322,15 +483,38 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         }
     }
 
+    /** A folder picked in the system picker: everything inside it, keeping its shape. */
+    fun stageFolder(treeUri: String) {
+        scope.launch {
+            val picked = runCatching { engine.stageFolder(treeUri) }.getOrElse {
+                pickTarget = null
+                toast(it.message ?: t("send.failed"), ToastTone.Danger)
+                return@launch
+            }
+            if (picked.skipped > 0) {
+                toast(if (picked.skipped == 1) t("send.skipped.one") else t("send.skipped.many", "n" to picked.skipped), ToastTone.Warning)
+            }
+            stage(picked.files)
+            val target = pickTarget
+            pickTarget = null
+            if (target != null && picked.files.isNotEmpty()) sendTo(target)
+        }
+    }
+
     fun stage(files: List<FileItem>) {
-        if (files.isNotEmpty()) staged = staged + files
+        if (files.isEmpty()) return
+        stagedText = null
+        staged = staged + files
     }
 
     fun clearStaged() {
         staged = emptyList()
+        stagedText = null
     }
 
     fun sendTo(deviceId: String, files: List<FileItem> = staged) {
+        val text = stagedText
+        if (text != null && files === staged) return sendTextTo(deviceId, text)
         if (files.isEmpty()) return
         val sending = files.toList()
         staged = emptyList()
@@ -372,7 +556,14 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         if (sheet == Sheet.TransferDetails(id)) sheet = null
     }
 
-    fun openReceived(transfer: Transfer, share: Boolean = false) {
+    /** Opens or shares what a transfer received. A program or script (opening it runs it) asks first; [confirmed] is the answer. */
+    fun openReceived(transfer: Transfer, share: Boolean = false, confirmed: Boolean = false) {
+        val only = transfer.files.singleOrNull()
+        if (!share && !confirmed && only != null && isRunnable(only.name)) {
+            sheet = Sheet.ConfirmOpen(transfer.id, only.name, device(transfer.deviceId)?.name ?: "another device", past = false)
+            return
+        }
+        if (confirmed && sheet is Sheet.ConfirmOpen) sheet = null
         scope.launch {
             val paths = runCatching { engine.savedFiles(transfer.id) }.getOrDefault(emptyList())
             if (paths.isEmpty()) {
@@ -409,6 +600,32 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         return true
     }
 
+    /** Settings > About: copies the diagnostics report with [clip]. False (with a toast) if it couldn't. */
+    suspend fun copyDiagnostics(clip: (String) -> Unit): Boolean {
+        try {
+            clip(engine.diagnostics())
+        } catch (e: Exception) {
+            toast(t("settings.about.diagnostics.failed"), ToastTone.Danger)
+            return false
+        }
+        toast(t("settings.about.diagnostics.copied"), ToastTone.Success)
+        return true
+    }
+
+    /** Settings > Receiving > Who can send to me. False (with a toast) if it couldn't be saved. */
+    suspend fun setWhoCanSend(who: WhoCanSend): Boolean {
+        val before = whoCanSend
+        whoCanSend = who
+        try {
+            engine.setWhoCanSend(who)
+        } catch (e: Exception) {
+            whoCanSend = before
+            toast(t("settings.receive.who.failed"), ToastTone.Danger)
+            return false
+        }
+        return true
+    }
+
     fun clearHistory() {
         engine.clearHistory()
         history = emptyList()
@@ -419,7 +636,13 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     fun historyEntry(id: String) = history.find { it.id == id }
 
     /** Opens or shares what a History entry received (the engine remembers where it saved them). */
-    fun openPast(entry: HistoryEntry, share: Boolean = false) {
+    fun openPast(entry: HistoryEntry, share: Boolean = false, confirmed: Boolean = false) {
+        val only = entry.files.singleOrNull()
+        if (!share && !confirmed && only != null && isRunnable(only.name)) {
+            sheet = Sheet.ConfirmOpen(entry.id, only.name, device(entry.deviceId)?.name ?: entry.deviceName, past = true)
+            return
+        }
+        if (confirmed && sheet is Sheet.ConfirmOpen) sheet = null
         scope.launch {
             val paths = runCatching { engine.savedFiles(entry.id) }.getOrDefault(emptyList())
             if (paths.isEmpty()) {

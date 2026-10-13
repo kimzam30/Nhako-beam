@@ -3,15 +3,22 @@
   // devices, and shows which haptic would fire. Not part of the real app.
   import { app, type PlatformMode } from '../lib/state/app.svelte';
   import { haptics } from '../lib/haptics.svelte';
-  import { sampleFiles, type MockEngine, type SampleKind, type SendOutcome } from '../lib/engine/mock';
+  import { SAMPLE_LINK, SAMPLE_TEXT, sampleFiles, type MockEngine, type SampleKind, type SendOutcome, type TrustReply } from '../lib/engine/mock';
   import { springIn, quickOut } from '../lib/motion/transitions';
   import Icon from './Icon.svelte';
   import Segmented from './Segmented.svelte';
   import IconButton from './IconButton.svelte';
+  import MotionLab from './MotionLab.svelte';
 
   let { mock }: { mock: MockEngine } = $props();
 
   let outcome = $state<SendOutcome>('accept');
+  let trustReply = $state<TrustReply>('yes');
+  $effect(() => {
+    mock.nextTrustReply = trustReply;
+  });
+  // Also opens straight away at localhost:5173/#motion.
+  let lab = $state(typeof location !== 'undefined' && location.hash === '#motion');
   $effect(() => {
     mock.nextSendOutcome = outcome;
   });
@@ -28,6 +35,9 @@
         ['1.4 GB video', () => stage('video'), 'stage-video'],
         ['Photos and video', () => stage('mixed'), 'stage-mixed'],
         ['48 GB backup', () => stage('big'), 'stage-big'],
+        ['A folder (Langkawi trip)', () => stage('tree'), 'stage-tree'],
+        ['A note', () => app.stageText(SAMPLE_TEXT), 'stage-text'],
+        ['A link', () => app.stageText(SAMPLE_LINK), 'stage-link'],
       ],
     ],
     [
@@ -38,6 +48,12 @@
         ['One video, long name', () => e.simIncoming('longname', 'd-studio'), 'in-longname'],
         ['From Work phone (auto)', () => e.simIncoming('photos', 'd-phone'), 'in-auto'],
         ['48 GB (no space)', () => e.simIncoming('big', 'd-studio'), 'in-big'],
+        ['A program (asks before opening)', () => e.simIncoming('program', 'd-studio'), 'in-program'],
+        ['A folder of 1,240 photos', () => e.simIncoming('folder', 'd-aisyah'), 'in-folder'],
+        ['A folder, sent as one', () => e.simIncoming('tree', 'd-aisyah'), 'in-tree'],
+        ['A note from Studio PC', () => e.simIncoming('text', 'd-studio'), 'in-text'],
+        ['A link from Studio PC', () => e.simIncoming('link', 'd-studio'), 'in-link'],
+        ['A link from Work phone (auto)', () => e.simIncoming('link', 'd-phone'), 'in-link-auto'],
         ['Sender cancels', () => e.simWithdraw(), 'in-withdraw'],
       ],
     ],
@@ -72,6 +88,20 @@
         ['Add a device', () => e.simAddDevice(), 'disc-add'],
         ['Remove a device', () => e.simRemoveDevice(), 'disc-remove'],
         ['Add 6 devices', () => Array.from({ length: 6 }, () => e.simAddDevice()), 'disc-many'],
+      ],
+    ],
+    [
+      'Trust from Nearby',
+      [
+        ['Studio PC asks to trust me', () => e.simTrustAsk('d-studio'), 'trust-ask'],
+        ['It stops asking', () => e.simTrustWithdraw(), 'trust-withdraw'],
+      ],
+    ],
+    [
+      'Network',
+      [
+        ['Off Wi-Fi (mobile data)', () => ((app.onLan = false), e.simLan(false)), 'lan-off'],
+        ['Back on Wi-Fi', () => ((app.onLan = true), e.simLan(true)), 'lan-on'],
       ],
     ],
     [
@@ -125,6 +155,23 @@
           { value: 'decline' as SendOutcome, label: 'Decline' },
           { value: 'ignore' as SendOutcome, label: 'Ignore' },
           { value: 'unreachable' as SendOutcome, label: 'Gone' },
+          { value: 'notAllowed' as SendOutcome, label: 'Not theirs' },
+        ]}
+      />
+    </div>
+
+    <div class="block">
+      <span class="label">When I ask a device to trust me</span>
+      <Segmented
+        label="Trust reply"
+        testid="trust-reply"
+        bind:value={trustReply}
+        options={[
+          { value: 'yes' as TrustReply, label: 'Yes' },
+          { value: 'no' as TrustReply, label: 'No' },
+          { value: 'ignore' as TrustReply, label: 'Wait' },
+          { value: 'outdated' as TrustReply, label: 'Old' },
+          { value: 'busy' as TrustReply, label: 'Busy' },
         ]}
       />
     </div>
@@ -151,9 +198,12 @@
       </ol>
     </div>
 
+    <button class="chip" data-testid="sim-motion-lab" onclick={() => ((lab = true), (app.devPanel = false))}>Open the motion lab</button>
     <button class="chip reset" data-testid="sim-reset" onclick={() => app.resetOnboarding()}>Restart onboarding</button>
   </aside>
 {/if}
+
+{#if lab}<MotionLab onclose={() => (lab = false)} />{/if}
 
 <style>
   .fab {

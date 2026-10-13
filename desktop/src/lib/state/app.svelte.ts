@@ -2,12 +2,29 @@
 import { breakpoint } from '../tokens';
 import { MockEngine } from '../engine/mock';
 import { TauriEngine, isTauri, message } from '../engine/tauri';
-import type { Connection, Device, DiscoveryState, Engine, FileItem, HistoryEntry, IncomingRequest, PairingCode, ServerProblem, Snapshot, Transfer } from '../engine/types';
+import type {
+  Connection,
+  Device,
+  DiscoveryState,
+  Engine,
+  FileItem,
+  HistoryEntry,
+  IncomingRequest,
+  PairingCode,
+  PairVia,
+  ServerProblem,
+  Snapshot,
+  Transfer,
+  TrustOutcome,
+  TrustRequest,
+  WhoCanSend,
+} from '../engine/types';
+import { TEXT_MAX } from '../engine/types';
 import * as shell from '../shell';
 import { playHaptic } from '../haptics.svelte';
 import { playSound } from '../sounds.svelte';
 import { t } from '../copy';
-import { summarizeFiles } from '../format';
+import { isLink, isRunnable, summarizeFiles, utf8Bytes } from '../format';
 
 export type Screen = 'onboarding' | 'home' | 'history' | 'settings' | 'licenses';
 export type PlatformMode = 'auto' | 'desktop' | 'android';
@@ -18,17 +35,30 @@ export type Sheet =
   | { kind: 'showCode' }
   | { kind: 'enterCode' }
   | { kind: 'scan' }
-  | { kind: 'paired'; deviceId: string; via: 'shown' | 'entered'; check: string }
+  | { kind: 'paired'; deviceId: string; via: PairVia; check: string }
+  /** Type or paste text to send; to `deviceId` straight away when it's set. */
+  | { kind: 'compose'; deviceId?: string; text?: string }
+  /** A device's own sheet (right-click or long press on it): send, trust. */
+  | { kind: 'device'; deviceId: string }
+  /** This device asked another to trust it; `check` arrives once the other device has the ask. */
+  | { kind: 'trustWait'; deviceId: string; check: string | null }
+  /** Another device asks to trust this one. */
+  | { kind: 'trustAsk'; deviceId: string; check: string }
+  /** Text that was sent or received (a transfer, or a History entry). */
+  | { kind: 'text'; id: string }
   | { kind: 'transfer'; id: string }
   | { kind: 'confirmRemove'; deviceId: string }
   | { kind: 'historyItem'; id: string }
-  | { kind: 'confirmClearHistory' };
+  | { kind: 'confirmClearHistory' }
+  | { kind: 'confirmOpen'; transferId: string; fileName: string; deviceName: string };
 
 export interface Toast {
   id: number;
   text: string;
   tone: 'neutral' | 'success' | 'warning' | 'danger';
   action?: { label: string; run: () => void };
+  /** How long it stays; its time-left bar drains over this. */
+  ms: number;
 }
 
 /** A file stack being dragged (from the OS on desktop, or the staged stack by pointer). */
@@ -109,6 +139,18 @@ class AppState {
   history = $state<HistoryEntry[]>([]);
   /** Announce this device and look for others on the local network (saved by the engine). */
   lanDiscovery = $state(true);
+  /** Who can send to me (saved by the engine). */
+  whoCanSend = $state<WhoCanSend>('yourDevices');
+  /** Text waiting to be sent, instead of files (the tray shows it; a device takes it). */
+  stagedText = $state<string | null>(null);
+  /** On Wi-Fi or a cable, where nearby devices can be found. Android tells; the desktop app
+   *  always is (off a network it's offline). The prototype pretends with the scenario panel. */
+  onLan = $state(true);
+  /** Trust asks from other devices, waiting for an answer here. */
+  trustAsks = $state<TrustRequest[]>([]);
+  /** Home opens its picker for this (from a device's sheet): files or a folder, then sends them there. */
+  pickRequest = $state<{ kind: 'files' | 'folder'; deviceId: string; n: number } | null>(null);
+  private pickSeq = 0;
 
   /** The pretend engine's test hooks (browser prototype and UI tests only). */
   get mock(): MockEngine | null {
@@ -146,6 +188,7 @@ class AppState {
     this.screen = this.onboarded ? 'home' : 'onboarding';
     void this.engine.getConnection().then((c) => (this.connection = c));
     void this.engine.getLanDiscovery().then((on) => (this.lanDiscovery = on));
+    void this.engine.getWhoCanSend().then((who) => (this.whoCanSend = who));
     void this.loadSelf();
     if (this.native && !opts.popover) void shell.onSendRequest((paths) => void this.sendFromFileManager(paths));
 
@@ -189,10 +232,33 @@ class AppState {
         case 'transfer':
           this.onTransfer(e.transfer);
           break;
+        case 'transferProgress': {
+          const x = this.transfers.find((t) => t.id === e.id);
+          if (x) {
+            x.doneBytes = e.doneBytes;
+            x.speed = e.speed;
+            x.movingSince = e.movingSince;
+            for (const [file, bytes] of Object.entries(e.fileBytes)) x.fileBytes[file] = bytes;
+          }
+          break;
+        }
         case 'paired':
+          this.trustAsks = this.trustAsks.filter((r) => r.deviceId !== e.device.id);
           this.sheet = { kind: 'paired', deviceId: e.device.id, via: e.via, check: e.check };
           playHaptic('pairMatched');
           playSound('matched');
+          break;
+        case 'trustAsk':
+          this.trustAsks = [...this.trustAsks.filter((r) => r.deviceId !== e.request.deviceId), e.request];
+          // Someone is holding the other device and waiting: this comes first.
+          this.sheet = { kind: 'trustAsk', deviceId: e.request.deviceId, check: e.request.check };
+          playSound('incoming');
+          break;
+        case 'trustWaiting':
+          if (this.sheet?.kind === 'trustWait' && this.sheet.deviceId === e.deviceId) this.sheet = { ...this.sheet, check: e.check };
+          break;
+        case 'trustEnded':
+          this.trustEnded(e.deviceId, e.outcome);
           break;
         case 'code':
           this.code = e.code;
@@ -227,6 +293,7 @@ class AppState {
     if (s.freeSpace !== null) this.freeSpace = s.freeSpace;
     this.serverProblem = s.serverProblem;
     this.history = s.history;
+    this.trustAsks = s.trustAsks ?? [];
     void this.loadSelf();
   }
 
@@ -261,7 +328,8 @@ class AppState {
       this.transfers = [next, ...this.transfers];
       if (next.direction === 'receive' && !this.acceptedHere.delete(next.deviceId)) {
         const d = this.devices.find((x) => x.id === next.deviceId);
-        if (d?.autoAccept) {
+        if (d?.autoAccept && next.text !== undefined) this.textArrived(next, d.name);
+        else if (d?.autoAccept) {
           this.toast(t('incoming.autoAccepted', { device: d.name }), 'success');
           playSound('incoming');
         }
@@ -362,6 +430,20 @@ class AppState {
     return true;
   }
 
+  /** Settings > Receiving > Who can send to me. False (with a toast) if it couldn't be saved. */
+  async setWhoCanSend(who: WhoCanSend): Promise<boolean> {
+    const before = this.whoCanSend;
+    this.whoCanSend = who;
+    try {
+      await this.engine.setWhoCanSend(who);
+    } catch {
+      this.whoCanSend = before;
+      this.toast(t('settings.receive.who.failed'), 'danger');
+      return false;
+    }
+    return true;
+  }
+
   clearHistory(): void {
     this.engine.clearHistory();
     this.history = [];
@@ -395,8 +477,19 @@ class AppState {
     this.engine.createCode().catch((e) => this.toast(message(e), 'danger'));
   }
 
-  /** Opens a received file, or shows it in its folder. */
-  async openReceived(transferId: string, reveal: boolean): Promise<void> {
+  /**
+   * Opens a received file, or shows it in its folder. A program or script (opening it runs it)
+   * asks first; `confirmed` is the answer.
+   */
+  async openReceived(transferId: string, reveal: boolean, confirmed = false): Promise<void> {
+    const entry = this.transfers.find((x) => x.id === transferId) ?? this.historyEntry(transferId);
+    const only = entry?.files.length === 1 ? entry.files[0] : undefined;
+    if (!reveal && !confirmed && only && isRunnable(only.name)) {
+      const deviceName = this.device(entry!.deviceId)?.name ?? (entry && 'deviceName' in entry ? entry.deviceName : 'another device');
+      this.sheet = { kind: 'confirmOpen', transferId, fileName: only.name, deviceName };
+      return;
+    }
+    if (confirmed && this.sheet?.kind === 'confirmOpen') this.sheet = null;
     if (!this.native) {
       this.toast(reveal ? 'Prototype: would show the file in its folder' : 'Prototype: would open the file');
       return;
@@ -408,11 +501,65 @@ class AppState {
     }
   }
 
+  /** Text from one of your own devices with "Accept files automatically" on: it goes straight to
+   *  the clipboard (the desktop app's Rust side already put it there, even with the window hidden). */
+  private textArrived(tr: Transfer, device: string): void {
+    const text = tr.text ?? '';
+    if (!this.native) void navigator.clipboard?.writeText(text).catch(() => {});
+    const link = isLink(text);
+    this.toast(
+      t(link ? 'text.copied.link' : 'text.copied.from', { device }),
+      'success',
+      link ? { label: t('text.open'), run: () => void this.openLink(text.trim()) } : { label: t('text.show'), run: () => (this.sheet = { kind: 'text', id: tr.id }) },
+    );
+  }
+
+  /** Copies text you chose to copy (a button), with a toast. */
+  async copyText(text: string): Promise<boolean> {
+    try {
+      if (this.native) await shell.writeClipboard(text);
+      else await navigator.clipboard.writeText(text);
+    } catch {
+      this.toast(t('text.copyFailed'), 'danger');
+      return false;
+    }
+    playHaptic('buttonPress');
+    this.toast(t('text.copied'), 'success');
+    return true;
+  }
+
+  async openLink(url: string): Promise<void> {
+    if (!isLink(url)) return;
+    if (this.native) await shell.openLink(url.trim()).catch((e) => this.toast(message(e), 'danger'));
+    else window.open(url.trim(), '_blank', 'noopener');
+  }
+
+  /** What's on the clipboard as text ("" when nothing, or it can't be read). */
+  async readClipboard(): Promise<string> {
+    try {
+      return this.native ? await shell.readClipboard() : await navigator.clipboard.readText();
+    } catch {
+      return '';
+    }
+  }
+
+  /** Settings > About: copies the diagnostics report. False (with a toast) if it couldn't. */
+  async copyDiagnostics(): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(await this.engine.diagnostics());
+    } catch {
+      this.toast(t('settings.about.diagnostics.failed'), 'danger');
+      return false;
+    }
+    this.toast(t('settings.about.diagnostics.copied'), 'success');
+    return true;
+  }
+
   toast(text: string, tone: Toast['tone'] = 'neutral', action?: Toast['action']): void {
-    const toast: Toast = { id: ++this.toastSeq, text, tone, action };
+    const toast: Toast = { id: ++this.toastSeq, text, tone, action, ms: action ? 6000 : 4000 };
     if (tone === 'danger') playSound('error');
     this.toasts = [...this.toasts, toast].slice(-2);
-    setTimeout(() => this.dismissToast(toast.id), action ? 6000 : 4000);
+    setTimeout(() => this.dismissToast(toast.id), toast.ms);
   }
 
   dismissToast(id: number): void {
@@ -423,14 +570,54 @@ class AppState {
 
   stage(files: FileItem[]): void {
     if (!files.length) return;
+    this.stagedText = null;
     this.staged = [...this.staged, ...files];
   }
 
+  /** Text to send instead of files. False (with a toast) when it's empty or too long. */
+  stageText(text: string): boolean {
+    if (!text.trim()) {
+      this.toast(t('send.clipboard.empty'), 'warning');
+      return false;
+    }
+    if (utf8Bytes(text) > TEXT_MAX) {
+      this.toast(t('send.text.tooLong'), 'warning');
+      return false;
+    }
+    this.staged = [];
+    this.stagedText = text;
+    return true;
+  }
+
+  /** Home > Clipboard: whatever text is on the clipboard, ready to go to a device. */
+  async stageClipboard(): Promise<boolean> {
+    return this.stageText(await this.readClipboard());
+  }
+
+  /** Files from the browser's pickers and drops. A folder picker gives each file's path inside
+   *  the folder, which becomes its `folder`. */
   stageFromFileList(list: FileList | File[]): void {
     let n = 0;
     this.stage(
-      [...list].map((file) => ({ id: `u${Date.now()}-${n++}`, name: file.name, size: file.size || 1, mime: file.type || 'application/octet-stream' })),
+      [...list].map((file) => {
+        const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? '';
+        const cut = rel.lastIndexOf('/');
+        const item: FileItem = { id: `u${Date.now()}-${n++}`, name: file.name, size: file.size || 1, mime: file.type || 'application/octet-stream' };
+        if (cut > 0) item.folder = rel.slice(0, cut);
+        return item;
+      }),
     );
+  }
+
+  /** Desktop app: the native "choose folders" dialog. Resolves to what was staged. */
+  async pickFolders(): Promise<FileItem[]> {
+    try {
+      const picked = await shell.pickFoldersToSend();
+      return picked ? this.stagePicked(picked) : [];
+    } catch (e) {
+      this.toast(message(e), 'danger');
+      return [];
+    }
   }
 
   /** Desktop app: stages files by path (picked in the dialog, or dropped from the file manager). */
@@ -471,9 +658,24 @@ class AppState {
 
   clearStaged(): void {
     this.staged = [];
+    this.stagedText = null;
+  }
+
+  /** Asks Home to open its file or folder picker, then send what's picked to `deviceId`. */
+  requestPick(kind: 'files' | 'folder', deviceId: string): void {
+    this.pickRequest = { kind, deviceId, n: ++this.pickSeq };
+  }
+
+  /** Something is waiting to be sent: files or text. */
+  get hasStaged(): boolean {
+    return this.staged.length > 0 || this.stagedText !== null;
   }
 
   sendTo(deviceId: string, files: FileItem[] = this.staged): void {
+    if (this.stagedText !== null && files === this.staged) {
+      this.sendTextTo(deviceId, this.stagedText);
+      return;
+    }
     if (!files.length) return;
     const sending = [...files];
     this.staged = [];
@@ -487,7 +689,54 @@ class AppState {
     });
   }
 
+  sendTextTo(deviceId: string, text: string): void {
+    this.stagedText = null;
+    this.bump(deviceId);
+    if (this.sheet?.kind === 'send' || this.sheet?.kind === 'compose') this.sheet = null;
+    playSound('send');
+    this.engine.sendText(deviceId, text).catch((e) => {
+      if (this.stagedText === null && !this.staged.length) this.stagedText = text;
+      this.toast(message(e) || t('send.failed'), 'danger');
+    });
+  }
+
   stagedSummary = $derived(summarizeFiles(this.staged));
+
+  // ---------- Trust from Nearby ----------
+
+  /** Asks a nearby device to trust this one, and to be trusted back; the sheet waits for it. */
+  askTrust(deviceId: string): void {
+    this.sheet = { kind: 'trustWait', deviceId, check: null };
+    this.engine.askTrust(deviceId).catch((e) => {
+      if (this.sheet?.kind === 'trustWait' && this.sheet.deviceId === deviceId) this.sheet = null;
+      this.toast(message(e), 'danger');
+    });
+  }
+
+  cancelTrust(deviceId: string): void {
+    this.engine.cancelTrust(deviceId);
+    if (this.sheet?.kind === 'trustWait' && this.sheet.deviceId === deviceId) this.sheet = null;
+  }
+
+  answerTrust(deviceId: string, yes: boolean): void {
+    this.trustAsks = this.trustAsks.filter((r) => r.deviceId !== deviceId);
+    if (this.sheet?.kind === 'trustAsk' && this.sheet.deviceId === deviceId) this.sheet = null;
+    this.engine.answerTrust(deviceId, yes);
+    // A yes opens the paired sheet when both have saved each other.
+  }
+
+  private trustEnded(deviceId: string, outcome: TrustOutcome): void {
+    this.trustAsks = this.trustAsks.filter((r) => r.deviceId !== deviceId);
+    const open = this.sheet && (this.sheet.kind === 'trustWait' || this.sheet.kind === 'trustAsk') && this.sheet.deviceId === deviceId;
+    const asking = this.sheet?.kind === 'trustWait';
+    if (open) this.sheet = null;
+    const device = this.deviceName(deviceId);
+    // Saying no here needs no toast; everything else says what happened.
+    if (outcome === 'declined' && !asking) return;
+    if (!open && outcome !== 'withdrawn') return;
+    this.toast(t(`trust.ended.${outcome}`, { device }), outcome === 'declined' || outcome === 'withdrawn' ? 'neutral' : 'warning');
+    playSound(outcome === 'declined' ? 'decline' : 'cancel');
+  }
 
   // ---------- Receiving ----------
 

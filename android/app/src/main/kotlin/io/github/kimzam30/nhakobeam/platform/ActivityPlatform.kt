@@ -2,6 +2,8 @@ package io.github.kimzam30.nhakobeam.platform
 
 import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
@@ -24,6 +26,30 @@ class ActivityPlatform(private val activity: ComponentActivity, private val app:
     private val picker = activity.registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isEmpty()) app.pickTarget = null else app.stageUris(uris.map { it.toString() })
     }
+
+    private val folderPicker = activity.registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree == null) app.pickTarget = null else app.stageFolder(tree.toString())
+    }
+
+    override fun pickFolder() {
+        try {
+            folderPicker.launch(null)
+        } catch (e: ActivityNotFoundException) {
+            app.pickTarget = null
+            app.toast(t("send.failed"), ToastTone.Danger)
+        }
+    }
+
+    private val clipboard get() = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    // Android only lets the app on screen read the clipboard, which is when this is asked.
+    override fun readClipboard(): String =
+        runCatching { clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(activity)?.toString() }.getOrNull().orEmpty()
+
+    override fun writeClipboard(text: String): Boolean =
+        runCatching { clipboard.setPrimaryClip(ClipData.newPlainText("Nhako Beam", text)) }.isSuccess
+
+    override fun openLink(url: String) = start(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
 
     override fun pickFiles() {
         try {

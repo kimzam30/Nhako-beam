@@ -3,6 +3,7 @@
 package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,18 +42,27 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -67,18 +78,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.kimzam30.nhakobeam.design.NhakoBrand
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
 import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
+import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.LocalSound
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.PhIcon
 import io.github.kimzam30.nhakobeam.ui.theme.style
 import io.github.kimzam30.nhakobeam.ui.withTap
+import kotlinx.coroutines.launch
 
 /** Scales down a touch while pressed (press spring), like every tappable thing in the app. */
 @Composable
@@ -106,10 +120,16 @@ fun NButton(
     padding: Dp = size.padding,
     /** Its sound when pressed (desktop: the `sound` prop of Button.svelte). */
     sound: NhakoSound = NhakoSound.Tap,
+    /** A primary button throws sparks when pressed; off where the screen zaps on its own. */
+    sparks: Boolean = true,
 ) {
     val c = Nhako.colors
     val interaction = remember { MutableInteractionSource() }
     val play = LocalSound.current
+    // Release: a thin yellow rim flashes; a primary action also throws a few sparks.
+    val rim = remember { Animatable(0f) }
+    var fire by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
     val (bg, fg) = when (variant) {
         ButtonVariant.Primary -> c.accent to c.onAccent
         ButtonVariant.Secondary -> c.fill to c.textPrimary
@@ -121,12 +141,19 @@ fun NButton(
         modifier = modifier
             .then(if (full) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = size.height)
+            .sparks(if (variant == ButtonVariant.Primary && sparks) fire else 0, count = 4, reach = 28f)
             .pressScale(interaction)
             .alpha(if (enabled) 1f else 0.45f)
+            .rimFlash(rim.value)
             .clip(RoundedCornerShape(NhakoRadius.full))
             .background(bg)
             .clickable(interaction, indication = null, enabled = active, role = Role.Button) {
                 play(sound)
+                fire++
+                scope.launch {
+                    rim.snapTo(0.9f)
+                    rim.animateTo(0f, tween(NhakoMotion.Bolt.flashMs, easing = NhakoMotion.Easing.enter))
+                }
                 onClick()
             }
             .padding(horizontal = padding),
@@ -152,10 +179,42 @@ fun NButton(
     }
 }
 
+/** The thin yellow rim around a pill, at [alpha] (0 = none). Alpha only, so reduced motion keeps it. */
+fun Modifier.rimFlash(alpha: Float): Modifier = drawWithContent {
+    drawContent()
+    if (alpha <= 0f) return@drawWithContent
+    val o = 3.dp.toPx()
+    drawRoundRect(
+        NhakoBrand.yellow, topLeft = Offset(-o, -o), size = Size(size.width + 2 * o, size.height + 2 * o),
+        cornerRadius = CornerRadius(size.height / 2 + o), style = Stroke(2.dp.toPx()), alpha = alpha,
+    )
+}
+
+/**
+ * How each icon answers a press (desktop: `nudges` in IconButton.svelte): the gear turns, the bin
+ * lid lifts, the x spins a quarter, the back caret leans back. [p] runs 0 to 1. Others pop.
+ */
+private fun Modifier.nudge(icon: String, p: Float): Modifier = graphicsLayer {
+    if (p <= 0f || p >= 1f) return@graphicsLayer
+    val bump = if (p < 0.4f) p / 0.4f else 1f - (p - 0.4f) / 0.6f
+    when (icon) {
+        "gear-six" -> rotationZ = 60f * NhakoMotion.Easing.standard.transform(p)
+        "x" -> rotationZ = 90f * NhakoMotion.Easing.standard.transform(p)
+        "trash" -> { translationY = -3.dp.toPx() * bump; rotationZ = -10f * bump }
+        "caret-left" -> translationX = -4.dp.toPx() * bump
+        "clock-counter-clockwise" -> rotationZ = -40f * bump
+        "files" -> translationY = -3.dp.toPx() * bump
+        else -> { val s = if (p < 0.55f) 0.7f + 0.42f * (p / 0.55f) else 1.12f - 0.12f * ((p - 0.55f) / 0.45f); scaleX = s; scaleY = s }
+    }
+}
+
 @Composable
 fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Nhako.colors.textSecondary, size: Dp = 22.dp, weight: IconWeight = IconWeight.Duotone, enabled: Boolean = true, sound: NhakoSound = NhakoSound.Tap) {
     val interaction = remember { MutableInteractionSource() }
     val play = LocalSound.current
+    val reduced = Nhako.reducedMotion
+    val nudge = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
     Box(
         modifier
             .size(48.dp)
@@ -163,12 +222,16 @@ fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modi
             .clip(CircleShape)
             .clickable(interaction, indication = null, enabled = enabled, role = Role.Button) {
                 play(sound)
+                if (!reduced) scope.launch {
+                    nudge.snapTo(0f)
+                    nudge.animateTo(1f, tween(380, easing = LinearEasing))
+                }
                 onClick()
             }
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        PhIcon(icon, size = size, tint = if (enabled) tint else tint.copy(alpha = 0.4f), weight = weight)
+        PhIcon(icon, Modifier.nudge(icon, nudge.value), size = size, tint = if (enabled) tint else tint.copy(alpha = 0.4f), weight = weight)
     }
 }
 
@@ -189,6 +252,9 @@ fun NToggle(checked: Boolean, label: String, onChange: (Boolean) -> Unit, modifi
     val view = LocalView.current
     val play = LocalSound.current
     val x by animateDpAsState(if (checked) 22.dp else 2.dp, NhakoMotion.snappy.spec(), label = "thumb")
+    // The thumb carries a small bolt: lit (yellow, a little bigger) when on, dim when off.
+    val lit by animateFloatAsState(if (checked) 1f else 0.85f, if (Nhako.reducedMotion) tween(0) else NhakoMotion.bouncy.spec(), label = "lit")
+    var zap by remember { mutableIntStateOf(0) }
     val track by animateColorAsState(if (checked) c.accent else c.fillPressed, tween(NhakoMotion.Duration.fast), label = "track")
     Row(
         modifier
@@ -196,6 +262,7 @@ fun NToggle(checked: Boolean, label: String, onChange: (Boolean) -> Unit, modifi
             .heightIn(min = 52.dp)
             .toggleable(checked, role = Role.Switch) {
                 (if (it) NhakoHaptic.ToggleOn else NhakoHaptic.ToggleOff).perform(view)
+                if (it) zap++
                 onChange(it)
                 // After the change, so turning Sounds itself off is silent.
                 play(if (it) NhakoSound.ToggleOn else NhakoSound.ToggleOff)
@@ -208,7 +275,13 @@ fun NToggle(checked: Boolean, label: String, onChange: (Boolean) -> Unit, modifi
         }
         Spacer(Modifier.width(NhakoSpace.s5))
         Box(Modifier.size(48.dp, 28.dp).clip(RoundedCornerShape(NhakoRadius.full)).background(track)) {
-            Box(Modifier.offset { IntOffset(x.roundToPx(), 2.dp.roundToPx()) }.size(24.dp).shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White))
+            Box(
+                Modifier.offset { IntOffset(x.roundToPx(), 2.dp.roundToPx()) }.size(24.dp).sparks(zap, count = 3, reach = 22f, sizeDp = 11f)
+                    .shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White),
+                contentAlignment = Alignment.Center,
+            ) {
+                Bolt(14.dp, Modifier.graphicsLayer { scaleX = lit; scaleY = lit }, brand = checked, tint = c.textDisabled)
+            }
         }
     }
 }
@@ -238,7 +311,16 @@ fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> U
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (o.icon != null) {
-                        PhIcon(o.icon, size = 16.dp, tint = if (on) c.textPrimary else c.textSecondary, weight = if (on) IconWeight.Fill else IconWeight.Duotone)
+                        // The chosen option's icon pops in (desktop: Icon.svelte's crossfade).
+                        val pop = remember { Animatable(1f) }
+                        val reduced = Nhako.reducedMotion
+                        LaunchedEffect(on) {
+                            if (on && !reduced) {
+                                pop.snapTo(0.6f)
+                                pop.animateTo(1f, NhakoMotion.snappy.spec())
+                            }
+                        }
+                        PhIcon(o.icon, Modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value }, size = 16.dp, tint = if (on) c.textPrimary else c.textSecondary, weight = if (on) IconWeight.Fill else IconWeight.Duotone)
                         Spacer(Modifier.width(NhakoSpace.s2))
                     }
                     BasicText(o.label, style = NhakoType.callout.style(if (on) c.textPrimary else c.textSecondary).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(if (on) 600 else 500)))
@@ -298,7 +380,13 @@ fun NTextField(
 ) {
     val c = Nhako.colors
     val border by animateColorAsState(if (error) c.danger else Color.Transparent, tween(NhakoMotion.Duration.fast), label = "border")
+    // Focus draws a thin "charge" line along the bottom, left to right. Reduced motion: it fades.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val reduced = Nhako.reducedMotion
+    val charge by animateFloatAsState(if (focused) 1f else 0f, if (reduced) tween(NhakoMotion.Duration.fast) else NhakoMotion.smooth.spec(), label = "charge")
     BasicTextField(
+        interactionSource = interaction,
         value = value,
         onValueChange = onChange,
         singleLine = true,
@@ -309,16 +397,62 @@ fun NTextField(
         keyboardActions = KeyboardActions(onDone = { onDone() }, onGo = { onDone() }),
         modifier = modifier,
         decorationBox = { inner ->
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.surfaceSunken)
-                    .border(1.5.dp, border, RoundedCornerShape(NhakoRadius.sm)).padding(horizontal = NhakoSpace.s4),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f), contentAlignment = when (align) { TextAlign.Center -> Alignment.Center; TextAlign.End, TextAlign.Right -> Alignment.CenterEnd; else -> Alignment.CenterStart }) {
-                    if (value.isEmpty()) BasicText(placeholder, style = style.copy(color = c.textTertiary, textAlign = align), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    inner()
+            Box {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.surfaceSunken)
+                        .border(1.5.dp, border, RoundedCornerShape(NhakoRadius.sm)).padding(horizontal = NhakoSpace.s4),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f), contentAlignment = when (align) { TextAlign.Center -> Alignment.Center; TextAlign.End, TextAlign.Right -> Alignment.CenterEnd; else -> Alignment.CenterStart }) {
+                        if (value.isEmpty()) BasicText(placeholder, style = style.copy(color = c.textTertiary, textAlign = align), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        inner()
+                    }
+                    trailing?.invoke()
                 }
-                trailing?.invoke()
+                if (charge > 0.001f) Box(
+                    Modifier.matchParentSize().drawWithContent {
+                        val inset = NhakoSpace.s4.toPx()
+                        val w = (size.width - 2 * inset) * (if (reduced) 1f else charge)
+                        drawRoundRect(c.accent, Offset(inset, size.height - 2.dp.toPx()), Size(w, 2.dp.toPx()), CornerRadius(1.dp.toPx()), alpha = if (reduced) charge else 1f)
+                    },
+                )
+            }
+        },
+    )
+}
+
+/** A text box for a few lines (Send text), with the same sunken look and charge line as [NTextField]. */
+@Composable
+fun NTextArea(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, placeholder: String = "", error: Boolean = false, minLines: Int = 5) {
+    val c = Nhako.colors
+    val style = NhakoType.body.style(c.textPrimary)
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val reduced = Nhako.reducedMotion
+    val charge by animateFloatAsState(if (focused) 1f else 0f, if (reduced) tween(NhakoMotion.Duration.fast) else NhakoMotion.smooth.spec(), label = "charge")
+    val line = if (error) c.danger else c.accent
+    BasicTextField(
+        interactionSource = interaction,
+        value = value,
+        onValueChange = onChange,
+        textStyle = style,
+        minLines = minLines,
+        maxLines = 12,
+        cursorBrush = SolidColor(c.accent),
+        modifier = modifier,
+        decorationBox = { inner ->
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(NhakoRadius.md)).background(c.surfaceSunken)
+                    .padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s3)
+                    .drawWithContent {
+                        drawContent()
+                        if (charge <= 0.001f) return@drawWithContent
+                        val w = size.width * (if (reduced) 1f else charge)
+                        drawRoundRect(line, Offset(0f, size.height + NhakoSpace.s3.toPx() - 2.dp.toPx()), Size(w, 2.dp.toPx()), CornerRadius(1.dp.toPx()), alpha = if (reduced) charge else 1f)
+                    },
+            ) {
+                if (value.isEmpty()) BasicText(placeholder, style = style.copy(color = c.textTertiary))
+                inner()
             }
         },
     )
@@ -344,5 +478,18 @@ fun Badge(text: String, icon: String?, bg: Color, fg: Color, modifier: Modifier 
             Spacer(Modifier.width(3.dp))
         }
         BasicText(text, style = NhakoType.caption.style(fg))
+    }
+}
+
+/** Long file lists show this many at a time, so a transfer of thousands of files opens at once
+ * (desktop: `FILES_PAGE` in Sheets.svelte). */
+const val FILES_PAGE = 100
+
+/** "Show 100 more" under a file list that has more than it shows. */
+@Composable
+fun MoreFiles(total: Int, shown: Int, onMore: () -> Unit) {
+    if (total <= shown) return
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        NButton(t("transfer.files.more", "count" to minOf(FILES_PAGE, total - shown)), onMore, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "plus")
     }
 }

@@ -1,6 +1,6 @@
 // Pairing code words. Short, common, easy to say and type, no near-duplicates.
 // One shared list for the app and the Rust core: core/src/words.txt (exactly 256 words, so each
-// word is one byte and a code has 16.7 million combinations).
+// word is one byte). A code is four words: 4.3 billion combinations.
 import list from '../../../../core/src/words.txt?raw';
 
 export const WORDS: readonly string[] = list.split('\n').map((w) => w.trim()).filter(Boolean);
@@ -23,13 +23,16 @@ export function suggest(prefix: string, limit = 3): string[] {
   return out;
 }
 
-export function randomWords(rand: () => number = Math.random): [string, string, string] {
+/** How many words a pairing code has. */
+export const CODE_WORDS = 4;
+
+export function randomWords(rand: () => number = Math.random): [string, string, string, string] {
   const list = [...SET];
   const pick = () => list[Math.floor(rand() * list.length)]!;
-  return [pick(), pick(), pick()];
+  return [pick(), pick(), pick(), pick()];
 }
 
-/** Splits pasted text like "river-lantern seven" into words. */
+/** Splits pasted text like "river-lantern seven harbor" into words. */
 export function splitCode(text: string): string[] {
   return text
     .toLowerCase()

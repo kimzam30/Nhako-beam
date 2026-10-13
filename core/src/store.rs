@@ -13,7 +13,7 @@ use std::{
 use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Connection, DeviceKind, OsPlatform};
+use crate::types::{Connection, DeviceKind, OsPlatform, WhoCanSend};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +45,9 @@ pub struct State {
     /// the next time the engine starts.
     #[serde(default = "yes")]
     pub lan_discovery: bool,
+    /// Who may send requests here. Takes effect straight away.
+    #[serde(default)]
+    pub who_can_send: WhoCanSend,
     /// This device's own wake token (Android, when push is set up). Shared with trusted devices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wake_token: Option<String>,
@@ -116,6 +119,7 @@ impl Store {
                     trusted: vec![],
                     connection: Connection::Public,
                     lan_discovery: true,
+                    who_can_send: WhoCanSend::default(),
                     wake_token: None,
                 }
             }
@@ -247,10 +251,18 @@ pub(crate) mod tests {
         let dir = tempdir("store-old");
         let fresh = Store::open(&dir, dir.join("save")).unwrap();
         assert!(fresh.state.lan_discovery);
+        assert_eq!(fresh.state.who_can_send, WhoCanSend::YourDevices);
         let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("state.json")).unwrap()).unwrap();
         v.as_object_mut().unwrap().remove("lanDiscovery");
+        v.as_object_mut().unwrap().remove("whoCanSend");
         std::fs::write(dir.join("state.json"), v.to_string()).unwrap();
-        assert!(Store::open(&dir, dir.join("save")).unwrap().state.lan_discovery);
+        let old = Store::open(&dir, dir.join("save")).unwrap();
+        assert!(old.state.lan_discovery);
+        assert_eq!(
+            old.state.who_can_send,
+            WhoCanSend::YourDevices,
+            "files from before Phase 11 get the new default"
+        );
     }
 
     #[test]

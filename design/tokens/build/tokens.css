@@ -98,6 +98,13 @@
   --distance-enter-offset: 12px;
   --distance-toast-offset: 24px;
   --stagger-step: 30ms;
+  --bolt-spark-count: 5;
+  --bolt-spark-reach: 32px;
+  --bolt-spark-size: 14px;
+  --bolt-spark-ms: 300ms;
+  --bolt-flash-ms: 320ms;
+  --bolt-arc-ms: 420ms;
+  --bolt-morph-ms: 360ms;
   --spring-press: cubic-bezier(0.2, 0, 0, 1);
   --spring-press-duration: 200ms;
   --spring-snappy: cubic-bezier(0.2, 0, 0, 1);
