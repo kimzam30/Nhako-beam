@@ -34,6 +34,11 @@ nhako send ~/Pictures/Trip --to "Work phone"
 # Text or a link. Text that arrives is printed, so it can be piped.
 nhako send --text "https://example.com/menu" --to "Work phone"
 
+# For a device without Nhako Beam: a link to open in its browser, on the same Wi-Fi.
+# Each browser that opens it asks first (--yes lets everyone in). Ctrl+C stops sharing.
+nhako share ~/Pictures/Trip notes.pdf
+nhako share --text "The Wi-Fi password is on the fridge"
+
 # Wait for files from your devices (asks before accepting).
 nhako receive
 

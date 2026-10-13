@@ -1,6 +1,6 @@
 # Nhako Beam motion spec
 
-Version 0.3 (Phase 13 added the bolt, section 4.15; Phase 14 folders, text and trust, 4.16). Values come from [`design/tokens/tokens.json`](../../design/tokens/tokens.json) under `motion`, `gesture` and `haptic`. Open [`design/tokens/preview.html`](../../design/tokens/preview.html) (served over http) to see and play every spring.
+Version 0.4 (Phase 13 added the bolt, section 4.15; Phase 14 folders, text and trust, 4.16; Phase 15 share via link, 4.17). Values come from [`design/tokens/tokens.json`](../../design/tokens/tokens.json) under `motion`, `gesture` and `haptic`. Open [`design/tokens/preview.html`](../../design/tokens/preview.html) (served over http) to see and play every spring.
 
 ---
 
@@ -241,6 +241,18 @@ Reduced motion: no sparks, arcs, strikes, nudges, twitches, rolls, cracks moving
 | Trust ask (both sides) | Your orb and the other device's sit apart with a thin line between them; while the ask is out a short yellow charge runs along it, 1100 ms a lap (the asker's other orb also has the waiting ring). The code appears with the same left to right scan as pairing. A yes ends in the paired sheet's meeting orbs and bolt |
 
 Reduced motion: the charge line is a still half-strength yellow, the scan is a fade, the field line fades in.
+
+### 4.17 Share via link (Phase 15)
+| Moment | Motion |
+|---|---|
+| The sheet | The QR code draws itself in from the top left like the pairing code; the address and what's shared rise in 80 and 120 ms later |
+| A browser arrives | Its row lands on `bouncy` with a tint while it asks (`incoming` sound); the tint fades when you answer |
+| Let in or No | `accept` or `decline` sound and haptic; a turned-away row fades to half |
+| Downloading | A thin bar fills under the row (linear, 250 ms per step); when it's done a check pops in on `bouncy` |
+| Update banner | Slides down like the other banners |
+| The page in the browser | Each view rises 12 px and fades in (320 ms); the file rows follow 30 ms apart, at most 6; the waiting orb breathes slowly while asking |
+
+Reduced motion: rows and views fade without moving, the waiting orb is still, and the bar steps without easing.
 
 ---
 

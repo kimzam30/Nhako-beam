@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The app's page in Linux software centres and on Flathub (AppStream). Check with:
+     appstreamcli validate packaging/linux/io.github.kimzam30.nhakobeam.metainfo.xml -->
+<component type="desktop-application">
+  <id>io.github.kimzam30.nhakobeam</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Nhako Beam</name>
+  <summary>Send files straight between your own devices</summary>
+  <developer id="io.github.kimzam30">
+    <name>kimzam30</name>
+  </developer>
+  <description>
+    <p>
+      Nhako Beam sends files, folders, text and links straight from one of your devices to another:
+      Windows, Linux and Android. Nearby over Wi-Fi, or across the internet when you're apart.
+      No cloud, no account and no size limit.
+    </p>
+    <ul>
+      <li>Your devices find each other on the same Wi-Fi. Pair once with a four-word code to reach them from anywhere.</li>
+      <li>Encrypted end to end, and every file is checked on arrival.</li>
+      <li>Pause and resume, even big files, even after the connection drops.</li>
+      <li>Send whole folders, notes, links and what's on your clipboard.</li>
+      <li>Share via link: someone without the app downloads with their browser, after you let them in.</li>
+      <li>Only your own devices can send to you, unless you choose otherwise.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.kimzam30.nhakobeam.desktop</launchable>
+  <url type="homepage">https://github.com/kimzam30/Nhako-beam</url>
+  <url type="bugtracker">https://github.com/kimzam30/Nhako-beam/issues</url>
+  <url type="vcs-browser">https://github.com/kimzam30/Nhako-beam</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Your devices, nearby and across the internet</caption>
+      <image>https://raw.githubusercontent.com/kimzam30/Nhako-beam/main/packaging/screenshots/desktop-1-devices.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Sending photos and a video</caption>
+      <image>https://raw.githubusercontent.com/kimzam30/Nhako-beam/main/packaging/screenshots/desktop-2-sending.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A folder arriving: accept or decline</caption>
+      <image>https://raw.githubusercontent.com/kimzam30/Nhako-beam/main/packaging/screenshots/desktop-3-request.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Share via link, for a device without the app</caption>
+      <image>https://raw.githubusercontent.com/kimzam30/Nhako-beam/main/packaging/screenshots/desktop-4-share-via-link.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+  </categories>
+  <keywords>
+    <keyword>send</keyword>
+    <keyword>share</keyword>
+    <keyword>transfer</keyword>
+    <keyword>airdrop</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <branding>
+    <color type="primary" scheme_preference="light">#2F8FFF</color>
+    <color type="primary" scheme_preference="dark">#1559B8</color>
+  </branding>
+  <releases>
+    <release version="0.1.0" date="2026-10-13">
+      <description>
+        <p>The first release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

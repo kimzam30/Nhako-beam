@@ -98,6 +98,18 @@
       ],
     ],
     [
+      'Share via link',
+      [
+        ['A phone browser asks', () => e.simVisitor('Chrome on Android', '192.168.1.23'), 'link-visitor'],
+        ['A laptop browser asks', () => e.simVisitor('Edge on Windows', '192.168.1.41'), 'link-visitor-2'],
+        ['Link ends in 20 s', () => e.simLinkEndsSoon(20), 'link-ends-soon'],
+      ],
+    ],
+    [
+      'Updates',
+      [['A new version is out', () => e.simUpdate('0.3.0'), 'update-out']],
+    ],
+    [
       'Network',
       [
         ['Off Wi-Fi (mobile data)', () => ((app.onLan = false), e.simLan(false)), 'lan-off'],

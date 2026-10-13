@@ -971,3 +971,89 @@ test.describe('folders, text and trust (phase 14)', () => {
     await expect(page.getByTestId('sheet-show-code')).toBeVisible();
   });
 });
+
+test.describe('share via link and updates (phase 15)', () => {
+  test('share via link: the QR and address, a browser let in downloads, one turned away', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await ready(page, { speed: 30 });
+    await sim(page, 'stage-photos');
+    await closePanel(page);
+    await page.getByTestId('choose-device').click();
+    await page.getByTestId('share-link').click();
+    const sheet = page.getByTestId('sheet-link');
+    await expect(sheet).toContainText('Share via link');
+    await expect(sheet.getByRole('img', { name: 'QR code with the link' })).toBeVisible();
+    await expect(page.getByTestId('link-url')).toHaveText('http://192.168.1.20:41234/k3jqm8xw2pnrt7ha/');
+    await expect(page.getByTestId('link-timer')).toHaveText(/Ends in 15 min/);
+    await expect(page.getByTestId('link-nobody')).toBeVisible();
+    await expect(page.getByTestId('staged-tray')).toHaveCount(0);
+    await page.getByTestId('link-copy').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('http://192.168.1.20:41234/k3jqm8xw2pnrt7ha/');
+
+    await sim(page, 'link-visitor');
+    await sim(page, 'link-visitor-2');
+    await closePanel(page);
+    const first = page.getByTestId('visitor-v1');
+    await expect(first).toContainText('Chrome on Android');
+    await expect(first).toContainText('192.168.1.23 · Wants to download');
+    await page.getByTestId('visitor-allow-v1').click();
+    await expect(first).toContainText(/Downloaded/, { timeout: 10_000 });
+    await page.getByTestId('visitor-deny-v2').click();
+    await expect(page.getByTestId('visitor-v2')).toContainText('Turned away');
+
+    // Closed, it keeps sharing: Home says so, and opens it again.
+    await page.getByTestId('sheet-link').getByTestId('sheet-close').click();
+    await expect(page.getByTestId('banner-link')).toContainText('Sharing a link');
+    await page.getByTestId('banner-link').getByRole('button', { name: 'Show' }).click();
+    await page.getByTestId('link-stop').click();
+    await expect(page.getByTestId('sheet-link')).toHaveCount(0);
+    await expect(page.getByTestId('banner-link')).toHaveCount(0);
+    await expect(page.getByText('Stopped sharing')).toBeVisible();
+  });
+
+  test('share via link: a browser asking opens the sheet, and the link ends by itself', async ({ page }) => {
+    await ready(page, { speed: 30 });
+    await sim(page, 'stage-link');
+    await closePanel(page);
+    await page.getByTestId('choose-device').click();
+    await page.getByTestId('share-link').click();
+    await page.getByTestId('sheet-link').getByTestId('sheet-close').click();
+    await sim(page, 'link-visitor');
+    await closePanel(page);
+    await expect(page.getByTestId('sheet-link')).toBeVisible();
+    await expect(page.getByTestId('visitor-v1')).toContainText('Wants to download');
+    expect(await soundsPlayed(page)).toContain('incoming');
+    await sim(page, 'link-ends-soon');
+    await page.evaluate(() => (window as any).__nhako.app.mock.simLinkEndsSoon(0));
+    await closePanel(page);
+    await expect(page.getByText('The link has ended')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('sheet-link')).toHaveCount(0);
+  });
+
+  test('share via link needs Wi-Fi', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-photos');
+    await sim(page, 'lan-off');
+    await closePanel(page);
+    await page.getByTestId('choose-device').click();
+    await expect(page.getByTestId('share-link')).toBeDisabled();
+    await expect(page.getByTestId('share-link')).toContainText('Connect to Wi-Fi to share with a link');
+  });
+
+  test('a new version: a quiet banner, Not now hides it, Settings has it and the switch', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'update-out');
+    await closePanel(page);
+    await expect(page.getByTestId('banner-update')).toContainText('Nhako Beam 0.3.0 is out');
+    await page.getByTestId('update-later').click();
+    await expect(page.getByTestId('banner-update')).toHaveCount(0);
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('settings-update')).toContainText('Nhako Beam 0.3.0 is out');
+    const toggle = page.getByTestId('update-check');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByTestId('settings-update')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__nhako.app.updateCheck)).toBe(false);
+  });
+});

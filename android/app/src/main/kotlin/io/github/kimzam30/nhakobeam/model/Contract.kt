@@ -188,6 +188,55 @@ enum class TrustOutcome {
     @SerialName("busy") Busy,
 }
 
+/** A newer Nhako Beam on GitHub (Settings > About > Check for new versions). */
+@Serializable
+data class UpdateInfo(
+    /** "0.3.0". */
+    val version: String,
+    /** Its release page, where the downloads are. */
+    val url: String,
+)
+
+/** Files (and or text) shared with a link, for a device without the app (Share via link). */
+@Serializable
+data class LinkShare(
+    val id: String,
+    /** "http://192.168.1.20:41234/k3jq.../", also in the QR code. */
+    val url: String,
+    val files: List<FileItem> = emptyList(),
+    val totalBytes: Long = 0,
+    val text: String? = null,
+    /** Epoch ms. Downloads running then carry on, and the link stops after them. */
+    val expiresAt: Long,
+    /** Browsers that opened the link, in the order they came. */
+    val visitors: List<LinkVisitor> = emptyList(),
+)
+
+/** A browser that opened a shared link. */
+@Serializable
+data class LinkVisitor(
+    val id: String,
+    /** "Chrome on Android", from what the browser says about itself. */
+    val label: String,
+    /** Its address on the network, "192.168.1.23". */
+    val address: String,
+    val state: VisitorState,
+    val arrivedAt: Long = 0,
+    /** Downloads running now: bytes so far, and their sizes. Both 0 when nothing is running. */
+    val activeBytes: Long = 0,
+    val activeTotal: Long = 0,
+    /** Downloads finished (a file, or the zip of everything). */
+    val downloads: Int = 0,
+)
+
+@Serializable
+enum class VisitorState {
+    /** Waiting for you to let it in. */
+    @SerialName("asking") Asking,
+    @SerialName("allowed") Allowed,
+    @SerialName("denied") Denied,
+}
+
 /** Four words (since Phase 11). */
 @Serializable
 data class PairingCode(val words: List<String>, val expiresAt: Long, val uri: String)
@@ -242,6 +291,10 @@ data class Snapshot(
     val history: List<HistoryEntry> = emptyList(),
     /** Trust asks waiting for an answer here. */
     val trustAsks: List<TrustRequest> = emptyList(),
+    /** The link being shared, if any. */
+    val linkShare: LinkShare? = null,
+    /** A newer version, when the last check found one. */
+    val update: UpdateInfo? = null,
 )
 
 @Serializable
@@ -336,6 +389,14 @@ sealed interface EngineEvent {
     /** A trust ask ended without a match (on either device). A match ends with [Paired] instead. */
     @Serializable @SerialName("trustEnded")
     data class TrustEnded(val deviceId: String, val outcome: TrustOutcome) : EngineEvent
+
+    /** The link being shared changed: started, a browser came or moved, or it stopped (null). */
+    @Serializable @SerialName("linkShare")
+    data class LinkShareChanged(val share: LinkShare? = null) : EngineEvent
+
+    /** A newer version is out (or, null, none is). */
+    @Serializable @SerialName("update")
+    data class Update(val update: UpdateInfo? = null) : EngineEvent
 
     @Serializable @SerialName("snapshot")
     data class SnapshotEvent(val snapshot: Snapshot) : EngineEvent

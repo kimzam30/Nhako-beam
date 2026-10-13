@@ -228,6 +228,60 @@ pub enum TrustOutcome {
     Busy,
 }
 
+/// A newer Nhako Beam on GitHub (Settings > About > Check for new versions).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    /// `0.3.0`.
+    pub version: String,
+    /// Its release page, where the downloads are.
+    pub url: String,
+}
+
+/// Files (and or text) shared with a link, for a device without the app (Share via link).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkShare {
+    pub id: String,
+    /// `http://192.168.1.20:41234/k3jq.../`, also in the QR code.
+    pub url: String,
+    pub files: Vec<FileItem>,
+    pub total_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Epoch milliseconds. Downloads running then carry on, and the link stops after them.
+    pub expires_at: u64,
+    /// Browsers that opened the link, in the order they came.
+    pub visitors: Vec<LinkVisitor>,
+}
+
+/// A browser that opened a shared link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkVisitor {
+    pub id: String,
+    /// "Chrome on Android", from what the browser says about itself.
+    pub label: String,
+    /// Its address on the network, `192.168.1.23`.
+    pub address: String,
+    pub state: VisitorState,
+    pub arrived_at: u64,
+    /// Downloads running now: bytes so far, and their sizes. Both 0 when nothing is running.
+    pub active_bytes: u64,
+    pub active_total: u64,
+    /// Downloads finished (a file, or the zip of everything).
+    pub downloads: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VisitorState {
+    /// Waiting for you to let it in.
+    Asking,
+    Allowed,
+    Denied,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingCode {
@@ -431,6 +485,14 @@ pub enum EngineEvent {
         device_id: String,
         outcome: TrustOutcome,
     },
+    /// The link being shared changed: started, a browser came or moved, or it stopped (`null`).
+    LinkShare {
+        share: Option<LinkShare>,
+    },
+    /// A newer version is out (or, `null`, none is).
+    Update {
+        update: Option<UpdateInfo>,
+    },
 }
 
 /// Everything the app needs to draw itself, for when its window (re)loads after the engine started.
@@ -448,6 +510,10 @@ pub struct Snapshot {
     pub history: Vec<HistoryEntry>,
     /// Trust asks waiting for an answer here.
     pub trust_asks: Vec<TrustRequest>,
+    /// The link being shared, if any.
+    pub link_share: Option<LinkShare>,
+    /// A newer version, when the last check found one.
+    pub update: Option<UpdateInfo>,
 }
 
 #[cfg(test)]
@@ -521,6 +587,45 @@ mod tests {
             r#"{"type":"trustEnded","deviceId":"d","outcome":"outdated"}"#
         );
         assert_eq!(serde_json::to_string(&PairVia::Nearby).unwrap(), r#""nearby""#);
+
+        let e = EngineEvent::LinkShare {
+            share: Some(LinkShare {
+                id: "s".into(),
+                url: "http://192.168.1.20:4000/k/".into(),
+                files: vec![],
+                total_bytes: 0,
+                text: Some("hi".into()),
+                expires_at: 2,
+                visitors: vec![LinkVisitor {
+                    id: "v".into(),
+                    label: "Chrome on Android".into(),
+                    address: "192.168.1.23".into(),
+                    state: VisitorState::Asking,
+                    arrived_at: 1,
+                    active_bytes: 0,
+                    active_total: 0,
+                    downloads: 0,
+                }],
+            }),
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"linkShare","share":{"id":"s","url":"http://192.168.1.20:4000/k/","files":[],"totalBytes":0,"text":"hi","expiresAt":2,"visitors":[{"id":"v","label":"Chrome on Android","address":"192.168.1.23","state":"asking","arrivedAt":1,"activeBytes":0,"activeTotal":0,"downloads":0}]}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&EngineEvent::LinkShare { share: None }).unwrap(),
+            r#"{"type":"linkShare","share":null}"#
+        );
+        let e = EngineEvent::Update {
+            update: Some(UpdateInfo {
+                version: "0.3.0".into(),
+                url: "https://github.com/x/releases/tag/v0.3.0".into(),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"update","update":{"version":"0.3.0","url":"https://github.com/x/releases/tag/v0.3.0"}}"#
+        );
 
         let f = FileItem {
             id: "f0".into(),

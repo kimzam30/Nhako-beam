@@ -83,6 +83,14 @@ pub struct EngineConfig {
     pub wake_url: Option<url::Url>,
     /// How long to keep dialling after asking a device to wake up.
     pub wake_for: Duration,
+    /// GitHub's list of releases, looked at once a day for a newer version. `None` in builds that
+    /// get updates from a store, and in the command line tool.
+    pub update_url: Option<url::Url>,
+    /// How long a shared link works (Share via link).
+    pub share_for: Duration,
+    /// Tests: the address Share via link serves on, instead of this device's own on the network.
+    #[doc(hidden)]
+    pub test_share_ip: Option<std::net::IpAddr>,
 }
 
 impl EngineConfig {
@@ -102,6 +110,9 @@ impl EngineConfig {
             test_rate_limit: None,
             wake_url: wake::default_url(),
             wake_for: wake::WAKE_FOR,
+            update_url: crate::update::default_url(),
+            share_for: crate::share::SHARE_FOR,
+            test_share_ip: None,
         }
     }
 }
@@ -124,6 +135,9 @@ pub enum EngineError {
     TextTooLong,
     #[error("that device isn't nearby")]
     NotNearby,
+    /// Share via link needs a local network (Wi-Fi, a cable or a hotspot).
+    #[error("not on a local network")]
+    NoLan,
 }
 
 pub(crate) type FrameRx = mpsc::Receiver<Result<Vec<u8>, wire::WireError>>;
@@ -321,6 +335,10 @@ pub(crate) struct St {
     pub(crate) trust_asking: HashMap<EndpointId, oneshot::Sender<()>>,
     /// When each device asked to be trusted here, over the last minute.
     pub(crate) trust_ask_times: HashMap<EndpointId, Vec<Instant>>,
+    /// The link being shared (Share via link). Dropping it stops its server.
+    pub(crate) share: Option<crate::share::Hosted>,
+    /// When the update check last tried, during this run.
+    update_tried: Option<Instant>,
 }
 
 pub(crate) struct Inner {
@@ -522,6 +540,8 @@ impl Engine {
                 trust_asks: HashMap::new(),
                 trust_asking: HashMap::new(),
                 trust_ask_times: HashMap::new(),
+                share: None,
+                update_tried: None,
             }),
             events,
             tasks: Mutex::new(Vec::new()),
@@ -542,6 +562,7 @@ impl Engine {
     /// Closes the network and stops background work.
     pub async fn stop(&self) {
         self.cancel_code();
+        self.stop_link();
         let code_task = self.inner.code_task.lock().expect("code task lock").take();
         if let Some(t) = code_task {
             let _ = tokio::time::timeout(Duration::from_secs(3), t).await;
@@ -622,6 +643,8 @@ impl Engine {
             server_problem,
             history: self.history(),
             trust_asks: self.trust_asks(),
+            link_share: self.link_share(),
+            update: self.update_found(),
         }
     }
 
@@ -1026,6 +1049,80 @@ impl Engine {
         s.state.who_can_send = who;
         s.save()?;
         Ok(())
+    }
+
+    /// Settings > About > Check for new versions. `None` when this build doesn't check (it gets
+    /// updates from a store).
+    pub fn update_check(&self) -> Option<bool> {
+        self.inner.cfg.update_url.as_ref().map(|_| self.store().state.update_check)
+    }
+
+    /// Turns the daily check for a new version on or off. Turning it on looks soon.
+    pub fn set_update_check(&self, on: bool) -> Result<(), EngineError> {
+        {
+            let mut s = self.store();
+            s.state.update_check = on;
+            if !on {
+                s.state.update_found = None;
+            }
+            s.save()?;
+        }
+        if on {
+            self.st().update_tried = None;
+            self.maybe_check_update();
+        } else {
+            self.emit(EngineEvent::Update { update: None });
+        }
+        Ok(())
+    }
+
+    /// The newer version the last check found, if it's still newer than this one.
+    pub fn update_found(&self) -> Option<UpdateInfo> {
+        self.inner.cfg.update_url.as_ref()?;
+        let s = self.store();
+        s.state
+            .update_found
+            .clone()
+            .filter(|u| s.state.update_check && crate::update::newer(&u.version, env!("CARGO_PKG_VERSION")))
+    }
+
+    /// Looks for a new version when it's on, a day has passed, and the last failed try was over
+    /// an hour ago.
+    fn maybe_check_update(&self) {
+        let Some(url) = self.inner.cfg.update_url.clone() else { return };
+        {
+            let s = self.store();
+            if !s.state.update_check || now_ms().saturating_sub(s.state.update_checked_at) < crate::update::CHECK_EVERY.as_millis() as u64 {
+                return;
+            }
+        }
+        {
+            let mut st = self.st();
+            if st.update_tried.is_some_and(|t| t.elapsed() < crate::update::RETRY_AFTER) {
+                return;
+            }
+            st.update_tried = Some(Instant::now());
+        }
+        let e = self.clone();
+        tokio::spawn(async move {
+            match crate::update::check(&url, env!("CARGO_PKG_VERSION")).await {
+                Ok(found) => {
+                    {
+                        let mut s = e.store();
+                        s.state.update_checked_at = now_ms();
+                        s.state.update_found = found.clone();
+                        if let Err(err) = s.save() {
+                            warn!("couldn't save the update check: {err}");
+                        }
+                    }
+                    if let Some(u) = &found {
+                        info!("Nhako Beam {} is out", u.version);
+                    }
+                    e.emit(EngineEvent::Update { update: e.update_found() });
+                }
+                Err(err) => debug!("couldn't check for a new version: {err}"),
+            }
+        });
     }
 
     /// This device's wake token (Android, from Firebase), or `None` when push isn't available.
@@ -1586,6 +1683,7 @@ impl Engine {
                     e.check_own_server().await;
                 });
             }
+            self.maybe_check_update();
             let every = if foreground { RECHECK_TRUSTED } else { RECHECK_IN_BACKGROUND };
             if trusted_checked.elapsed() >= every {
                 trusted_checked = Instant::now();

@@ -144,6 +144,45 @@ export interface TrustRequest {
  *  Asked: declined (you said no), withdrawn (the asker gave up or went away). */
 export type TrustOutcome = 'declined' | 'withdrawn' | 'outdated' | 'unreachable' | 'busy';
 
+/** A newer Nhako Beam on GitHub (Settings > About > Check for new versions). */
+export interface UpdateInfo {
+  /** "0.3.0". */
+  version: string;
+  /** Its release page, where the downloads are. */
+  url: string;
+}
+
+/** Files (and or text) shared with a link, for a device without the app (Share via link). */
+export interface LinkShare {
+  id: string;
+  /** "http://192.168.1.20:41234/k3jq.../", also in the QR code. */
+  url: string;
+  files: FileItem[];
+  totalBytes: number;
+  text?: string;
+  /** Epoch ms. Downloads running then carry on, and the link stops after them. */
+  expiresAt: number;
+  /** Browsers that opened the link, in the order they came. */
+  visitors: LinkVisitor[];
+}
+
+/** A browser that opened a shared link. */
+export interface LinkVisitor {
+  id: string;
+  /** "Chrome on Android", from what the browser says about itself. */
+  label: string;
+  /** Its address on the network, "192.168.1.23". */
+  address: string;
+  /** Asking: waiting for you to let it in. */
+  state: 'asking' | 'allowed' | 'denied';
+  arrivedAt: number;
+  /** Downloads running now: bytes so far, and their sizes. Both 0 when nothing is running. */
+  activeBytes: number;
+  activeTotal: number;
+  /** Downloads finished (a file, or the zip of everything). */
+  downloads: number;
+}
+
 /** The longest text sent as text, in bytes of UTF-8. Longer text goes as a file. */
 export const TEXT_MAX = 64 * 1024;
 
@@ -186,6 +225,10 @@ export interface Snapshot {
   history: HistoryEntry[];
   /** Trust asks waiting for an answer here. */
   trustAsks: TrustRequest[];
+  /** The link being shared, if any. */
+  linkShare: LinkShare | null;
+  /** A newer version, when the last check found one. */
+  update: UpdateInfo | null;
 }
 
 /** This device, as the engine knows it. */
@@ -251,6 +294,10 @@ export type EngineEvent =
   | { type: 'trustWaiting'; deviceId: string; check: string }
   /** A trust ask ended without a match (on either device). A match ends with `paired` instead. */
   | { type: 'trustEnded'; deviceId: string; outcome: TrustOutcome }
+  /** The link being shared changed: started, a browser came or moved, or it stopped (null). */
+  | { type: 'linkShare'; share: LinkShare | null }
+  /** A newer version is out (or, null, none is). */
+  | { type: 'update'; update: UpdateInfo | null }
   /** Redraw from this (the engine restarted, or the window fell behind). Replaces devices and requests. */
   | { type: 'snapshot'; snapshot: Snapshot };
 
@@ -306,6 +353,17 @@ export interface Engine {
   /** Who may send requests here. Applies to the next request, no reconnect. */
   getWhoCanSend(): Promise<WhoCanSend>;
   setWhoCanSend(who: WhoCanSend): Promise<void>;
+
+  /** Starts sharing files and or text with a link, replacing one already shared. Rejects with a
+   *  plain-language message (off a local network, a file that was moved). */
+  shareLink(files: FileItem[], text?: string): Promise<LinkShare>;
+  stopLink(): void;
+  /** Lets a browser in to the shared link, or turns it away. */
+  answerVisitor(visitorId: string, allow: boolean): void;
+
+  /** Settings > About > Check for new versions. null in builds that get updates from a store. */
+  getUpdateCheck(): Promise<boolean | null>;
+  setUpdateCheck(on: boolean): Promise<void>;
 
   /** Forgets every History entry. Received files stay where they are. */
   clearHistory(): void;

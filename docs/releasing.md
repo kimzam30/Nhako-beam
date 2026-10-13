@@ -133,9 +133,90 @@ git tag -d v0.2.0 && git push origin :refs/tags/v0.2.0
 Then tag again from step 3. **Never move a tag after you publish**: people may already have those
 files. Release `0.2.1` instead.
 
+## Stores and signing
+
+Everything below is free. The files are in the repository; the steps marked **you** need your
+accounts, so they're yours to do. Do them once, after the first release you're happy with.
+
+### Signing the Windows installer (SignPath)
+
+[SignPath Foundation](https://signpath.org) signs installers of open-source projects for free, so
+SmartScreen stops saying "Windows protected your PC". The Build workflow already has the steps; they
+stay skipped until SignPath is set up.
+
+1. **You:** apply at signpath.org/apply with the repository address. They check the project is open
+   source and builds on GitHub Actions. It can take a few weeks.
+2. **You:** once accepted, in SignPath create the project `nhako-beam` with an artifact configuration
+   for a single `.exe` (Authenticode), and the signing policies `test-signing` and `release-signing`.
+   Link it to this repository as a "trusted build system" (GitHub.com).
+3. **You:** in GitHub, Settings > Secrets and variables > Actions: add the secret `SIGNPATH_API_TOKEN`
+   (from SignPath, a CI user's token) and the variable `SIGNPATH_ORGANIZATION_ID`.
+
+From then on each build sends the installer to SignPath and gets it back signed: test-signed for
+ordinary builds, release-signed for a release (SignPath may ask you to approve each release-signing
+request in their website). Only the installer is signed, not the app inside it; SmartScreen judges
+the installer you download.
+
+### winget
+
+`winget install Kimzam30.NhakoBeam` on Windows. Each release run makes the three manifest files for
+that version (`scripts/winget.mjs`): on the run's page under Artifacts, **winget-manifests**.
+
+1. Publish the release first (the manifests point at its download address).
+2. **You:** submit them. Easiest: install `wingetcreate` (`winget install wingetcreate`), then
+   `wingetcreate submit --token <a GitHub token> <the unzipped folder>`. It opens a pull request on
+   microsoft/winget-pkgs, which their bots check (it downloads and scans the installer). A person
+   reviews the first one; later versions usually go through by themselves.
+
+### Flathub
+
+`packaging/flatpak/` has the manifest, built from source and offline as Flathub requires, and
+`packaging/linux/` the AppStream file (the store page) and the desktop entry. The screenshots on the
+page are `packaging/screenshots/` (made with `STORE_SHOTS=1 npx playwright test store-shots
+--project=desktop` in `desktop/`), loaded from the `main` branch.
+
+To try it here: `packaging/flatpak/build-local.sh` builds this checkout and installs it, then
+`flatpak run io.github.kimzam30.nhakobeam`.
+
+In the Flatpak, two things are left out because the sandbox can't do them: "Send with Nhako Beam" in
+the file manager, and "Start when you log in". The update check is off too: Flathub updates the app.
+
+1. **You:** fork github.com/flathub/flathub and open a pull request to its `new-pr` branch with
+   `io.github.kimzam30.nhakobeam.yml`, `cargo-sources.json` and `node-sources.json` (make the last two
+   with `packaging/flatpak/generate-sources.sh`), and Flathub's shared modules as a git submodule
+   named `shared-modules`. Set the manifest's `tag:` to the release, and add its `commit:`.
+2. Their reviewers comment on the pull request; answer there. Once merged, Flathub makes a repository
+   `flathub/io.github.kimzam30.nhakobeam` for you, and each later release is a pull request there with
+   the new tag and fresh source lists.
+3. Verifying the app id (io.github.kimzam30) is done on Flathub's website by adding a file to the
+   GitHub Pages of `kimzam30`, or they accept the GitHub account itself; they'll say which.
+
+### F-Droid
+
+F-Droid only takes free software, so it builds its own APK with `-Pnhako.fdroid`: no Firebase (so no
+wake-up while closed) and no update check. The Build workflow builds that variant on every run and
+fails if Firebase code gets into it. The store text and screenshots are `fastlane/metadata/android/`
+in this repository, which F-Droid reads from each release tag.
+
+1. **You:** open a merge request on gitlab.com/fdroid/fdroiddata adding
+   `metadata/io.github.kimzam30.nhakobeam.yml`, starting from `packaging/fdroid/` here (set the
+   version, versionCode and tag of the release). Their reviewers usually ask for changes; answer
+   there. Builds take a few days to appear after merging.
+2. Their build is arm64 only to start with (almost every phone). Adding armeabi-v7a later needs a
+   second build entry with its own versionCode.
+3. F-Droid signs with its own key, so the F-Droid app and the one from GitHub can't update each
+   other: someone switching between them uninstalls first.
+
+### Google Play (later)
+
+Each Build run also makes an app bundle (`.aab`), under Artifacts as **android-app-bundle**, signed
+with the release key (the "upload key" for Play App Signing). A Play developer account has a one-time
+fee, so it waits until you decide. Then: the store listing (reuse `fastlane/metadata/android/`), a
+privacy policy page, and the Data safety form (Nhako Beam collects nothing; files go device to
+device).
+
 ## Not done yet
 
-- **Signing the Windows installer**, so SmartScreen stops warning. [SignPath Foundation](https://signpath.org) does it for free for open-source projects, after an application. Certificates you buy cost money every year.
-- **Google Play.** The release key above can be the "upload key" for Play App Signing. A Play developer account has a one-time fee, so ask first.
 - **More Linux formats** (AppImage, .rpm): add them to `bundle.targets` in `desktop/src-tauri/tauri.linux.conf.json` and to the file list in `release.yml`.
 - **Protecting `v*` tags** so only you can create them: Settings > Rules > Rulesets > New tag ruleset.
+- **AppStream in the .deb:** the .deb names its desktop entry after the product (`Nhako Beam.desktop`), so the Flatpak's AppStream file doesn't fit it as it is.

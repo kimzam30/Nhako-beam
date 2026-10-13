@@ -49,6 +49,11 @@
     background: var(--color-accent-subtle);
     color: var(--color-accent-text);
   }
+  .action {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
   .action :global(button) {
     color: inherit;
     font-weight: 600;

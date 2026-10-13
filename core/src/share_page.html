@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Nhako Beam</title>
+<!-- Share via link (core/src/share.rs). Its words are listed in docs/design/ux-copy.md, section 17. -->
+<style>
+  :root {
+    --canvas: #F4F5F7; --surface: #FFFFFF; --fill: #ECEEF2; --sep: #1214181A;
+    --text: #121418; --text2: #545B69; --accent: #1A6FE0; --accent-pressed: #1559B8;
+    --accent-subtle: #E6F1FF; --accent-text: #1560C8; --on-accent: #FFFFFF;
+    --danger: #C42727; --success: #14794A; --focus: #1A6FE0; --bolt: #FFD23F;
+    --shadow: 0 4px 12px #12141814, 0 1px 3px #1214180F;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #0D0E11; --surface: #16181C; --fill: #262A31; --sep: #FFFFFF14;
+      --text: #F1F2F4; --text2: #A6ACB8; --accent-subtle: #12263F; --accent-text: #7DB8FF;
+      --danger: #FF6B6B; --success: #4CC487; --focus: #7DB8FF; --shadow: none;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--canvas); color: var(--text);
+    font: 16px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, Ubuntu, sans-serif;
+    padding: 32px 16px 48px; min-height: 100vh;
+  }
+  main { max-width: 560px; margin: 0 auto; display: grid; gap: 20px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text2); font-size: 14px; }
+  .brand svg { width: 28px; height: 28px; border-radius: 8px; background: #2F8FFF; }
+  .card { background: var(--surface); border-radius: 16px; padding: 24px; box-shadow: var(--shadow); border: 1px solid var(--sep); }
+  h1 { font-size: 24px; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; overflow-wrap: anywhere; }
+  p { margin: 0; color: var(--text2); }
+  .view { display: none; }
+  .view.on { display: block; animation: rise 320ms cubic-bezier(.2,.9,.3,1.15) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+  .wait { display: flex; gap: 16px; align-items: center; }
+  .wait .orb { flex: none; width: 56px; height: 56px; border-radius: 50%; background: var(--accent-subtle); display: grid; place-items: center; animation: breathe 2.4s ease-in-out infinite; }
+  .wait .orb svg { width: 30px; height: 30px; }
+  @keyframes breathe { 50% { transform: scale(1.08); } }
+  .meta { margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .all {
+    display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 20px;
+    min-height: 48px; padding: 12px 20px; border-radius: 12px; border: 0; cursor: pointer;
+    background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; text-decoration: none;
+    transition: transform 120ms ease, background 120ms ease;
+  }
+  .all:hover { background: var(--accent-pressed); }
+  .all:active, .row a:active, .copy:active { transform: scale(.97); }
+  ul { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 2px; }
+  li { animation: rise 260ms cubic-bezier(.2,.9,.3,1.1) both; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--sep); }
+  li:first-child .row { border-top: 0; }
+  .row .name { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .row .file { overflow-wrap: anywhere; }
+  .row .dir, .row .size { color: var(--text2); font-size: 14px; overflow-wrap: anywhere; }
+  .row .size { font-variant-numeric: tabular-nums; }
+  .row a, .copy {
+    flex: none; min-height: 44px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 10px;
+    background: var(--accent-subtle); color: var(--accent-text); font-weight: 600; text-decoration: none; border: 0;
+    font: inherit; font-weight: 600; cursor: pointer; transition: transform 120ms ease;
+  }
+  .more { margin-top: 12px; color: var(--text2); font-size: 14px; }
+  .text { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--fill); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; font-size: 15px; }
+  .text a { color: var(--accent-text); }
+  .copy { margin-top: 10px; }
+  .no h1 { color: var(--danger); }
+  footer { color: var(--text2); font-size: 13px; text-align: center; text-wrap: balance; }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    .view.on, li { animation: fade 160ms ease both; }
+    .wait .orb { animation: none; }
+    .all, .row a, .copy { transition: none; }
+    .all:active, .row a:active, .copy:active { transform: none; }
+    @keyframes fade { from { opacity: 0; } }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand" aria-hidden="true">
+    <svg viewBox="0 0 1024 1024"><path d="M676.16,161.60 L829.76,244.16 L608.96,464.96 L743.36,503.36 L194.24,862.40 L436.16,574.40 L301.76,536.00 Z" fill="#FFD23F" stroke="#FFD23F" stroke-width="14.4" stroke-linejoin="round" transform="translate(154 154) scale(.7)"/></svg>
+    Nhako Beam
+  </div>
+
+  <section class="card view on" id="loading" aria-live="polite"><p>Opening</p></section>
+
+  <section class="card view" id="asking" aria-live="polite">
+    <div class="wait">
+      <div class="orb"><svg viewBox="0 0 1024 1024" aria-hidden="true"><path d="M676.16,161.60 L829.76,244.16 L608.96,464.96 L743.36,503.36 L194.24,862.40 L436.16,574.40 L301.76,536.00 Z" fill="#FFD23F" stroke="#E0B21F" stroke-width="20" stroke-linejoin="round"/></svg></div>
+      <div>
+        <h1>Waiting for <span data-from></span></h1>
+        <p>Ask them to tap Let in on their screen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card view" id="allowed">
+    <h1><span data-from></span> shared with you</h1>
+    <p class="meta" id="summary"></p>
+    <a class="all" id="zip" hidden>Download everything</a>
+    <div id="textbox" hidden>
+      <div class="text" id="text"></div>
+      <button class="copy" id="copy" type="button">Copy</button>
+    </div>
+    <ul id="files"></ul>
+    <p class="more" id="more" hidden></p>
+  </section>
+
+  <section class="card view no" id="denied" aria-live="polite">
+    <h1><span data-from></span> said no</h1>
+    <p>If that was a mistake, ask them to share again.</p>
+  </section>
+
+  <section class="card view" id="full" aria-live="polite">
+    <h1>Too many people are asking</h1>
+    <p>Try again in a minute.</p>
+  </section>
+
+  <section class="card view" id="ended" aria-live="polite">
+    <h1>This link has ended</h1>
+    <p>Ask for a new one.</p>
+  </section>
+
+  <footer>Shared over this Wi-Fi with Nhako Beam. Downloads go where your browser keeps them. This is a plain web page, so others on this Wi-Fi could see what's downloaded.</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const SHOW_MAX = 500;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const bytes = (n) => {
+    if (!(n > 0)) return '0 B';
+    let i = 0, v = n;
+    while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
+    return v.toFixed(i === 0 || v >= 100 ? 0 : 1).replace(/\.0$/, '') + ' ' + units[i];
+  };
+  const $ = (id) => document.getElementById(id);
+  let shown = 'loading', listed = false;
+  const show = (id) => {
+    if (id === shown) return;
+    $(shown).classList.remove('on');
+    $(id).classList.add('on');
+    shown = id;
+  };
+  const setFrom = (name) => document.querySelectorAll('[data-from]').forEach((el) => { el.textContent = name || 'The other device'; });
+
+  async function list() {
+    const r = await fetch('list', { cache: 'no-store' });
+    if (!r.ok) return false;
+    const d = await r.json();
+    setFrom(d.from);
+    const n = d.files.length;
+    const parts = [];
+    if (n) parts.push((n === 1 ? '1 file' : n.toLocaleString() + ' files') + ', ' + bytes(d.totalBytes));
+    if (d.text) parts.push('text');
+    $('summary').textContent = parts.join(' and ');
+    if (d.zipBytes) {
+      const zip = $('zip');
+      zip.href = 'all.zip';
+      zip.textContent = 'Download everything (' + bytes(d.zipBytes) + ', .zip)';
+      zip.hidden = false;
+    }
+    if (d.text) {
+      const box = $('text');
+      const t = d.text;
+      if (/^https?:\/\/\S{4,}$/.test(t.trim())) {
+        const a = document.createElement('a');
+        a.href = t.trim();
+        a.rel = 'noopener noreferrer';
+        a.target = '_blank';
+        a.textContent = t.trim();
+        box.append(a);
+      } else {
+        box.textContent = t;
+      }
+      $('textbox').hidden = false;
+      $('copy').onclick = () => copy(t);
+    }
+    const ul = $('files');
+    d.files.slice(0, SHOW_MAX).forEach((f, i) => {
+      const li = document.createElement('li');
+      li.style.animationDelay = Math.min(i, 6) * 30 + 'ms';
+      const row = document.createElement('div');
+      row.className = 'row';
+      // The name on its own line, with the folder it's in and its size under it.
+      const name = document.createElement('span');
+      name.className = 'name';
+      const file = document.createElement('span');
+      file.className = 'file';
+      file.textContent = f.name;
+      const size = document.createElement('span');
+      size.className = 'size';
+      size.textContent = (f.folder ? f.folder + ' · ' : '') + bytes(f.size);
+      name.append(file, size);
+      const a = document.createElement('a');
+      a.href = f.href;
+      a.textContent = 'Download';
+      a.setAttribute('aria-label', 'Download ' + f.name);
+      row.append(name, a);
+      li.append(row);
+      ul.append(li);
+    });
+    if (n > SHOW_MAX) {
+      $('more').textContent = (n - SHOW_MAX).toLocaleString() + ' more in the .zip';
+      $('more').hidden = false;
+    }
+    return true;
+  }
+
+  function copy(t) {
+    const done = () => { $('copy').textContent = 'Copied'; setTimeout(() => { $('copy').textContent = 'Copy'; }, 2000); };
+    // A plain web page can't use the newer clipboard API, so the text is selected and copied.
+    const area = document.createElement('textarea');
+    area.value = t;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.append(area);
+    area.select();
+    try { if (document.execCommand('copy')) done(); } catch (e) { /* the text stays on screen to copy by hand */ }
+    area.remove();
+  }
+
+  async function poll() {
+    let wait = 1500;
+    try {
+      const r = await fetch('state', { cache: 'no-store' });
+      const s = await r.json();
+      setFrom(s.from);
+      if (s.state === 'allowed') {
+        if (!listed) listed = await list();
+        show(listed ? 'allowed' : 'ended');
+        wait = 5000;
+      } else {
+        show(s.state === 'asking' || s.state === 'denied' || s.state === 'full' ? s.state : 'ended');
+        if (s.state === 'denied' || s.state === 'ended') return;
+        if (s.state === 'full') wait = 15000;
+      }
+    } catch (e) {
+      if (shown !== 'loading') { show('ended'); return; }
+    }
+    setTimeout(poll, wait);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>

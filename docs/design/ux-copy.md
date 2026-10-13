@@ -340,9 +340,9 @@ Strings for the real engine, your own server going wrong, and the desktop app.
 | `settings.desktop.keepRunning.hint` | Devices can still send you files. To quit, use Quit in the tray menu. |
 | `settings.desktop.failed` | Couldn't change that setting. |
 | `settings.desktop.fileMenu.explorer` | Send with Nhako Beam in File Explorer |
-| `settings.desktop.fileMenu.explorer.hint` | Right-click files to send them. On Windows 11 it is under Show more options. |
-| `settings.desktop.fileMenu.files` | Send with Nhako Beam in Files |
-| `settings.desktop.fileMenu.files.hint` | Right-click files, then Scripts, then Send with Nhako Beam. |
+| `settings.desktop.fileMenu.explorer.hint` | Right-click files or folders to send them. On Windows 11 it is under Show more options. |
+| `settings.desktop.fileMenu.files` | Send with Nhako Beam in your file manager |
+| `settings.desktop.fileMenu.files.hint` | Right-click files or folders. In Files and Nemo it is under Scripts, in Dolphin under Actions. |
 
 Written by the desktop app itself (not in `copy.ts`):
 
@@ -527,3 +527,68 @@ Summaries add folders: "Trip folder, 240 files", "2 folders, 31 files", "Trip fo
 | `notify.trust.title` | {device} wants to add this phone to its devices |
 | `notify.trust.body` | Open Nhako Beam to check that both screens show the same code. |
 
+## 17. Added in Phase 15 (share via link, updates, file manager folders)
+
+`settings.desktop.fileMenu.explorer.hint`, `settings.desktop.fileMenu.files` and `settings.desktop.fileMenu.files.hint` changed: the menu sends folders now, and on Linux it's in Files, Nemo and Dolphin.
+
+| Key | Text |
+|---|---|
+| `send.choose.link` | Share via link |
+| `send.choose.link.hint` | For a device without Nhako Beam, on the same Wi-Fi |
+| `send.choose.link.offLan` | Connect to Wi-Fi to share with a link |
+| `link.title` | Share via link |
+| `link.how` | On the other device, scan this or type the address into a browser. It needs to be on the same Wi-Fi. You choose who gets in. |
+| `link.qr` | QR code with the link |
+| `link.copy` | Copy address |
+| `link.copied` | Address copied |
+| `link.endsIn` | Ends in {time} |
+| `link.endsAfter` | Ends when the downloads finish |
+| `link.stop` | Stop sharing |
+| `link.stopped` | Stopped sharing |
+| `link.ended` | The link has ended |
+| `link.visitors` | Browsers |
+| `link.visitors.none` | Nobody has opened it yet. |
+| `link.visitor.asking` | Wants to download |
+| `link.visitor.allow` | Let in |
+| `link.visitor.deny` | No |
+| `link.visitor.waiting` | Let in, hasn't downloaded yet |
+| `link.visitor.downloading` | Downloading, {percent} |
+| `link.visitor.done` | Downloaded |
+| `link.visitor.doneMany` | Downloaded {n} times |
+| `link.visitor.denied` | Turned away |
+| `link.asks` | {browser} wants to download what you shared |
+| `link.asks.body` | From {address} on this network. |
+| `link.plain` | This is a plain web page, so others on this Wi-Fi could see what's downloaded. Between two Nhako Beam devices everything is encrypted. |
+| `link.active` | Sharing a link |
+| `link.active.asking` | {n} waiting to get in |
+| `update.available` | Nhako Beam {version} is out |
+| `update.download` | Download |
+| `update.later` | Not now |
+| `settings.about.updates` | Check for new versions |
+| `settings.about.updates.hint` | Once a day, Nhako Beam asks GitHub if there's a newer version. Nothing about you or your devices is sent. |
+| `settings.about.updates.failed` | Couldn't change that setting |
+
+### The page browsers see (Share via link)
+
+Served by the engine (`core/src/share_page.html` and `share_gone.html`), so these words live there, not in `copy.ts`. `{from}` is this device's name.
+
+| Where | Text |
+|---|---|
+| Opening | Opening |
+| Waiting | Waiting for {from} / Ask them to tap Let in on their screen. |
+| Let in | {from} shared with you / 3 files, 12.4 MB and text |
+| Everything | Download everything (12.4 MB, .zip) |
+| Each file | Download |
+| More than 500 files | 740 more in the .zip |
+| Text | Copy / Copied |
+| Turned away | {from} said no / If that was a mistake, ask them to share again. |
+| Too many | Too many people are asking / Try again in a minute. |
+| Ended | This link has ended / Ask for a new one. |
+| Footer | Shared over this Wi-Fi with Nhako Beam. Downloads go where your browser keeps them. This is a plain web page, so others on this Wi-Fi could see what's downloaded. |
+| Wrong address | Nothing is shared here now / The link may have ended, or a letter in it is off. Ask for a new one. |
+
+### Notifications (desktop app, Rust side)
+
+| When | Text |
+|---|---|
+| A browser asks | {browser} wants to download what you shared / From {address} on this network. Buttons: Let in, No |

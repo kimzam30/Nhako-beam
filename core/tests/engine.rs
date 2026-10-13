@@ -37,6 +37,8 @@ impl Node {
         let dir = std::env::temp_dir().join(format!("nhako-it-{name}-{}", rand::random::<u32>()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut cfg = EngineConfig::new(dir.join("config"));
+        // Never GitHub from a test.
+        cfg.update_url = None;
         cfg.save_dir = Some(dir.join("save"));
         cfg.network = Some(Network::LocalOnly);
         cfg.mdns = false;
@@ -487,6 +489,210 @@ async fn text_comes_in_the_request_and_never_touches_the_disk() {
     b.stop().await;
 }
 
+/// One HTTP request the way a browser makes it: returns the status, the head and the body.
+async fn http_get(url: &str, path: &str, cookie: Option<&str>, extra: &str) -> (u16, String, Vec<u8>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let host = url.trim_start_matches("http://").split('/').next().unwrap().to_string();
+    let mut s = tokio::net::TcpStream::connect(&host).await.unwrap();
+    let cookie = cookie.map(|c| format!("Cookie: {c}\r\n")).unwrap_or_default();
+    let req =
+        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Linux; Android 14) Chrome/129.0 Mobile Safari/537.36\r\n{cookie}{extra}\r\n");
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut all = Vec::new();
+    s.read_to_end(&mut all).await.unwrap();
+    let end = all.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8(all[..end].to_vec()).unwrap();
+    let status = head[9..12].parse().unwrap();
+    (status, head, all[end + 4..].to_vec())
+}
+
+fn set_cookie(head: &str) -> Option<String> {
+    head.lines()
+        .find_map(|l| l.strip_prefix("Set-Cookie: "))
+        .map(|c| c.split(';').next().unwrap().to_string())
+}
+
+/// Share via link: a browser waits until it's let in, sees nothing before, then downloads a
+/// file (also part of one), and the zip of everything. One turned away stays out, and Stop ends it.
+#[tokio::test(flavor = "multi_thread")]
+async fn share_via_link_lets_in_only_who_you_allow() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::with(&mem, "Laptop", None, |c| c.test_share_ip = Some([127, 0, 0, 1].into())).await;
+    let photo = make_file(&a.dir, "beach.jpg", 300_000);
+    let root = a.dir.join("send");
+    std::fs::create_dir_all(root.join("Trip")).unwrap();
+    let note = make_file(&root.join("Trip"), "note.txt", 10);
+    let out = [
+        Outgoing {
+            path: photo.clone(),
+            name: "beach.jpg".into(),
+            folder: None,
+        },
+        Outgoing {
+            path: note.clone(),
+            name: "note.txt".into(),
+            folder: Some("Trip".into()),
+        },
+    ];
+    let share = a.engine.share_link(&out, Some("Wi-Fi password is on the fridge")).unwrap();
+    assert_eq!(share.total_bytes, 300_010);
+    let path = share.url.splitn(4, '/').nth(3).map(|p| format!("/{p}")).unwrap();
+    let key = path.trim_matches('/').to_string();
+    assert_eq!(key.len(), 16);
+
+    // A wrong key, or no key, shows nothing.
+    let (status, _, body) = http_get(&share.url, "/aaaaaaaaaaaaaaaa/", None, "").await;
+    assert_eq!(status, 404);
+    assert!(String::from_utf8_lossy(&body).contains("Nothing is shared here now"));
+    assert_eq!(http_get(&share.url, "/", None, "").await.0, 404);
+    assert!(a.engine.link_share().unwrap().visitors.is_empty());
+
+    // A browser opens it, gets a cookie, and asks.
+    let (status, head, _) = http_get(&share.url, &path, None, "").await;
+    assert_eq!(status, 200);
+    assert!(head.contains("Content-Security-Policy"));
+    let cookie = set_cookie(&head).expect("a cookie for the browser");
+    let visitor = a
+        .wait("a browser asks", |e| match e {
+            EngineEvent::LinkShare { share: Some(s) } => s.visitors.first().cloned(),
+            _ => None,
+        })
+        .await;
+    assert_eq!(visitor.label, "Chrome on Android");
+    assert_eq!(visitor.address, "127.0.0.1");
+    let (_, _, state) = http_get(&share.url, &format!("{path}state"), Some(&cookie), "").await;
+    assert!(String::from_utf8_lossy(&state).contains(r#""state":"asking""#));
+    // Nothing before it's let in: not the list, not a file, not the zip.
+    assert_eq!(http_get(&share.url, &format!("{path}list"), Some(&cookie), "").await.0, 403);
+    assert_eq!(http_get(&share.url, &format!("{path}f/0/beach.jpg"), Some(&cookie), "").await.0, 403);
+    assert_eq!(http_get(&share.url, &format!("{path}all.zip"), Some(&cookie), "").await.0, 403);
+
+    a.engine.answer_visitor(&visitor.id, true);
+    let (_, _, list) = http_get(&share.url, &format!("{path}list"), Some(&cookie), "").await;
+    let list: serde_json::Value = serde_json::from_slice(&list).unwrap();
+    assert_eq!(list["from"], "Laptop");
+    assert_eq!(list["text"], "Wi-Fi password is on the fridge");
+    assert_eq!(list["files"][1]["folder"], "Trip");
+    let (status, head, body) = http_get(&share.url, &format!("{path}f/0/beach.jpg"), Some(&cookie), "").await;
+    assert_eq!(status, 200);
+    assert!(head.contains("filename*=UTF-8''beach.jpg"), "{head}");
+    assert_eq!(body, std::fs::read(&photo).unwrap());
+    let (status, head, part) = http_get(&share.url, &format!("{path}f/0/beach.jpg"), Some(&cookie), "Range: bytes=100000-\r\n").await;
+    assert_eq!(status, 206);
+    assert!(head.contains("Content-Range: bytes 100000-299999/300000"), "{head}");
+    assert_eq!(part, std::fs::read(&photo).unwrap()[100_000..]);
+    let (status, head, zip) = http_get(&share.url, &format!("{path}all.zip"), Some(&cookie), "").await;
+    assert_eq!(status, 200);
+    assert_eq!(head.lines().find_map(|l| l.strip_prefix("Content-Length: ")).unwrap(), zip.len().to_string());
+    assert_eq!(list["zipBytes"], zip.len() as u64);
+    let zip = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+    assert_eq!(
+        zip.file_names().collect::<std::collections::BTreeSet<_>>(),
+        ["beach.jpg", "Trip/note.txt"].into()
+    );
+    let done = a.engine.link_share().unwrap().visitors[0].clone();
+    assert_eq!(done.downloads, 3);
+    assert_eq!((done.active_bytes, done.active_total), (0, 0));
+
+    // A second browser is turned away, and stays out.
+    let (_, head, _) = http_get(&share.url, &path, None, "").await;
+    let other = set_cookie(&head).unwrap();
+    let second = a.engine.link_share().unwrap().visitors[1].id.clone();
+    a.engine.answer_visitor(&second, false);
+    let (_, _, state) = http_get(&share.url, &format!("{path}state"), Some(&other), "").await;
+    assert!(String::from_utf8_lossy(&state).contains(r#""state":"denied""#));
+    assert_eq!(http_get(&share.url, &format!("{path}f/1/note.txt"), Some(&other), "").await.0, 403);
+    // A made-up cookie is a stranger, not the first browser.
+    assert_eq!(http_get(&share.url, &format!("{path}f/1/note.txt"), Some("nbv=guess"), "").await.0, 403);
+
+    a.engine.stop_link();
+    assert!(a.engine.link_share().is_none());
+    assert!(a.engine.snapshot().link_share.is_none());
+    let gone = tokio::net::TcpStream::connect(share.url.trim_start_matches("http://").split('/').next().unwrap()).await;
+    if let Ok(mut s) = gone {
+        // The port may still take the connection for a moment; nothing is served on it.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let _ = s.write_all(format!("GET {path} HTTP/1.1\r\n\r\n").as_bytes()).await;
+        let mut buf = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(2), s.read_to_end(&mut buf)).await;
+        assert!(!String::from_utf8_lossy(&buf).contains("200 OK"));
+    }
+    assert!(matches!(a.engine.share_link(&[], None), Err(EngineError::NoFiles)));
+    a.stop().await;
+}
+
+/// A link ends by itself once its time is up and nothing is downloading.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shared_link_ends_by_itself() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::with(&mem, "Laptop", None, |c| {
+        c.test_share_ip = Some([127, 0, 0, 1].into());
+        c.share_for = Duration::from_secs(1);
+    })
+    .await;
+    a.engine.share_link(&[], Some("hello")).unwrap();
+    a.wait("the link to end", |e| matches!(e, EngineEvent::LinkShare { share: None }).then_some(()))
+        .await;
+    assert!(a.engine.link_share().is_none());
+    a.stop().await;
+}
+
+/// The daily look for a new version: found once, kept in the snapshot, gone when turned off.
+#[tokio::test(flavor = "multi_thread")]
+async fn finds_a_newer_version_and_forgets_it_when_turned_off() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // A stand-in for GitHub's list of releases, counting how often it's asked.
+    let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = server.local_addr().unwrap().port();
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = asked.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = server.accept().await else { return };
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf).await;
+            let body = r#"[{"tag_name":"v99.0.0","html_url":"https://github.com/kimzam30/Nhako-beam/releases/tag/v99.0.0","prerelease":true}]"#;
+            let res = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = s.write_all(res.as_bytes()).await;
+        }
+    });
+    let mem = MemoryLookup::new();
+    let url = format!("http://127.0.0.1:{port}/releases");
+    let mut a = Node::with(&mem, "Laptop", None, |c| c.update_url = Some(url.parse().unwrap())).await;
+    let found = a
+        .wait("a newer version", |e| match e {
+            EngineEvent::Update { update: Some(u) } => Some(u.clone()),
+            _ => None,
+        })
+        .await;
+    assert_eq!(found.version, "99.0.0");
+    assert_eq!(a.engine.snapshot().update, Some(found));
+    assert_eq!(a.engine.update_check(), Some(true));
+    // Not again the same day, even after a restart.
+    let dir = a.dir.clone();
+    a.engine.stop().await;
+    let b = Node::with(&mem, "Laptop", None, |c| {
+        c.config_dir = dir.join("config");
+        c.update_url = Some(url.parse().unwrap());
+    })
+    .await;
+    assert!(b.engine.snapshot().update.is_some(), "kept from the last look");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
+    b.engine.set_update_check(false).unwrap();
+    assert_eq!(b.engine.update_check(), Some(false));
+    assert!(b.engine.snapshot().update.is_none());
+    b.stop().await;
+    // A build that gets updates from a store doesn't look, and has no setting.
+    let c = Node::with(&mem, "Phone", None, |c| c.update_url = None).await;
+    assert_eq!(c.engine.update_check(), None);
+    c.stop().await;
+}
+
 /// Trust this device, from Nearby: both screens show the same check, and nothing changes until
 /// the other device agrees.
 #[tokio::test(flavor = "multi_thread")]
@@ -846,6 +1052,10 @@ async fn trusted_state_survives_restart() {
     b.engine.stop().await;
 
     let mut cfg = EngineConfig::new(cfg_dir.join("config"));
+
+    // Never GitHub from a test.
+
+    cfg.update_url = None;
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;
     cfg.beacon = None;
@@ -940,6 +1150,8 @@ async fn history_lists_finished_transfers_and_survives_restart() {
     let cfg_dir = b.dir.join("config");
     b.engine.stop().await;
     let mut cfg = EngineConfig::new(&cfg_dir);
+    // Never GitHub from a test.
+    cfg.update_url = None;
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;
     cfg.beacon = None;
@@ -964,6 +1176,8 @@ async fn lan_discovery_setting_is_saved() {
     let cfg_dir = a.dir.join("config");
     a.engine.stop().await;
     let mut cfg = EngineConfig::new(&cfg_dir);
+    // Never GitHub from a test.
+    cfg.update_url = None;
     cfg.network = Some(Network::LocalOnly);
     cfg.memory_lookup = Some(mem.clone());
     // mDNS and the beacon allowed for this run, but the setting turns them off: nothing is
@@ -1311,6 +1525,8 @@ async fn wakes_a_sleeping_phone_to_receive() {
     let token = tokio::time::timeout(WAIT, woken.recv()).await.unwrap().unwrap();
     assert_eq!(token, WAKE_TOKEN);
     let mut cfg = EngineConfig::new(phone_dir.join("config"));
+    // Never GitHub from a test.
+    cfg.update_url = None;
     cfg.save_dir = Some(phone_dir.join("save"));
     cfg.network = Some(Network::LocalOnly);
     cfg.mdns = false;

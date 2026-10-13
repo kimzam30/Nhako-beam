@@ -43,6 +43,7 @@ import io.github.kimzam30.nhakobeam.state.Screen
 import io.github.kimzam30.nhakobeam.state.Sheet
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.components.BannerTone
+import io.github.kimzam30.nhakobeam.ui.components.largeText
 import io.github.kimzam30.nhakobeam.ui.components.Bolt
 import io.github.kimzam30.nhakobeam.ui.components.BoltMode
 import io.github.kimzam30.nhakobeam.ui.components.ButtonSize
@@ -94,6 +95,29 @@ fun HomeScreen(app: AppState) {
             DiscoveryState.Offline -> NBanner(t("home.banner.offline"), icon = "wifi-slash")
             DiscoveryState.Blocked -> NBanner(t("home.banner.discoveryBlocked"), actionLabel = t("home.banner.discoveryBlocked.fix"), onAction = { app.engine.rescan() })
             else -> if (!app.onLan) NBanner(t("home.banner.noLan"), icon = "cell-signal-full")
+        }
+        val share = app.linkShare
+        if (share != null && app.sheet != Sheet.Link) {
+            val asking = share.visitors.count { it.state == io.github.kimzam30.nhakobeam.model.VisitorState.Asking }
+            NBanner(
+                if (asking > 0) "${t("link.active")} · ${t("link.active.asking", "n" to asking)}" else t("link.active"),
+                icon = "link-simple",
+                tone = BannerTone.Info,
+                actionLabel = t("text.show"),
+                onAction = { app.sheet = Sheet.Link },
+            )
+        }
+        val update = app.update
+        if (update != null && app.updateSeen != update.version) {
+            NBanner(
+                t("update.available", "version" to update.version),
+                icon = "sparkle",
+                tone = BannerTone.Info,
+                actionLabel = t("update.download"),
+                onAction = { app.openUpdate() },
+                otherLabel = t("update.later"),
+                onOther = { app.hideUpdate() },
+            )
         }
         if (app.serverProblem != null && app.connection is Connection.Own) {
             val token = app.serverProblem == ServerProblem.TokenRejected
@@ -161,9 +185,15 @@ fun HomeScreen(app: AppState) {
             NButton(t("home.action.text"), { app.sheet = Sheet.Compose() }, Modifier.weight(1f), variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "text-aa", full = true, padding = NhakoSpace.s2)
             NButton(t("home.action.clipboard"), { app.stageClipboard() }, Modifier.weight(1f), variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "clipboard-text", full = true, padding = NhakoSpace.s2)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
-            NButton(t("home.action.sendCode"), { app.sheet = Sheet.ShowCode }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "qr-code", full = true, padding = NhakoSpace.s4)
-            NButton(t("home.action.receiveCode"), { app.sheet = Sheet.Scan }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "download-simple", full = true, padding = NhakoSpace.s4)
+        // Side by side, or one above the other when the system font is large.
+        if (largeText()) {
+            NButton(t("home.action.sendCode"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Secondary, icon = "qr-code", full = true, padding = NhakoSpace.s4)
+            NButton(t("home.action.receiveCode"), { app.sheet = Sheet.Scan }, variant = ButtonVariant.Secondary, icon = "download-simple", full = true, padding = NhakoSpace.s4)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+                NButton(t("home.action.sendCode"), { app.sheet = Sheet.ShowCode }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "qr-code", full = true, padding = NhakoSpace.s4)
+                NButton(t("home.action.receiveCode"), { app.sheet = Sheet.Scan }, Modifier.weight(1f), variant = ButtonVariant.Secondary, icon = "download-simple", full = true, padding = NhakoSpace.s4)
+            }
         }
     }
 }

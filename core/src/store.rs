@@ -13,7 +13,7 @@ use std::{
 use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Connection, DeviceKind, OsPlatform, WhoCanSend};
+use crate::types::{Connection, DeviceKind, OsPlatform, UpdateInfo, WhoCanSend};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +51,15 @@ pub struct State {
     /// This device's own wake token (Android, when push is set up). Shared with trusted devices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wake_token: Option<String>,
+    /// Look for a new version once a day (`update.rs`).
+    #[serde(default = "yes")]
+    pub update_check: bool,
+    /// When that last worked, epoch milliseconds.
+    #[serde(default)]
+    pub update_checked_at: u64,
+    /// What it found, so the row is there after a restart without asking again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_found: Option<UpdateInfo>,
 }
 
 fn yes() -> bool {
@@ -121,6 +130,9 @@ impl Store {
                     lan_discovery: true,
                     who_can_send: WhoCanSend::default(),
                     wake_token: None,
+                    update_check: true,
+                    update_checked_at: 0,
+                    update_found: None,
                 }
             }
             Err(e) => return Err(io_err(&state_path)(e)),

@@ -14,9 +14,11 @@
     intensity?: number;
     mode: Mode;
     collapsed?: boolean;
+    /** What screen readers call the bar ("Sending to Aisyah's laptop"). */
+    label?: string;
   }
 
-  let { progress, intensity = 0, mode, collapsed = false }: Props = $props();
+  let { progress, intensity = 0, mode, collapsed = false, label = 'Transfer progress' }: Props = $props();
 
   let fill: HTMLElement | undefined = $state();
   let glow: HTMLElement | undefined = $state();
@@ -61,7 +63,7 @@
   const glowOpacity = $derived(mode === 'moving' ? 0.35 + 0.65 * Math.min(1, intensity) : 0);
 </script>
 
-<div class="beam {mode}" bind:this={wrap} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(progress * 100)} data-testid="beam" data-mode={mode}>
+<div class="beam {mode}" bind:this={wrap} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(progress * 100)} data-testid="beam" data-mode={mode}>
   <div class="glow" bind:this={glow} style:opacity={glowOpacity} aria-hidden="true"></div>
   <div class="track">
     <div class="fill" bind:this={fill}>

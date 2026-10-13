@@ -39,6 +39,8 @@ class RealEngineTest {
                 events += json
             }
         })
+        // As in the F-Droid build: no update check, so the test never reaches GitHub.
+        engine.setFromStore(true)
     }
 
     @After fun tearDown() {
@@ -98,6 +100,24 @@ class RealEngineTest {
         engine.cancelTrust(noSuch)
         engine.answerTrust(noSuch, false)
         assertTrue(ContractJson.decodeFromString<Snapshot>(engine.snapshot()).trustAsks.isEmpty())
+
+        // Phase 15: Share via link, with text only (no files to open). Off a local network it says
+        // so in plain words; on one, the share decodes and Stop ends it.
+        val shared = runCatching { engine.shareLink(emptyList(), "Wi-Fi password is on the fridge") }
+        shared.onSuccess { json ->
+            val share = ContractJson.decodeFromString<io.github.kimzam30.nhakobeam.model.LinkShare>(json)
+            assertTrue(share.url, share.url.startsWith("http://"))
+            assertEquals("Wi-Fi password is on the fridge", share.text)
+            assertEquals(share.id, ContractJson.decodeFromString<Snapshot>(engine.snapshot()).linkShare?.id)
+            engine.answerVisitor("nobody", true)
+            engine.stopLink()
+        }.onFailure { e ->
+            assertTrue("off a network: $e", e is NhakoException.Failed && e.reason.startsWith("Connect to Wi-Fi"))
+        }
+        assertEquals(null, ContractJson.decodeFromString<Snapshot>(engine.snapshot()).linkShare)
+        // A build from a store has no update check, and no setting for it.
+        assertEquals(null, engine.getUpdateCheck())
+        assertEquals(null, ContractJson.decodeFromString<Snapshot>(engine.snapshot()).update)
 
         // Everything the engine said along the way is something the app understands.
         Thread.sleep(300)

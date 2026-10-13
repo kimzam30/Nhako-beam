@@ -9,9 +9,16 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
+/**
+ * The F-Droid build: `-Pnhako.fdroid`. F-Droid only takes free software, so it leaves out Firebase
+ * (no wake-up while closed, src/nopush/ instead of src/push/) and the check for new versions on
+ * GitHub (F-Droid updates the app itself). Everything else, and every task name, is the same.
+ */
+val fdroid: Boolean = findProperty("nhako.fdroid") != null
+
 // Push wake-up (wake/README.md) needs your Firebase project's google-services.json here. Without
 // it the app builds and works the same, it just can't be woken while closed.
-if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+if (!fdroid && file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
 
 /** The repository root: the Rust workspace (core/, ffi/) and design/tokens live there. */
 val repoRoot: File = rootProject.projectDir.parentFile
@@ -42,6 +49,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("boolean", "FROM_STORE", fdroid.toString())
     }
 
     // One APK per phone type (Phase 8): each carries only its own copy of the engine, about half
@@ -77,7 +85,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Without the release key, this computer's debug key: fine for trying things, never for
             // publishing (the Release workflow refuses to build without the real key).
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            // F-Droid signs what it builds itself, so its build comes out unsigned.
+            signingConfig = if (fdroid) null else signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -209,6 +218,9 @@ androidComponents {
         // The sounds (design/sounds/build.mjs): the WAVs as res/raw, and their names in Kotlin.
         variant.sources.res?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/res").path)
         variant.sources.kotlin?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/kotlin").path)
+        // Wake-up by push, or (F-Droid) without it.
+        variant.sources.kotlin?.addStaticSourceDirectory(file(if (fdroid) "src/nopush/kotlin" else "src/push/kotlin").path)
+        if (!fdroid) variant.sources.manifests.addStaticManifestFile(file("src/push/AndroidManifest.xml").path)
     }
 }
 
@@ -220,8 +232,10 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.messaging)
+    if (!fdroid) {
+        implementation(platform(libs.firebase.bom))
+        implementation(libs.firebase.messaging)
+    }
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.process)

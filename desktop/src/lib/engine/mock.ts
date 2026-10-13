@@ -11,6 +11,8 @@ import type {
   FileItem,
   HistoryEntry,
   IncomingRequest,
+  LinkShare,
+  LinkVisitor,
   PairingCode,
   RedeemResult,
   Route,
@@ -21,6 +23,7 @@ import type {
   TransferError,
   TrustOutcome,
   TrustRequest,
+  UpdateInfo,
   WhoCanSend,
 } from './types';
 import { TEXT_MAX } from './types';
@@ -118,6 +121,11 @@ const TRUST_CHECK = 'A3F0 7C21';
 /** Texts the pretend devices send. */
 export const SAMPLE_TEXT = 'Meet at 6 by the north gate.\nBring the charger, mine died.';
 export const SAMPLE_LINK = 'https://nhako.example/trip/photos';
+/** The prototype's shared link address. */
+export const LINK_URL = 'http://192.168.1.20:41234/k3jqm8xw2pnrt7ha/';
+const LINK_LIFETIME_MS = 15 * 60 * 1000;
+/** How fast a pretend browser downloads: about 3 s for the samples. */
+const BROWSER_SPEED = 40e6;
 
 /** A few earlier transfers, so History has something to show in the prototype. */
 function seedHistory(now: number): HistoryEntry[] {
@@ -224,6 +232,14 @@ export class MockEngine implements Engine {
   private trustAsks = new Map<string, TrustRequest>();
   /** Trust asks made from here, by device: bumped to cancel the pending answer. */
   private asking = new Map<string, number>();
+
+  /** The link being shared. */
+  private link: LinkShare | null = null;
+  private visitorSeq = 0;
+  /** On Wi-Fi or a cable (the scenario panel turns it off). */
+  private onWifi = true;
+  private updateCheck = true;
+  private update: UpdateInfo | null = null;
 
   /** What the next device asked to trust this one does. */
   nextTrustReply: TrustReply = 'yes';
@@ -394,6 +410,92 @@ export class MockEngine implements Engine {
 
   clearHistory(): void {
     this.history = [];
+  }
+
+  // ---------- Share via link ----------
+
+  async shareLink(files: FileItem[], text?: string): Promise<LinkShare> {
+    if (!this.onWifi) throw new Error('Connect to Wi-Fi or a network cable first. Share via link works on the same network.');
+    const clean = text?.trim() ? text : undefined;
+    if (!files.length && !clean) throw new Error("There's nothing to share.");
+    this.link = {
+      id: `s${++this.seq}`,
+      url: LINK_URL,
+      files: files.map((x) => ({ ...x })),
+      totalBytes: files.reduce((n, x) => n + x.size, 0),
+      ...(clean ? { text: clean } : {}),
+      expiresAt: this.now() + LINK_LIFETIME_MS,
+      visitors: [],
+    };
+    this.emitLink();
+    return structuredClone(this.link);
+  }
+
+  stopLink(): void {
+    if (!this.link) return;
+    this.link = null;
+    this.emit({ type: 'linkShare', share: null });
+  }
+
+  answerVisitor(visitorId: string, allow: boolean): void {
+    const v = this.link?.visitors.find((x) => x.id === visitorId);
+    if (!v) return;
+    v.state = allow ? 'allowed' : 'denied';
+    this.emitLink();
+    // A browser let in starts downloading everything as one zip, as most people would.
+    if (allow && this.link) {
+      const total = this.link.totalBytes || 1;
+      this.later(600, () => {
+        if (v.state !== 'allowed' || !this.link) return;
+        v.activeTotal = total;
+        v.activeBytes = 0;
+        this.emitLink();
+      });
+    }
+  }
+
+  getLink(): LinkShare | null {
+    return this.link ? structuredClone(this.link) : null;
+  }
+
+  private emitLink(): void {
+    this.emit({ type: 'linkShare', share: this.link ? structuredClone(this.link) : null });
+  }
+
+  /** Moves pretend downloads along, and ends the link once its time is up and nothing runs. */
+  private tickLink(dtMs: number): void {
+    const link = this.link;
+    if (!link) return;
+    let moved = false;
+    for (const v of link.visitors) {
+      if (!v.activeTotal) continue;
+      v.activeBytes = Math.min(v.activeTotal, v.activeBytes + BROWSER_SPEED * this.speedScale * (dtMs / 1000));
+      if (v.activeBytes >= v.activeTotal) {
+        v.activeBytes = 0;
+        v.activeTotal = 0;
+        v.downloads++;
+      }
+      moved = true;
+    }
+    if (this.now() >= link.expiresAt && link.visitors.every((v) => !v.activeTotal)) {
+      this.stopLink();
+      return;
+    }
+    if (moved) this.emitLink();
+  }
+
+  // ---------- Updates ----------
+
+  async getUpdateCheck(): Promise<boolean | null> {
+    return this.updateCheck;
+  }
+
+  async setUpdateCheck(on: boolean): Promise<void> {
+    this.updateCheck = on;
+    if (!on && this.update) {
+      this.update = null;
+      this.emit({ type: 'update', update: null });
+    }
   }
 
   async diagnostics(): Promise<string> {
@@ -753,6 +855,7 @@ export class MockEngine implements Engine {
 
   /** Advances the simulation. Called every 100 ms; tests call it directly. */
   tick(dtMs: number): void {
+    this.tickLink(dtMs);
     const now = this.now();
     for (const t of this.transfers.values()) {
       // changed: something besides bytes and speed, so the whole transfer goes out.
@@ -902,8 +1005,31 @@ export class MockEngine implements Engine {
     this.emit({ type: 'trustEnded', deviceId: last, outcome: 'withdrawn' });
   }
 
+  /** A browser opens the shared link and asks to be let in. */
+  simVisitor(label = 'Chrome on Android', address = '192.168.1.23'): void {
+    if (!this.link || this.now() >= this.link.expiresAt) return;
+    const v: LinkVisitor = { id: `v${++this.visitorSeq}`, label, address, state: 'asking', arrivedAt: this.now(), activeBytes: 0, activeTotal: 0, downloads: 0 };
+    this.link.visitors.push(v);
+    this.emitLink();
+  }
+
+  /** The shared link's time is nearly up: it ends in `seconds`. */
+  simLinkEndsSoon(seconds = 20): void {
+    if (!this.link) return;
+    this.link.expiresAt = this.now() + seconds * 1000;
+    this.emitLink();
+  }
+
+  /** The daily check finds a newer version. */
+  simUpdate(version = '0.3.0'): void {
+    if (!this.updateCheck) return;
+    this.update = { version, url: `https://github.com/kimzam30/Nhako-beam/releases/tag/v${version}` };
+    this.emit({ type: 'update', update: { ...this.update } });
+  }
+
   /** Off Wi-Fi (on mobile data): nearby devices go, your own ones are reached over the internet. */
   simLan(on: boolean): void {
+    this.onWifi = on;
     if (on) {
       this.simDiscovery('searching');
       return;
