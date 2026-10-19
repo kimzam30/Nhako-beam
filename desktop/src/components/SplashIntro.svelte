@@ -11,7 +11,7 @@
 
   let { ondone }: { ondone: () => void } = $props();
 
-  /** The bolt from docs/brand/logo/svg/nhako-beam-icon.svg, in its 1024 unit box. */
+  /** The vector bolt from the first logo, in its 1024 unit box (the logo is now the pixel mascot). */
   const BOLT = 'M648.8,220 L776.8,288.8 L592.8,472.8 L704.8,504.8 L247.2,804 L448.8,564 L336.8,532 Z';
 
   // 1 = resting; lower = pressed in (the shadow tucks under the bolt).
