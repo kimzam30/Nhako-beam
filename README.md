@@ -291,7 +291,11 @@ GitHub social preview (1280x640): [nhako-beam-github-social-preview.png](docs/br
 
 ## Brand kit
 
-Everything lives in [`docs/brand/`](docs/brand), in SVG and PNG.
+Everything lives in [`docs/brand/`](docs/brand), in SVG and PNG. The icon is the Nhako Beam
+mascot: a smiling pixel-art lightning bolt in a sparkly blue sky, one of the seven Nhako mascots
+drawn on a 48px grid by `scripts/mascots.py` in
+[Nhako-home](https://github.com/kimzam30/Nhako-home). Its `scripts/brand_assets.py` writes every
+icon size, the Android launcher vectors and the logo lockups here.
 
 <table>
 <tr>
@@ -312,9 +316,10 @@ Everything lives in [`docs/brand/`](docs/brand), in SVG and PNG.
 
 | Color | Hex | Use |
 |---|---|---|
-| Blue | `#2F8FFF` | The icon, splash and beam glow |
-| Dark blue | `#1A6FE0` | The bolt's offset, and the accent in the apps (white text on it passes contrast) |
-| Yellow | `#FFD23F` | The bolt and highlights. Never as text on white |
+| Sky blue | `#3F86F0` | The icon's ground and the Android splash |
+| Blue | `#2F8FFF` | The beam glow |
+| Dark blue | `#1A6FE0` | The accent in the apps (white text on it passes contrast) |
+| Yellow | `#FFD23F` | Highlights. Never as text on white |
 | Ink | `#0B1B33` | The wordmark on light backgrounds |
 
 "Light" logos are for light backgrounds, "dark" logos for dark ones. The design system, motion

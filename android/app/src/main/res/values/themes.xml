@@ -10,5 +10,5 @@
         <item name="postSplashScreenTheme">@style/Theme.Nhako</item>
     </style>
     <color name="canvas">#F4F5F7</color>
-    <color name="icon_background">#2F8FFF</color>
+    <color name="icon_background">#3F86F0</color>
 </resources>

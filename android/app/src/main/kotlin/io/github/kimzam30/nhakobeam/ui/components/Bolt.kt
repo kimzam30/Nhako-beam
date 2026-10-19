@@ -43,7 +43,8 @@ import kotlin.math.sin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The logo bolt's seven corners, in its 1024 box (docs/brand/logo/svg/nhako-beam-bolt.svg). */
+/** The bolt's seven corners, in a 1024 box: the vector bolt from the first logo, kept as the
+ * motion shape now that the logo is the pixel mascot. */
 val BOLT_POINTS = listOf(
     676.16f to 161.6f, 829.76f to 244.16f, 608.96f to 464.96f, 743.36f to 503.36f,
     194.24f to 862.4f, 436.16f to 574.4f, 301.76f to 536f,

@@ -6,7 +6,8 @@ import { prefs } from '../state/prefs.svelte';
 
 type Pt = readonly [number, number];
 
-/** The logo bolt's seven corners, in its 1024 box (docs/brand/logo/svg/nhako-beam-bolt.svg). */
+/** The bolt's seven corners, in a 1024 box: the vector bolt from the first logo, kept as the
+ * motion shape now that the logo is the pixel mascot. */
 export const BOLT: readonly Pt[] = [
   [676.16, 161.6],
   [829.76, 244.16],
