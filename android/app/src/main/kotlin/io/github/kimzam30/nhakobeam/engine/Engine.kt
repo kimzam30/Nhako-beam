@@ -3,6 +3,7 @@ package io.github.kimzam30.nhakobeam.engine
 import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
+import io.github.kimzam30.nhakobeam.model.LinkShare
 import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.RedeemResult
 import io.github.kimzam30.nhakobeam.model.SelfInfo
@@ -76,6 +77,17 @@ interface Engine {
     /** Who may send requests here. Applies to the next request, no reconnect. */
     suspend fun getWhoCanSend(): WhoCanSend
     suspend fun setWhoCanSend(who: WhoCanSend)
+
+    /** Starts sharing files and or text with a link, replacing one already shared. Throws
+     *  [EngineException] with a message ready to show (off a local network, a file that's gone). */
+    suspend fun shareLink(files: List<FileItem>, text: String?): LinkShare
+    fun stopLink()
+    /** Lets a browser in to the shared link, or turns it away. */
+    fun answerVisitor(visitorId: String, allow: Boolean)
+
+    /** Settings > About > Check for new versions. Null in builds that get updates from a store. */
+    suspend fun getUpdateCheck(): Boolean?
+    suspend fun setUpdateCheck(on: Boolean)
 
     /** Forgets every History entry. Received files stay where they are. */
     fun clearHistory()

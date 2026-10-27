@@ -2,8 +2,10 @@
 ; The app is installed for the current user only, so everything here is under HKCU.
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; "Send with Nhako Beam" in Explorer. The app adds it on first run (src/filemenu.rs, same key).
+  ; "Send with Nhako Beam" in Explorer, for files and for folders. The app adds them on first run
+  ; (src/filemenu.rs, same keys).
   DeleteRegKey HKCU "Software\Classes\*\shell\NhakoBeam"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\NhakoBeam"
   ; "Start when you log in" (tauri-plugin-autostart names it after the product).
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nhako Beam"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Nhako Beam"

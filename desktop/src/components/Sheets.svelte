@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/state/app.svelte';
   import { message } from '../lib/engine/tauri';
-  import type { RedeemResult } from '../lib/engine/types';
+  import type { LinkVisitor, RedeemResult } from '../lib/engine/types';
   import { TEXT_MAX } from '../lib/engine/types';
   import { untrack } from 'svelte';
   import { t } from '../lib/copy';
@@ -20,6 +20,7 @@
   import DeviceOrb from './DeviceOrb.svelte';
   import FileStack from './FileStack.svelte';
   import Icon from './Icon.svelte';
+  import QrCode from './QrCode.svelte';
   import QrScanner from './QrScanner.svelte';
   import Sheet from './Sheet.svelte';
   import Toggle from './Toggle.svelte';
@@ -221,6 +222,42 @@
     return t('history.status.failed');
   });
 
+  // ---------- Share via link ----------
+  let linkNow = $state(Date.now());
+  $effect(() => {
+    if (app.sheet?.kind !== 'link') return;
+    linkNow = Date.now();
+    const id = setInterval(() => (linkNow = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+  const linkTime = $derived.by(() => {
+    const share = app.linkShare;
+    if (!share) return '';
+    const left = share.expiresAt - linkNow;
+    if (left <= 0) return t('link.endsAfter');
+    return t('link.endsIn', { time: left >= 60_000 ? `${Math.ceil(left / 60_000)} min` : `${Math.ceil(left / 1000)}s` });
+  });
+  const linkWhat = $derived.by(() => {
+    const share = app.linkShare;
+    if (!share) return '';
+    if (!share.files.length) return textPreview(share.text ?? '');
+    return `${summarizeFiles(share.files)} · ${formatBytes(share.totalBytes)}`;
+  });
+  let linkCopied = $state(false);
+  async function copyLink() {
+    if (!app.linkShare || !(await app.copyText(app.linkShare.url))) return;
+    linkCopied = true;
+    setTimeout(() => (linkCopied = false), 1600);
+  }
+  function visitorStatus(v: LinkVisitor): string {
+    if (v.state === 'asking') return t('link.visitor.asking');
+    if (v.state === 'denied') return t('link.visitor.denied');
+    if (v.activeTotal > 0) return t('link.visitor.downloading', { percent: `${percent(v.activeBytes, v.activeTotal)}%` });
+    if (v.downloads > 1) return t('link.visitor.doneMany', { n: v.downloads });
+    return t(v.downloads ? 'link.visitor.done' : 'link.visitor.waiting');
+  }
+  const onPhone = (v: LinkVisitor) => /Android|iPhone|iPad/.test(v.label);
+
   // ---------- Confirm remove ----------
   const removing = $derived(app.sheet?.kind === 'confirmRemove' ? app.device(app.sheet.deviceId) : undefined);
 </script>
@@ -276,6 +313,14 @@
       {/if}
     {/each}
     <Button variant="ghost" icon="qr-code" full testid="use-code" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('send.choose.useCode')}</Button>
+    <button class="row link-row" disabled={!app.onLan} onclick={() => app.shareLink()} data-testid="share-link">
+      <span class="row-icon"><Icon name="link-simple" size={22} /></span>
+      <span class="link-row-text">
+        <span class="name">{t('send.choose.link')}</span>
+        <span class="muted small">{t(app.onLan ? 'send.choose.link.hint' : 'send.choose.link.offLan')}</span>
+      </span>
+      <Icon name="caret-right" size={16} />
+    </button>
   </Sheet>
 {:else if app.sheet?.kind === 'showCode'}
   <Sheet title={t('code.show.title')} onclose={close} testid="sheet-show-code">
@@ -512,6 +557,51 @@
       {/if}
     {/snippet}
   </Sheet>
+{:else if app.sheet?.kind === 'link' && app.linkShare}
+  {@const share = app.linkShare}
+  <Sheet title={t('link.title')} onclose={close} testid="sheet-link">
+    <p class="muted small link-how">{t('link.how')}</p>
+    <div class="link-qr"><QrCode value={share.url} label={t('link.qr')} size={176} /></div>
+    <div class="link-url" in:springIn={{ delay: 80, y: 6 }}>
+      <code class="url" data-testid="link-url">{share.url}</code>
+      <Button variant="secondary" size="sm" icon={linkCopied ? 'check' : 'copy'} testid="link-copy" onclick={copyLink}>{linkCopied ? t('link.copied') : t('link.copy')}</Button>
+    </div>
+    <div class="link-what" in:springIn={{ delay: 120, y: 6 }}>
+      <FileStack files={share.files} text={share.files.length ? undefined : share.text} size={32} />
+      <span class="link-what-text">{linkWhat}</span>
+      <span class="link-timer tabular" data-testid="link-timer"><Icon name="timer" size={16} weight="bold" />{linkTime}</span>
+    </div>
+    <h3 class="group">{t('link.visitors')}</h3>
+    {#if !share.visitors.length}
+      <p class="muted small" in:springIn={{ y: 4 }} data-testid="link-nobody">{t('link.visitors.none')}</p>
+    {/if}
+    <ul class="list visitors" aria-live="polite">
+      {#each share.visitors as v (v.id)}
+        <li class="visitor" class:asking={v.state === 'asking'} class:denied={v.state === 'denied'} in:springIn={{ preset: 'bouncy', y: 10 }} data-testid="visitor-{v.id}">
+          <span class="row-icon"><Icon name={onPhone(v) ? 'device-mobile' : 'laptop'} size={22} /></span>
+          <span class="visitor-text">
+            <span class="name">{v.label}</span>
+            <span class="muted small tabular">{v.address} · {visitorStatus(v)}</span>
+            {#if v.activeTotal > 0}
+              <span class="bar" aria-hidden="true"><span style:transform="scaleX({v.activeBytes / v.activeTotal})"></span></span>
+            {/if}
+          </span>
+          {#if v.state === 'asking'}
+            <span class="visitor-actions">
+              <Button variant="ghost" size="sm" testid="visitor-deny-{v.id}" onclick={() => app.answerVisitor(v.id, false)}>{t('link.visitor.deny')}</Button>
+              <Button size="sm" icon="check" testid="visitor-allow-{v.id}" onclick={() => app.answerVisitor(v.id, true)}>{t('link.visitor.allow')}</Button>
+            </span>
+          {:else if v.state === 'allowed' && v.downloads > 0 && !v.activeTotal}
+            <span class="done-mark" in:springIn={{ preset: 'bouncy', scale: 0.5, y: 0 }}><Icon name="check-circle" size={22} weight="fill" /></span>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    <p class="plain small"><Icon name="lock-simple" size={16} weight="bold" />{t('link.plain')}</p>
+    {#snippet footer()}
+      <Button variant="secondary" full icon="x-circle" testid="link-stop" onclick={() => app.stopLink()}>{t('link.stop')}</Button>
+    {/snippet}
+  </Sheet>
 {:else if app.sheet?.kind === 'confirmClearHistory'}
   <Sheet title={t('history.clear')} onclose={close} testid="sheet-clear-history">
     <p class="lede">{t('history.clear.confirm')}</p>
@@ -650,6 +740,123 @@
     border-radius: var(--radius-full);
     background: var(--color-fill);
     color: var(--color-accent-text);
+  }
+  .link-row {
+    margin-top: var(--space-1);
+  }
+  .link-row-text {
+    flex: 1;
+    display: grid;
+    min-width: 0;
+  }
+  .link-how {
+    margin: 0 0 var(--space-4);
+  }
+  .link-qr {
+    display: grid;
+    place-items: center;
+    margin-bottom: var(--space-4);
+  }
+  .link-url {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+  }
+  .url {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--type-footnote-size);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+  .link-what {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin-top: var(--space-4);
+  }
+  .link-what-text {
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .link-timer {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--type-footnote-size);
+    color: var(--color-text-secondary);
+  }
+  .visitor {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    transition: background-color var(--duration-base) var(--ease-standard), opacity var(--duration-base) var(--ease-standard);
+  }
+  .visitor.asking {
+    background: var(--color-accent-subtle);
+  }
+  .visitor.denied {
+    opacity: 0.55;
+  }
+  .visitor-text {
+    flex: 1;
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .visitor-actions {
+    display: flex;
+    gap: var(--space-1);
+    flex: none;
+  }
+  .bar {
+    display: block;
+    height: 4px;
+    margin-top: var(--space-1);
+    border-radius: var(--radius-full);
+    background: var(--color-fill);
+    overflow: hidden;
+  }
+  .bar > span {
+    display: block;
+    height: 100%;
+    background: var(--color-accent);
+    transform-origin: left;
+    transition: transform 250ms linear;
+  }
+  .done-mark {
+    color: var(--color-success);
+    display: inline-grid;
+  }
+  .plain {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
+    color: var(--color-text-secondary);
+    margin: 0;
+  }
+  .plain :global(.icon) {
+    margin-top: 2px;
+  }
+  @media (max-width: 420px) {
+    .visitor {
+      flex-wrap: wrap;
+    }
+    .visitor-actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
   }
   .trust-box {
     display: grid;

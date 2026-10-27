@@ -1,0 +1,15 @@
+Nhako Beam sends files, folders, text and links straight from one of your devices to another: Android, Windows and Linux. Nearby over Wi-Fi, or across the internet when you're apart. No cloud, no account and no size limit.
+
+<ul>
+<li>Your devices find each other on the same Wi-Fi. Pair once with a four-word code (or its QR code) to reach them from anywhere.</li>
+<li>Encrypted end to end, and every file is checked on arrival.</li>
+<li>Pause and resume, even big files, even after the connection drops.</li>
+<li>Send whole folders, notes, links and what's on your clipboard, or share from any app.</li>
+<li>Share via link: someone without the app downloads with their browser, after you let them in.</li>
+<li>Only your own devices can send to you, unless you choose otherwise.</li>
+<li>Light and dark, sounds, and a reduced-motion mode.</li>
+</ul>
+
+The desktop apps for Windows and Linux are on the project's GitHub page.
+
+This build from F-Droid can't be woken up by your other devices while it's closed (that needs Google's push service). Keep Nhako Beam open, or turn on the Receive tile, to receive.

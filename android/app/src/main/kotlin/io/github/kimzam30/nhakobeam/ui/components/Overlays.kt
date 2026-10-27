@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -327,7 +328,9 @@ fun IncomingLayer(app: AppState) {
     val request = app.requests.firstOrNull() ?: return
     val c = Nhako.colors
     val dim by animateFloatAsState(1f, tween(NhakoMotion.Duration.base), label = "dim")
-    Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = c.scrim.alpha * 0.6f * dim)).clickable(remember { MutableInteractionSource() }, indication = null) {}) {
+    // The dimmed backdrop only stops taps reaching the screen behind. A plain tap handler, not a
+    // button, so screen readers skip it and go straight to the card.
+    Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = c.scrim.alpha * 0.6f * dim)).pointerInput(Unit) { detectTapGestures {} }) {
         androidx.compose.runtime.key(request.id) {
             IncomingCard(app, request, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(NhakoSpace.s5).widthIn(max = 560.dp))
         }
@@ -362,7 +365,8 @@ fun NSheet(
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier.fillMaxSize().alpha((1 - offset.value).coerceIn(0f, 1f)).background(c.scrim)
-                .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose),
+                // Tapping outside closes it. Not a button: a screen reader has Close and Back instead.
+                .pointerInput(onClose) { detectTapGestures { onClose() } },
         )
         Column(
             Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()

@@ -70,6 +70,8 @@ export const startAtLogin = {
 export interface FileMenu {
   manager: 'explorer' | 'files' | null;
   on: boolean;
+  /** Running as a Flatpak: the file manager menu and start at login can't reach outside it. */
+  sandboxed?: boolean;
 }
 
 export const fileMenu = {

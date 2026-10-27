@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Nhako Beam
+GenericName=File Transfer
+Comment=Send files straight between your own devices
+Exec=nhako-beam
+Icon=io.github.kimzam30.nhakobeam
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=send;share;transfer;files;airdrop;wifi;phone;
+StartupWMClass=nhako-beam
+SingleMainWindow=true

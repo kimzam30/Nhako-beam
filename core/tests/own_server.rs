@@ -99,6 +99,8 @@ impl Node {
 
     async fn start(dir: &std::path::Path, save: Option<Connection>) -> Result<Engine, EngineError> {
         let mut cfg = EngineConfig::new(dir.join("config"));
+        // Never GitHub from a test.
+        cfg.update_url = None;
         cfg.save_dir = Some(dir.join("save"));
         cfg.relay_only = true;
         cfg.mdns = false;
@@ -108,6 +110,8 @@ impl Node {
         if let Some(c) = save {
             // Save the setting with a throwaway local engine first, then start on it.
             let mut first = EngineConfig::new(dir.join("config"));
+            // Never GitHub from a test.
+            first.update_url = None;
             first.network = Some(Network::LocalOnly);
             first.mdns = false;
             first.beacon = None;

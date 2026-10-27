@@ -91,6 +91,20 @@ class Background(private val context: Context, private val app: AppState, privat
             ?.apply { setReferenceCounted(false) }
     }
 
+    /** Browsers asking at a shared link, each with its notification (in the background). */
+    private val postedVisitors = mutableSetOf<String>()
+
+    private fun onLinkShare(e: EngineEvent.LinkShareChanged) {
+        val asking = e.share?.visitors.orEmpty().filter { it.state == io.github.kimzam30.nhakobeam.model.VisitorState.Asking }
+        if (!foreground) for (v in asking) if (postedVisitors.add(v.id)) notifier.showVisitor(v)
+        // Answered on screen, or the link stopped: their notifications go.
+        val still = asking.map { it.id }.toSet()
+        postedVisitors.filter { it !in still }.forEach {
+            notifier.cancel(Notifier.visitorId(it))
+            postedVisitors -= it
+        }
+    }
+
     fun onEvent(e: EngineEvent) {
         when (e) {
             is EngineEvent.Incoming -> if (!foreground) {
@@ -101,6 +115,7 @@ class Background(private val context: Context, private val app: AppState, privat
             is EngineEvent.TrustAsk -> if (!foreground) notifier.showTrustAsk(e.request.deviceId, app.deviceName(e.request.deviceId))
             is EngineEvent.TrustEnded -> notifier.cancel(Notifier.trustId(e.deviceId))
             is EngineEvent.Paired -> notifier.cancel(Notifier.trustId(e.device.id))
+            is EngineEvent.LinkShareChanged -> onLinkShare(e)
             else -> {}
         }
         // Requests that were answered, withdrawn or timed out lose their notification.

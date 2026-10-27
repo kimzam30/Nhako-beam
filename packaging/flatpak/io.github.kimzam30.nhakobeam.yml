@@ -1,0 +1,60 @@
+# The Flatpak, for Flathub (docs/releasing.md, "Flathub"). Built from source and offline, as
+# Flathub requires: cargo-sources.json and node-sources.json list every crate and npm package by
+# checksum. Make them for each release with packaging/flatpak/generate-sources.sh.
+#
+# Try it here:  packaging/flatpak/build-local.sh   (builds from this checkout and installs it)
+id: io.github.kimzam30.nhakobeam
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+command: nhako-beam
+
+finish-args:
+  # Finding devices nearby (mDNS, the beacon) and sending.
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Sounds.
+  - --socket=pulseaudio
+  # Received files go to Downloads/Nhako Beam. Other folders are chosen through the file picker.
+  - --filesystem=xdg-download
+  # The tray icon, and notifications with Accept and Decline.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  # The tray icon's library, from Flathub's shared modules (a git submodule in the Flathub repo).
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
+
+  - name: nhako-beam
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+      env:
+        CARGO_HOME: /run/build/nhako-beam/cargo
+        CARGO_NET_OFFLINE: 'true'
+        npm_config_cache: /run/build/nhako-beam/flatpak-node/npm-cache
+        npm_config_offline: 'true'
+        XDG_CACHE_HOME: /run/build/nhako-beam/flatpak-node/cache
+    build-commands:
+      # The UI first: the app embeds it.
+      - cd desktop && npm ci --offline --ignore-scripts && npm run build
+      # The release app, as `tauri build` makes it (custom-protocol serves the embedded UI).
+      - cargo --offline build --release -p nhako-desktop --features tauri/custom-protocol
+      - install -Dm755 target/release/nhako-beam /app/bin/nhako-beam
+      - install -Dm644 packaging/linux/io.github.kimzam30.nhakobeam.desktop /app/share/applications/io.github.kimzam30.nhakobeam.desktop
+      - install -Dm644 packaging/linux/io.github.kimzam30.nhakobeam.metainfo.xml /app/share/metainfo/io.github.kimzam30.nhakobeam.metainfo.xml
+      - install -Dm644 desktop/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.kimzam30.nhakobeam.png
+      - install -Dm644 desktop/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.kimzam30.nhakobeam.png
+      - install -Dm644 desktop/src-tauri/icons/icon.svg /app/share/icons/hicolor/scalable/apps/io.github.kimzam30.nhakobeam.svg
+    sources:
+      - type: git
+        url: https://github.com/kimzam30/Nhako-beam.git
+        tag: v0.2.0
+      - cargo-sources.json
+      - node-sources.json

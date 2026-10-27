@@ -125,11 +125,39 @@ jobs:
       - name: Rust tests (engine, command line, desktop app)
         run: cargo test --workspace
 
-      # Unsigned for now: Windows SmartScreen will say "Windows protected your PC" on install
-      # (More info > Run anyway). Signing can be added later in tauri.windows.conf.json.
       - name: Build the installer (.exe)
         working-directory: desktop
         run: npx tauri build
+
+      # Signing with SignPath (free for open source, docs/releasing.md "Signing the Windows
+      # installer"). Skipped until you set the repository variable SIGNPATH_ORGANIZATION_ID and the
+      # secret SIGNPATH_API_TOKEN; until then SmartScreen says "Windows protected your PC" on
+      # install (More info > Run anyway).
+      - name: Hand the installer to SignPath
+        id: unsigned
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup-unsigned
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign the installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nhako-beam
+          signing-policy-slug: ${{ inputs.release && 'release-signing' || 'test-signing' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: target/release/bundle/signed
+      - name: Use the signed installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: bash
+        run: cp -f target/release/bundle/signed/*.exe target/release/bundle/nsis/
+
       - uses: actions/upload-artifact@v4
         with:
           name: nhako-beam-windows-setup
@@ -198,9 +226,32 @@ jobs:
       - name: Unit and screenshot tests
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest
+      # F-Droid builds with -Pnhako.fdroid: no Firebase, no update check. Built here first (arm64
+      # only) to prove it still builds and has no Firebase code in it; the files are replaced below.
+      - name: The F-Droid build has no Firebase
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon assembleRelease -Pnhako.fdroid -Pnhako.abis=arm64-v8a
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          if unzip -p "$apk" 'classes*.dex' | grep -aq 'Lcom/google/firebase/'; then
+            echo "::error::The F-Droid build contains Firebase code."
+            exit 1
+          fi
+          rm -rf app/build/outputs/apk/release
       - name: Build an .apk for each of arm64, arm32 and x86_64 phones
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease
+      # An app bundle for Google Play, for when there's a Play account (docs/releasing.md). Kept as
+      # a run artifact only: it's not something people install by hand.
+      - name: Build the app bundle (.aab)
+        working-directory: android
+        run: ./gradlew --no-daemon bundleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-app-bundle
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:

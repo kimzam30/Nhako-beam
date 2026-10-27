@@ -19,6 +19,7 @@ import io.github.kimzam30.nhakobeam.MainActivity
 import io.github.kimzam30.nhakobeam.R
 import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
+import io.github.kimzam30.nhakobeam.model.LinkVisitor
 import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
@@ -134,6 +135,23 @@ class Notifier(private val context: Context) {
         post(trustId(deviceId), n)
     }
 
+    /** A browser opened the shared link (Share via link): let it in or not from here. */
+    fun showVisitor(v: LinkVisitor) {
+        val n = NotificationCompat.Builder(context, CHANNEL_REQUESTS)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(ACCENT)
+            .setContentTitle(t("link.asks", "browser" to v.label))
+            .setContentText(t("link.asks.body", "address" to v.address))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openApp())
+            .addAction(action(ActionReceiver.DENY_VISITOR, v.id, t("link.visitor.deny")))
+            .addAction(action(ActionReceiver.ALLOW_VISITOR, v.id, t("link.visitor.allow")))
+            .setAutoCancel(true)
+            .build()
+        post(visitorId(v.id), n)
+    }
+
     // ---------- Progress ----------
 
     /** The foreground notification: the newest running transfer, plus how many more are going. */
@@ -229,5 +247,6 @@ class Notifier(private val context: Context) {
         fun requestId(id: String) = 1000 + (id.hashCode() and 0xFFFFF)
         fun doneId(id: String) = 2_000_000 + (id.hashCode() and 0xFFFFF)
         fun trustId(deviceId: String) = 4_000_000 + (deviceId.hashCode() and 0xFFFFF)
+        fun visitorId(visitorId: String) = 5_000_000 + (visitorId.hashCode() and 0xFFFFF)
     }
 }

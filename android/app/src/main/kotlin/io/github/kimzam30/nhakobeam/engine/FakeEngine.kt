@@ -9,6 +9,8 @@ import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
 import io.github.kimzam30.nhakobeam.model.HistoryEntry
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
+import io.github.kimzam30.nhakobeam.model.LinkShare
+import io.github.kimzam30.nhakobeam.model.LinkVisitor
 import io.github.kimzam30.nhakobeam.model.OsPlatform
 import io.github.kimzam30.nhakobeam.model.PairVia
 import io.github.kimzam30.nhakobeam.model.PairingCode
@@ -24,6 +26,8 @@ import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.model.TrustOutcome
 import io.github.kimzam30.nhakobeam.model.TrustRequest
+import io.github.kimzam30.nhakobeam.model.UpdateInfo
+import io.github.kimzam30.nhakobeam.model.VisitorState
 import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,6 +42,8 @@ class FakeEngine : Engine {
         const val TRUST_CHECK = "A3F0 7C21"
         const val SAMPLE_TEXT = "Meet at 6 by the north gate.\nBring the charger, mine died."
         const val SAMPLE_LINK = "https://nhako.example/trip/photos"
+        /** The prototype's shared link address (the desktop prototype's too). */
+        const val LINK_URL = "http://192.168.1.20:41234/k3jqm8xw2pnrt7ha/"
     }
 
     private val _events = MutableSharedFlow<EngineEvent>(extraBufferCapacity = 256)
@@ -59,6 +65,11 @@ class FakeEngine : Engine {
     var name = "Hakim's phone"
     /** The code "the other device" shows, for entering a code. */
     val peerCode = listOf("river", "lantern", "seven", "harbor")
+    /** The link being shared. */
+    var link: LinkShare? = null
+    /** On Wi-Fi or a cable: Share via link refuses otherwise. */
+    var onWifi = true
+    var updateCheck: Boolean? = true
     private var seq = 0
 
     private fun emit(e: EngineEvent) {
@@ -189,6 +200,34 @@ class FakeEngine : Engine {
         history = emptyList()
     }
 
+    override suspend fun shareLink(files: List<FileItem>, text: String?): LinkShare {
+        if (!onWifi) throw EngineException("Connect to Wi-Fi first. Share via link works on the same network.")
+        val share = LinkShare(
+            id = "s${++seq}", url = LINK_URL, files = files, totalBytes = files.sumOf { it.size },
+            text = text?.takeIf { it.isNotBlank() }, expiresAt = System.currentTimeMillis() + 15 * 60_000,
+        )
+        link = share
+        emit(EngineEvent.LinkShareChanged(share))
+        return share
+    }
+
+    override fun stopLink() {
+        link = null
+        emit(EngineEvent.LinkShareChanged(null))
+    }
+
+    override fun answerVisitor(visitorId: String, allow: Boolean) {
+        val share = link ?: return
+        link = share.copy(visitors = share.visitors.map { if (it.id == visitorId) it.copy(state = if (allow) VisitorState.Allowed else VisitorState.Denied) else it })
+        emit(EngineEvent.LinkShareChanged(link))
+    }
+
+    override suspend fun getUpdateCheck() = updateCheck
+    override suspend fun setUpdateCheck(on: Boolean) {
+        updateCheck = on
+        if (!on) emit(EngineEvent.Update(null))
+    }
+
     private fun update(id: String, change: (Device) -> Device) {
         devices = devices.map { if (it.id == id) change(it).also { d -> emit(EngineEvent.DeviceChanged(d)) } else it }
     }
@@ -249,6 +288,15 @@ class FakeEngine : Engine {
     fun simDiscovery(state: DiscoveryState) = emit(EngineEvent.Discovery(state))
     fun simHistory(entry: HistoryEntry) = emit(EngineEvent.History(entry))
     fun simServer(problem: ServerProblem?) = emit(EngineEvent.Server(problem))
+    /** A browser opens the shared link: asking, or (with [state] and [done]) let in and downloading. */
+    fun simVisitor(label: String = "Chrome on Android", address: String = "192.168.1.23", state: VisitorState = VisitorState.Asking, done: Double = 0.0, downloads: Int = 0) {
+        val share = link ?: return
+        val total = if (done > 0) share.totalBytes.coerceAtLeast(1) else 0
+        val v = LinkVisitor("v${++seq}", label, address, state, System.currentTimeMillis(), (total * done).toLong(), total, downloads)
+        link = share.copy(visitors = share.visitors + v)
+        emit(EngineEvent.LinkShareChanged(link))
+    }
+    fun simUpdate(version: String = "0.3.0") = emit(EngineEvent.Update(UpdateInfo(version, "https://github.com/kimzam30/Nhako-beam/releases/tag/v$version")))
 
     private fun sampleHistory(now: Long): List<HistoryEntry> {
         val hour = 3_600_000L

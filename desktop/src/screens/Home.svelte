@@ -168,6 +168,22 @@
           {/snippet}
         </Banner>
       {/if}
+      {#if app.linkShare && app.sheet?.kind !== 'link'}
+        {@const asking = app.linkShare.visitors.filter((v) => v.state === 'asking').length}
+        <Banner tone="info" icon="link-simple" text={asking ? `${t('link.active')} · ${t('link.active.asking', { n: asking })}` : t('link.active')} testid="banner-link">
+          {#snippet action()}
+            <button onclick={() => (app.sheet = { kind: 'link' })}>{t('text.show')}</button>
+          {/snippet}
+        </Banner>
+      {/if}
+      {#if app.update && app.updateSeen !== app.update.version}
+        <Banner tone="info" icon="sparkle" text={t('update.available', { version: app.update.version })} testid="banner-update">
+          {#snippet action()}
+            <button onclick={() => app.hideUpdate()} data-testid="update-later">{t('update.later')}</button>
+            <button onclick={() => app.openUpdate()} data-testid="update-download">{t('update.download')}</button>
+          {/snippet}
+        </Banner>
+      {/if}
       {#if app.serverProblem && app.connection.mode === 'own'}
         <Banner
           icon={app.serverProblem === 'tokenRejected' ? 'warning-circle' : 'hard-drives'}

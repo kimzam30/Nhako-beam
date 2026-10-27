@@ -349,4 +349,54 @@ class ScreensTest {
         compose.onNodeWithText("You're not on Wi-Fi").assertExists()
         shot("34-off-wifi")
     }
+
+    @Test fun shareViaLink() {
+        show { stage(fake.photos()) }
+        compose.runOnIdle { app.shareLink() }
+        compose.mainClock.advanceTimeBy(1600)
+        compose.runOnIdle {
+            assertEquals(Sheet.Link, app.sheet)
+            assertTrue("the tray empties", app.staged.isEmpty())
+        }
+        compose.onNodeWithText(FakeEngine.LINK_URL).assertExists()
+        compose.onNodeWithText("Nobody has opened it yet.").assertExists()
+        compose.runOnIdle {
+            fake.simVisitor("Chrome on Android", "192.168.1.23")
+            fake.simVisitor("Edge on Windows", "192.168.1.41", io.github.kimzam30.nhakobeam.model.VisitorState.Allowed, done = 0.42)
+        }
+        compose.mainClock.advanceTimeBy(1200)
+        compose.onNodeWithText("192.168.1.23 · Wants to download").assertExists()
+        compose.onNodeWithText("192.168.1.41 · Downloading, 42%").assertExists()
+        shot("35-share-via-link")
+        compose.runOnIdle { app.answerVisitor(app.linkShare!!.visitors[0].id, false) }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText("192.168.1.23 · Turned away").assertExists()
+        compose.runOnIdle { app.sheet = null }
+        compose.mainClock.advanceTimeBy(1200)
+        compose.onNodeWithText("Sharing a link").assertExists()
+        compose.runOnIdle {
+            app.stopLink()
+            assertEquals(null, app.linkShare)
+        }
+    }
+
+    @Test fun shareViaLinkNeedsWifi() {
+        fake.onWifi = false
+        show {
+            onLan = false
+            stage(fake.photos())
+            sheet = Sheet.Send
+        }
+        compose.onNodeWithText("Connect to Wi-Fi to share with a link").assertExists()
+    }
+
+    @Test fun updateBanner() {
+        show { fake.simUpdate("0.3.0") }
+        compose.onNodeWithText("Nhako Beam 0.3.0 is out").assertExists()
+        shot("36-update-banner")
+        compose.runOnIdle { app.hideUpdate() }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText("Nhako Beam 0.3.0 is out").assertDoesNotExist()
+        compose.runOnIdle { assertEquals("0.3.0", prefs.updateSeen) }
+    }
 }

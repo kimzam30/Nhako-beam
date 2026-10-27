@@ -94,6 +94,17 @@ jobs:
           if [ -z "$sha" ]; then echo "::error::Couldn't read the signing certificate."; exit 1; fi
           echo "APK_CERT_SHA256=$sha" >> "$GITHUB_ENV"
 
+      # winget (docs/releasing.md "winget"): the manifests for this version, to submit once the
+      # release is published. A run artifact, not part of the release.
+      - name: winget manifests
+        run: node scripts/winget.mjs "${GITHUB_REF_NAME#v}" release/*-windows-x64-setup.exe winget
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: winget/
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Draft the release
         run: |
           set -euo pipefail

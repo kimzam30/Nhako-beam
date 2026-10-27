@@ -115,13 +115,14 @@
       {/if}
     </span>
     <div class="titles">
-      <h3 class="title">{title}</h3>
+      <!-- Screen readers hear each change of state (sent, failed, paused), not every percent. -->
+      <h3 class="title" aria-live="polite">{title}</h3>
       <p class="detail" class:warn={tr.status === 'reconnecting' || tr.error === 'diskFull' || tr.error === 'diskFullPeer' || tr.error === 'notAllowed'} class:bad={tr.status === 'failed'}>{detail}</p>
     </div>
   </header>
 
   {#if !isText && tr.status !== 'waiting' && tr.status !== 'declined' && !(tr.status === 'failed' && tr.doneBytes === 0)}
-    <Beam progress={tr.doneBytes / tr.totalBytes} intensity={tr.speed / 92e6} {mode} collapsed={tr.status === 'done'} />
+    <Beam progress={tr.doneBytes / tr.totalBytes} intensity={tr.speed / 92e6} {mode} collapsed={tr.status === 'done'} label={title} />
   {/if}
 
   <footer>

@@ -10,6 +10,7 @@ import type {
   FileItem,
   HistoryEntry,
   IncomingRequest,
+  LinkShare,
   PairingCode,
   PairVia,
   ServerProblem,
@@ -17,6 +18,7 @@ import type {
   Transfer,
   TrustOutcome,
   TrustRequest,
+  UpdateInfo,
   WhoCanSend,
 } from '../engine/types';
 import { TEXT_MAX } from '../engine/types';
@@ -50,7 +52,9 @@ export type Sheet =
   | { kind: 'confirmRemove'; deviceId: string }
   | { kind: 'historyItem'; id: string }
   | { kind: 'confirmClearHistory' }
-  | { kind: 'confirmOpen'; transferId: string; fileName: string; deviceName: string };
+  | { kind: 'confirmOpen'; transferId: string; fileName: string; deviceName: string }
+  /** The link being shared: its QR, who opened it, Stop. */
+  | { kind: 'link' };
 
 export interface Toast {
   id: number;
@@ -72,6 +76,8 @@ export interface DragState {
 }
 
 const STORE = 'nhako.app.v1';
+/** The update the Home banner was closed for ("Not now"), so it stays closed for that version. */
+const UPDATE_SEEN = 'nhako.update.seen';
 
 function loadStored(): { onboarded: boolean; selfName: string; saveLocation: string } {
   try {
@@ -151,6 +157,16 @@ class AppState {
   /** Home opens its picker for this (from a device's sheet): files or a folder, then sends them there. */
   pickRequest = $state<{ kind: 'files' | 'folder'; deviceId: string; n: number } | null>(null);
   private pickSeq = 0;
+  /** The link being shared (Share via link). */
+  linkShare = $state<LinkShare | null>(null);
+  /** Browsers already heard asking, so each one rings once. */
+  private visitorsHeard = new Set<string>();
+  /** A newer version, when the daily check found one. */
+  update = $state<UpdateInfo | null>(null);
+  /** Check for new versions (saved by the engine); null in builds that get updates from a store. */
+  updateCheck = $state<boolean | null>(null);
+  /** The version whose Home banner was closed with Not now. */
+  updateSeen = $state<string | null>(null);
 
   /** The pretend engine's test hooks (browser prototype and UI tests only). */
   get mock(): MockEngine | null {
@@ -189,6 +205,12 @@ class AppState {
     void this.engine.getConnection().then((c) => (this.connection = c));
     void this.engine.getLanDiscovery().then((on) => (this.lanDiscovery = on));
     void this.engine.getWhoCanSend().then((who) => (this.whoCanSend = who));
+    void this.engine.getUpdateCheck().then((on) => (this.updateCheck = on));
+    try {
+      this.updateSeen = localStorage.getItem(UPDATE_SEEN);
+    } catch {
+      // Blocked storage: the banner shows again next time.
+    }
     void this.loadSelf();
     if (this.native && !opts.popover) void shell.onSendRequest((paths) => void this.sendFromFileManager(paths));
 
@@ -272,6 +294,12 @@ class AppState {
         case 'history':
           this.history = [e.entry, ...this.history.filter((h) => h.id !== e.entry.id)].sort((a, b) => b.finishedAt - a.finishedAt);
           break;
+        case 'linkShare':
+          this.onLinkShare(e.share);
+          break;
+        case 'update':
+          this.update = e.update;
+          break;
         case 'snapshot':
           this.applySnapshot(e.snapshot);
           break;
@@ -294,6 +322,9 @@ class AppState {
     this.serverProblem = s.serverProblem;
     this.history = s.history;
     this.trustAsks = s.trustAsks ?? [];
+    this.linkShare = s.linkShare ?? null;
+    for (const v of this.linkShare?.visitors ?? []) this.visitorsHeard.add(v.id);
+    this.update = s.update ?? null;
     void this.loadSelf();
   }
 
@@ -376,6 +407,7 @@ class AppState {
     this.history = [];
     this.staged = [];
     this.sheet = null;
+    this.linkShare = null;
     this.onboarded = false;
     this.persist();
     this.init();
@@ -701,6 +733,89 @@ class AppState {
   }
 
   stagedSummary = $derived(summarizeFiles(this.staged));
+
+  // ---------- Share via link ----------
+
+  /** Shares what's waiting (files or text) with a link, for a device without the app. */
+  async shareLink(): Promise<void> {
+    if (!this.hasStaged) return;
+    try {
+      const share = await this.engine.shareLink(this.staged, this.stagedText ?? undefined);
+      this.linkShare = share;
+      this.staged = [];
+      this.stagedText = null;
+      this.sheet = { kind: 'link' };
+      playSound('send');
+    } catch (e) {
+      this.toast(message(e), 'danger');
+    }
+  }
+
+  stopLink(): void {
+    this.engine.stopLink();
+    this.linkShare = null;
+    if (this.sheet?.kind === 'link') this.sheet = null;
+    this.toast(t('link.stopped'));
+    playSound('cancel');
+  }
+
+  answerVisitor(visitorId: string, allow: boolean): void {
+    const v = this.linkShare?.visitors.find((x) => x.id === visitorId);
+    if (v) v.state = allow ? 'allowed' : 'denied';
+    this.engine.answerVisitor(visitorId, allow);
+    playHaptic(allow ? 'accept' : 'decline');
+    playSound(allow ? 'accept' : 'decline');
+  }
+
+  private onLinkShare(share: LinkShare | null): void {
+    const had = this.linkShare;
+    this.linkShare = share;
+    if (!share) {
+      this.visitorsHeard.clear();
+      if (this.sheet?.kind === 'link') this.sheet = null;
+      // Stopped here says so already; this is the link ending by itself.
+      if (had) this.toast(t('link.ended'));
+      return;
+    }
+    for (const v of share.visitors) {
+      if (v.state !== 'asking' || this.visitorsHeard.has(v.id)) continue;
+      this.visitorsHeard.add(v.id);
+      playSound('incoming');
+      // Someone is standing there with a browser: show who, unless something else is open.
+      if (!this.sheet) this.sheet = { kind: 'link' };
+      else if (this.sheet.kind !== 'link') this.toast(t('link.asks', { browser: v.label }), 'neutral', { label: t('text.show'), run: () => (this.sheet = { kind: 'link' }) });
+    }
+  }
+
+  // ---------- Updates ----------
+
+  async setUpdateCheck(on: boolean): Promise<boolean> {
+    try {
+      await this.engine.setUpdateCheck(on);
+    } catch {
+      this.toast(t('settings.about.updates.failed'), 'danger');
+      return false;
+    }
+    this.updateCheck = on;
+    if (!on) this.update = null;
+    return true;
+  }
+
+  /** The Home banner's Not now: hidden until the next version. */
+  hideUpdate(): void {
+    if (!this.update) return;
+    this.updateSeen = this.update.version;
+    try {
+      localStorage.setItem(UPDATE_SEEN, this.update.version);
+    } catch {
+      // Blocked storage: it shows again next time.
+    }
+  }
+
+  /** Opens the release page, where the downloads are. */
+  openUpdate(): void {
+    if (this.update) void this.openLink(this.update.url);
+  }
 
   // ---------- Trust from Nearby ----------
 

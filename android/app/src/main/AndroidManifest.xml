@@ -84,14 +84,7 @@
                 android:value="true" />
         </service>
 
-        <!-- Wake-up pushes from your other devices (wake/README.md). Idle without Firebase set up. -->
-        <service
-            android:name=".platform.WakeMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
+        <!-- Wake-up pushes: src/push/AndroidManifest.xml (not in the F-Droid build). -->
 
         <!-- Hands received files to other apps (open, share). -->
         <provider

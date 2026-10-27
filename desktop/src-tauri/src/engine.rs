@@ -15,8 +15,8 @@ use std::{
 };
 
 use nhako_core::{
-    Connection, Engine, EngineConfig, EngineEvent, FileItem, IncomingRequest, Network, Outgoing, OwnServer, PairingCode, RedeemResult, ServerCheck, Snapshot,
-    Transfer, TransferDirection, TransferStatus, WhoCanSend, check_server as check, engine_limits, files,
+    Connection, Engine, EngineConfig, EngineEvent, FileItem, IncomingRequest, LinkShare, Network, Outgoing, OwnServer, PairingCode, RedeemResult, ServerCheck,
+    Snapshot, Transfer, TransferDirection, TransferStatus, VisitorState, WhoCanSend, check_server as check, engine_limits, files,
     store::{self, Store},
     text,
 };
@@ -254,6 +254,30 @@ fn notify(app: &AppHandle, engine: &Engine, event: &EngineEvent, notified: &mut 
                     _ => {}
                 },
             );
+        }
+        // A browser opened a shared link: let it in from here, with the window hidden too.
+        EngineEvent::LinkShare { share: Some(share) } => {
+            for v in &share.visitors {
+                if v.state != VisitorState::Asking || !notified.insert(format!("visitor {}", v.id)) {
+                    continue;
+                }
+                let id = v.id.clone();
+                shell::notify_with_actions(
+                    app,
+                    &format!("{} wants to download what you shared", v.label),
+                    &format!("From {} on this network.", v.address),
+                    &[("allow", "Let in"), ("deny", "No")],
+                    move |app, action| match action {
+                        "allow" | "deny" => {
+                            if let Some(engine) = app.state::<Host>().running() {
+                                engine.answer_visitor(&id, action == "allow");
+                            }
+                        }
+                        "default" => shell::show_window(app),
+                        _ => {}
+                    },
+                );
+            }
         }
         EngineEvent::TrustAsk { request } => {
             shell::notify_with_actions(
@@ -591,6 +615,70 @@ pub async fn send_text(host: State<'_, Host>, device_id: String, text: String) -
         nhako_core::EngineError::UnknownDevice => "That device isn't known any more.".into(),
         other => other.to_string(),
     })
+}
+
+/// Shares the staged files (and or text) with a link, for a device without the app.
+#[tauri::command]
+pub async fn share_link(host: State<'_, Host>, file_ids: Vec<String>, text: Option<String>) -> Result<LinkShare, String> {
+    let out: Vec<Outgoing> = {
+        let known = host.files.lock().expect("files lock");
+        file_ids
+            .iter()
+            .filter_map(|id| known.get(id).cloned())
+            .map(|(path, folder)| Outgoing {
+                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
+                path,
+                folder,
+            })
+            .collect()
+    };
+    if out.len() != file_ids.len() {
+        return Err("Some of those files can't be found any more. Add them again.".into());
+    }
+    host.engine()?.share_link(&out, text.as_deref()).map_err(|e| match e {
+        nhako_core::EngineError::NoLan => "Connect to Wi-Fi or a network cable first. Share via link works on the same network.".into(),
+        nhako_core::EngineError::File { path, .. } => format!("Couldn't read {}. It may have been moved or deleted.", display_name(&path)),
+        nhako_core::EngineError::TextTooLong => "That's too long to share as text. Save it in a file and share that.".into(),
+        nhako_core::EngineError::NoFiles => "There's nothing to share.".into(),
+        other => other.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn stop_link(host: State<'_, Host>) -> Result<(), String> {
+    host.engine()?.stop_link();
+    Ok(())
+}
+
+/// Lets a browser in to a shared link, or turns it away.
+#[tauri::command]
+pub async fn answer_visitor(host: State<'_, Host>, visitor_id: String, allow: bool) -> Result<(), String> {
+    host.engine()?.answer_visitor(&visitor_id, allow);
+    Ok(())
+}
+
+/// Settings > About > Check for new versions. `null` when this build doesn't check (Flatpak).
+#[tauri::command]
+pub async fn get_update_check(host: State<'_, Host>) -> Result<Option<bool>, String> {
+    if nhako_core::update::default_url().is_none() {
+        return Ok(None);
+    }
+    host.settings(|e| e.update_check(), |s| Ok(Some(s.state.update_check))).await
+}
+
+#[tauri::command]
+pub async fn set_update_check(host: State<'_, Host>, on: bool) -> Result<(), String> {
+    host.settings(
+        |e| e.set_update_check(on).map_err(|e| e.to_string()),
+        |s| {
+            s.state.update_check = on;
+            if !on {
+                s.state.update_found = None;
+            }
+            Ok(s.save().map_err(|e| e.to_string()))
+        },
+    )
+    .await?
 }
 
 /// What's on the clipboard as text, for "Send clipboard". Empty when there's none.

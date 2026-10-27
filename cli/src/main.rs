@@ -72,6 +72,18 @@ enum Command {
         #[arg(long)]
         trust: bool,
     },
+    /// Share files, folders or text with a link, for a device without Nhako Beam on the same Wi-Fi.
+    /// Each browser that opens it asks first.
+    Share {
+        #[arg(required_unless_present = "text")]
+        files: Vec<PathBuf>,
+        /// Share this text (a note or a link) instead of files.
+        #[arg(long, conflicts_with = "files")]
+        text: Option<String>,
+        /// Let every browser in without asking.
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Receive files. With a code, receive from the device showing it; without, wait for nearby and trusted devices.
     Receive {
         /// The four words shown on the other device.
@@ -192,6 +204,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     let mut cfg = EngineConfig::new(config_dir);
     cfg.save_dir = cli.save_dir.clone();
     cfg.mdns = !cli.no_nearby;
+    // The command line tool is updated however it was installed.
+    cfg.update_url = None;
     if cli.no_nearby {
         cfg.beacon = None;
     }
@@ -247,6 +261,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Send { files, text, to, trust } => send(&engine, events, &ui, files, text, to, trust).await,
+        Command::Share { files, text, yes } => share(&engine, events, &ui, files, text, yes).await,
         Command::Receive { words, yes, trust } if words.is_empty() => listen(&engine, events, &ui, yes, trust).await,
         Command::Receive { words, yes, trust } => receive_code(&engine, events, &ui, &words, yes, trust).await,
         Command::Pair { words } => pair(&engine, events, &ui, &words).await,
@@ -504,28 +519,7 @@ async fn send(
     to: Option<String>,
     trust: bool,
 ) -> Result<ExitCode> {
-    let mut out = Vec::new();
-    for f in &files {
-        let meta = std::fs::metadata(f).with_context(|| format!("Can't read {}", f.display()))?;
-        if meta.is_dir() {
-            let inside =
-                nhako_core::files::walk_folder(f, nhako_core::engine_limits::FILES_MAX).with_context(|| format!("Can't send the folder {}", f.display()))?;
-            if inside.is_empty() {
-                bail!("{} is an empty folder. There's nothing in it to send.", f.display());
-            }
-            out.extend(inside.into_iter().map(|(path, folder)| Outgoing {
-                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-                path,
-                folder: Some(folder),
-            }));
-        } else {
-            out.push(Outgoing {
-                name: f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
-                path: f.clone(),
-                folder: None,
-            });
-        }
-    }
+    let out = outgoing(&files)?;
     if let Some(t) = &text
         && t.len() > nhako_core::engine_limits::TEXT_MAX
     {
@@ -553,6 +547,89 @@ async fn send(
         None => engine.send_files(&device.id, &out)?,
     };
     follow_transfer(engine, &mut events, ui, &id, &device.name).await
+}
+
+/// What to send for these paths: files as they are, folders with everything inside them.
+fn outgoing(files: &[PathBuf]) -> Result<Vec<Outgoing>> {
+    let mut out = Vec::new();
+    for f in files {
+        let meta = std::fs::metadata(f).with_context(|| format!("Can't read {}", f.display()))?;
+        if meta.is_dir() {
+            let inside =
+                nhako_core::files::walk_folder(f, nhako_core::engine_limits::FILES_MAX).with_context(|| format!("Can't send the folder {}", f.display()))?;
+            if inside.is_empty() {
+                bail!("{} is an empty folder. There's nothing in it to send.", f.display());
+            }
+            out.extend(inside.into_iter().map(|(path, folder)| Outgoing {
+                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                path,
+                folder: Some(folder),
+            }));
+        } else {
+            out.push(Outgoing {
+                name: f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
+                path: f.clone(),
+                folder: None,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// `nhako share`: serves a link on this network until Ctrl+C, it ends, or you answer no to everyone.
+async fn share(
+    engine: &Engine,
+    mut events: broadcast::Receiver<EngineEvent>,
+    ui: &Ui,
+    files: Vec<PathBuf>,
+    text: Option<String>,
+    yes: bool,
+) -> Result<ExitCode> {
+    let out = outgoing(&files)?;
+    let share = engine.share_link(&out, text.as_deref()).map_err(|e| match e {
+        nhako_core::EngineError::NoLan => anyhow::anyhow!("This computer isn't on a local network. Share via link works on the same Wi-Fi or cable."),
+        nhako_core::EngineError::TextTooLong => anyhow::anyhow!("That text is too long to share as text. Save it in a file and share the file."),
+        other => other.into(),
+    })?;
+    ui.say(format!("\nOpen this in a browser on the same Wi-Fi:\n\n  {}\n", share.url));
+    ui.say(if yes {
+        "Every browser that opens it can download. Ctrl+C stops sharing."
+    } else {
+        "You'll be asked before each browser can download. Ctrl+C stops sharing."
+    });
+    let mut asked = std::collections::HashSet::new();
+    let mut finished = std::collections::HashMap::new();
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                engine.stop_link();
+                ui.say("Stopped sharing.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            event = events.recv() => match event {
+                Ok(EngineEvent::LinkShare { share: None }) => {
+                    ui.say("The link has ended.");
+                    return Ok(ExitCode::SUCCESS);
+                }
+                Ok(EngineEvent::LinkShare { share: Some(share) }) => {
+                    for v in share.visitors {
+                        if v.state == nhako_core::VisitorState::Asking && asked.insert(v.id.clone()) {
+                            let allow = yes || confirm(format!("{} at {} wants to download. Let it in?", v.label, v.address)).await;
+                            engine.answer_visitor(&v.id, allow);
+                            ui.say(if allow { format!("Let in {}.", v.label) } else { format!("Turned away {}.", v.label) });
+                        }
+                        let seen = finished.entry(v.id.clone()).or_insert(0);
+                        if v.downloads > *seen {
+                            *seen = v.downloads;
+                            ui.say(format!("{} ({}) finished a download.", v.label, v.address));
+                        }
+                    }
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return Ok(ExitCode::FAILURE),
+            },
+        }
+    }
 }
 
 /// Shows a code and waits until a device enters it. `None` if it expired or was interrupted.

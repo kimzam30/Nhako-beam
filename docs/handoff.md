@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (end of Phase 14)
+# Handoff: where Nhako Beam stands (end of Phase 15)
 
-Last updated 2026-10-13, at the end of Phase 14. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-13, at the end of Phase 15. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -9,9 +9,10 @@ Last updated 2026-10-13, at the end of Phase 14. Read [CLAUDE.md](../CLAUDE.md) 
   - `abe8915` ("beambrandkit"): the brand kit in `docs/brand/`.
   - `d6264f7`: these handoff notes for Phase 8.
   - `f2843f3` ("initialrelease"): Phases 8 and 9.
-- **Phases 10 to 14 are not committed yet.** They sit in the working tree on `dev` until the owner commits them.
+- **Branch `main`:** `009d45d` ("phase10-phase14:securityfix"): Phases 10 to 14, and `2139efc`, the owner's fix so the engine tests compile on Windows.
+- **Phase 15 is not committed yet.** It sits in the working tree on `main` until the owner commits it.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
-- `main` still holds only the initial plan. `claude/youthful-euler-vxt9o5` is an unused cloud branch.
+- `claude/youthful-euler-vxt9o5` is an unused cloud branch.
 - Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
 
 ## What's done
@@ -30,6 +31,7 @@ Last updated 2026-10-13, at the end of Phase 14. Read [CLAUDE.md](../CLAUDE.md) 
 | 11 | Security: four-word codes, Who can send to me (your devices by default) with request limits, clean names, the Windows download mark and asking before opening programs, safer part files, desktop paths only from you, no `file://` shares on Android, dependency audits |
 | 12 | Performance: a benchmark script, small progress updates instead of the whole file list, part files made as each file starts, background disk syncs, resume save points, fewer device checks in the background, long file lists a page at a time |
 | 14 | Folders (sent as folders, kept in shape), text, links and the clipboard, "Trust this device" from Nearby (both devices agree and check the same code), and a clearer screen off Wi-Fi |
+| 15 | Accessibility (axe on every screen in both themes, keyboard focus kept in sheets, 320 px reflow, token contrast, Android names and touch sizes, 200% font), release ready at RM0 (update check, winget, SignPath, Flathub, F-Droid build, .aab), folders from the file manager, Share via link |
 | 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
 
 ### Phase 8 in detail
@@ -189,6 +191,32 @@ Measured first with `scripts/bench.sh` (the ignored `bench_` tests in `core/test
   - Phones: how much faster small files and resumes are on real phone storage. The benchmark ran on a laptop's NVMe disk.
   - The radar and beam animations' CPU use while the window is in the tray (P7) wasn't profiled.
 
+### Phase 15 in detail
+
+The owner chose three of the four options: an accessibility pass, release ready at RM0, and folders from the file manager plus Share via link. Decisions they made: a browser opening a shared link **waits until you let it in**; the apps **check GitHub for a new version once a day, on by default, with a switch**; prepare **winget and SignPath, Flathub, F-Droid, and an .aab** for Play later.
+
+- **Share via link** ([share-via-link.md](protocol/share-via-link.md), `core/src/share.rs`): a small HTTP server on this device's network address, a random key in the address, a cookie per browser, and nothing about the files until you let it in. Each file downloads on its own (with resume), or everything as a stored zip (Zip64 past 4 GB, local times). Ends after 15 minutes once downloads finish, or on Stop. The page itself is `core/src/share_page.html`, light and dark, with reduced motion. Contract: `LinkShare`, `LinkVisitor`, `VisitorState`, the `linkShare` event, `Snapshot.linkShare`, in all three files. Desktop and Android: "Share via link" in Send to, the link sheet (QR, address, who opened it, Let in or No, progress), a "Sharing a link" banner, and a notification with Let in and No when the app is hidden. CLI: `nhako share`.
+- **Update check** (`core/src/update.rs`): GitHub's release list at most once a day (it includes pre-releases, which every 0.x release is). Settings > About has the switch and a "Nhako Beam 0.3.0 is out" row; Home a quiet banner with Not now. Off in builds that update through a store: the Flatpak (it sees `FLATPAK_ID`) and F-Droid (`setFromStore`), and the CLI.
+- **Folders from the file manager:** Explorer gets a second entry for folders (and the uninstaller removes it); Linux adds Nemo and Dolphin beside Files. Existing entries get the new ones on the next start.
+- **Accessibility, desktop:** `desktop/tests/e2e/a11y.spec.ts` runs axe (WCAG 2.2 A and AA) on onboarding, Home (tray, transfer, banner, request), every sheet, Settings, History and Licenses, in light and dark, on both layouts; keyboard checks (focus stays inside a sheet, Escape returns focus, Home works with Tab alone, a request answered by keyboard); and a 320 px reflow check. `src/lib/contrast.test.ts` checks every text color against its surfaces from the tokens. Fixes: sheets keep focus inside, the transfer bar has a name, a transfer card's title is announced when its state changes, Settings no longer runs 11 px wider than a 320 px screen.
+- **Accessibility, Android:** `AccessibilityTest.kt` checks that everything tappable has a name and a 48 dp touch area, on the main screens and sheets, and at 200% font (screenshots 37 to 40). Google's Accessibility Test Framework doesn't run under Robolectric (it passes a broken button), so the test reads the semantics tree itself and a canary proves it catches problems. Fixes: sheet backdrops are no longer a nameless full-screen button, the device name field has a label, and at large font the code buttons, the device name field, Who can send and the Send to rows stack instead of cutting text off.
+- **Release:** `-Pnhako.fdroid` builds Android without Firebase (Push.kt moved to `src/push/`, a stub in `src/nopush/`, its manifest entry with it), unsigned and without the update check; the Build workflow builds it and fails if Firebase code appears. The workflow also makes an `.aab` (run artifact), signs the Windows installer with SignPath once the owner sets it up, and the Release workflow writes winget manifests (`scripts/winget.mjs`). Flatpak: `packaging/flatpak/` (manifest on GNOME 51, offline sources, `build-local.sh`), `packaging/linux/` (AppStream, desktop entry), `packaging/screenshots/`. F-Droid: `fastlane/metadata/android/` and a draft recipe in `packaging/fdroid/`. In a Flatpak the file manager menu and start at login are hidden. Steps only the owner can do are in [releasing.md](releasing.md), "Stores and signing".
+- **Copy:** 34 new keys and 3 changed (ux-copy.md section 17, with the web page's words). **Screens:** 3.12, 8.5, 8.6. **Motion:** 4.17. **New dependencies:** `crc32fast` (already in the tree), `zip` (tests only), `@axe-core/playwright` (tests only); licenses regenerated.
+
+### Phase 15: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 52 engine unit tests, 27 engine and 4 own-server integration tests, 10 desktop tests. New: a browser is let in or turned away, sees nothing before, downloads a file, part of one (Range) and the zip (read back by a real zip reader); a link ends by itself; finding a newer version once a day, kept across a restart, gone when turned off, absent in store builds; ranges, cookies, browser names, zip names and DOS times; the Linux menu entries and their quoting. A one-off Zip64 run past 4 GB (ignored in normal runs) read back in the test, `unzip -t`, Python and 7-Zip.
+  - On this computer's real network: `nhako share` served a folder and a file at its Wi-Fi address; the page, letting in, the list, a file and the zip (same bytes, local times) worked from curl and a browser, in light and dark.
+  - Desktop: svelte-check 0 errors, 124 unit tests (54 new contrast checks), 142 Playwright flows (8 skipped: 6 as before, and the store screenshot script on both layouts). New: 4 Phase 15 flows and 11 accessibility checks, each on desktop and phone layouts. axe found one problem (the transfer bar had no name) and the 320 px check one (Settings 11 px too wide); both fixed. Screens checked by eye: the link sheet, the banners, and the store screenshots.
+  - Android: 66 JVM tests: the real engine sharing a link (or saying it needs Wi-Fi) with no update check in a store build, screenshots 35 to 40 (link sheet, update banner, 200% font), and the accessibility checks with a canary proving they catch a nameless button. The F-Droid build compiled, with no Firebase code or push service in it, where the normal build has both.
+  - Flatpak: built from source and offline on GNOME 51 with the generated source lists, installed for this user; inside it all 134 libraries resolve and the tray library, desktop entry and AppStream file are in place. AppStream and the desktop entry pass `appstreamcli validate` and `desktop-file-validate`. The winget script ran on a dummy installer and its YAML parses; the workflow files parse.
+- **Not verified:**
+  - On real devices: Share via link from a phone, or to a phone's browser; letting a browser in from a notification; Explorer, Nemo and Dolphin menus on folders; TalkBack, NVDA or Orca reading the apps (only automated checks); the update check against GitHub itself (tests use a stand-in).
+  - The Flatpak's window was not opened (the .deb was running and both use one single-instance name), so the tray, notifications and file dialogs inside the sandbox are untried.
+  - The new workflow steps (F-Droid check, .aab, SignPath, winget) have not run on GitHub yet. SignPath can't run until the owner is accepted.
+  - The F-Droid recipe and the Flathub submission are drafts until their reviewers see them.
+
 ### Phase 14 in detail
 
 The owner chose all three: folders, text and the clipboard, and nearby trust with the off Wi-Fi screen. Decisions they made: trust needs **both devices to agree**; text from your own devices with "Accept files automatically" goes **straight to the clipboard**, anything else shows a card first; a folder whose name is taken arrives as **`Trip (1)`**, never merged.
@@ -234,6 +262,9 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
+- **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
+- **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
+- **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.
 - **The owner's try of Phase 14 on real devices:** a folder both ways (Android picker, desktop drop), a link shared from the phone's browser, Clipboard, and Trust this device between the phone and a laptop, then the phone on mobile data finding the laptop.
 - **The owner's look at the Motion lab** (`npm run dev` in `desktop/`, then `localhost:5173/#motion`) and the apps, then adjust: spark size and count, arc speed and the rest are tokens.
 - **The owner's Windows test of Phases 10 to 14**, with Copy diagnostics if something is missing. All devices need the new build (four-word codes), and they'll need pairing again only if they weren't trusted already.

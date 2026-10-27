@@ -3,7 +3,7 @@
 // produces. When the window (re)loads, the engine sends one snapshot so the app can redraw.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { Connection, Engine, EngineEvent, FileItem, PairingCode, RedeemResult, SelfInfo, ServerCheck, Snapshot, WhoCanSend } from './types';
+import type { Connection, Engine, EngineEvent, FileItem, LinkShare, PairingCode, RedeemResult, SelfInfo, ServerCheck, Snapshot, WhoCanSend } from './types';
 
 const EVENT = 'nhako://event';
 const RESYNC = 'nhako://resync';
@@ -190,6 +190,26 @@ export class TauriEngine implements Engine {
 
   setWhoCanSend(who: WhoCanSend): Promise<void> {
     return invoke('set_who_can_send', { who });
+  }
+
+  shareLink(files: FileItem[], text?: string): Promise<LinkShare> {
+    return invoke<LinkShare>('share_link', { fileIds: files.map((f) => f.id), text: text ?? null });
+  }
+
+  stopLink(): void {
+    this.fire('stop_link');
+  }
+
+  answerVisitor(visitorId: string, allow: boolean): void {
+    this.fire('answer_visitor', { visitorId, allow });
+  }
+
+  getUpdateCheck(): Promise<boolean | null> {
+    return invoke<boolean | null>('get_update_check');
+  }
+
+  setUpdateCheck(on: boolean): Promise<void> {
+    return invoke('set_update_check', { on });
   }
 
   clearHistory(): void {

@@ -81,6 +81,8 @@ pub struct NhakoEngine {
     lifecycle: Mutex<()>,
     /// The app is on screen. Kept here too, so an engine started later starts with it.
     foreground: AtomicBool,
+    /// This build gets updates from a store (F-Droid): no update check.
+    from_store: AtomicBool,
 }
 
 #[uniffi::export]
@@ -105,6 +107,7 @@ impl NhakoEngine {
             forward: Mutex::new(None),
             lifecycle: Mutex::new(()),
             foreground: AtomicBool::new(true),
+            from_store: AtomicBool::new(false),
         }))
     }
 
@@ -188,6 +191,63 @@ impl NhakoEngine {
             })
             .collect();
         self.in_rt(|| e.send_files(&device_id, &out)).map_err(send_error)
+    }
+
+    /// Starts sharing files and or text with a link (Share via link). Returns the share as JSON.
+    pub fn share_link(&self, files: Vec<SendFile>, text: Option<String>) -> Result<String, NhakoError> {
+        let e = self.engine()?;
+        let out: Vec<Outgoing> = files
+            .into_iter()
+            .map(|f| Outgoing {
+                path: PathBuf::from(f.path),
+                name: f.name,
+                folder: f.folder,
+            })
+            .collect();
+        let share = self.in_rt(|| e.share_link(&out, text.as_deref())).map_err(|err| match err {
+            nhako_core::EngineError::NoLan => failed("Connect to Wi-Fi first. Share via link works on the same network."),
+            other => send_error(other),
+        })?;
+        json(&share)
+    }
+
+    pub fn stop_link(&self) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.stop_link());
+        Ok(())
+    }
+
+    /// Lets a browser in, or turns it away.
+    pub fn answer_visitor(&self, visitor_id: String, allow: bool) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.answer_visitor(&visitor_id, allow));
+        Ok(())
+    }
+
+    /// Call before `start` in builds that get updates from a store: no update check, no setting.
+    pub fn set_from_store(&self, on: bool) {
+        self.from_store.store(on, Ordering::Relaxed);
+    }
+
+    /// Check for new versions: `true` or `false`, or `null` in a build that doesn't check.
+    pub fn get_update_check(&self) -> Result<Option<bool>, NhakoError> {
+        if self.from_store.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        self.settings(|e| e.update_check(), |s| Ok(Some(s.state.update_check)))
+    }
+
+    pub fn set_update_check(&self, on: bool) -> Result<(), NhakoError> {
+        self.settings(
+            |e| self.in_rt(|| e.set_update_check(on)).map_err(|e| failed(e.to_string())),
+            |s| {
+                s.state.update_check = on;
+                if !on {
+                    s.state.update_found = None;
+                }
+                Ok(s.save().map_err(|e| failed(e.to_string())))
+            },
+        )?
     }
 
     /// Sends text (a note, a link, a clipboard). Returns the transfer id.
@@ -472,6 +532,9 @@ impl NhakoEngine {
     fn start_locked(&self) -> Result<Engine, NhakoError> {
         let mut cfg = EngineConfig::new(&self.config_dir);
         cfg.default_save_dir = Some(self.default_save_dir.clone());
+        if self.from_store.load(Ordering::Relaxed) {
+            cfg.update_url = None;
+        }
         let engine = self.rt.block_on(Engine::start(cfg)).map_err(|e| failed(e.to_string()))?;
         self.in_rt(|| engine.set_foreground(self.foreground.load(Ordering::Relaxed)));
         let listener = self.listener.clone();

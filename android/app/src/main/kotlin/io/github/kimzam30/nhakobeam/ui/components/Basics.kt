@@ -294,7 +294,9 @@ fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> U
     val c = Nhako.colors
     val play = LocalSound.current
     val index = options.indexOfFirst { it.value == value }.coerceAtLeast(0)
-    BoxWithConstraints(modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.fill).padding(3.dp)) {
+    // With the system font large, labels get two lines and the icons step aside to make room.
+    val large = largeText()
+    BoxWithConstraints(modifier.fillMaxWidth().height(if (large) 80.dp else 40.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.fill).padding(3.dp)) {
         val w = maxWidth / options.size
         val h = maxHeight
         val x by animateDpAsState(w * index, NhakoMotion.smooth.spec(), label = "pill")
@@ -310,7 +312,7 @@ fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> U
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (o.icon != null) {
+                    if (o.icon != null && !large) {
                         // The chosen option's icon pops in (desktop: Icon.svelte's crossfade).
                         val pop = remember { Animatable(1f) }
                         val reduced = Nhako.reducedMotion
@@ -323,17 +325,36 @@ fun <T> NSegmented(options: List<SegmentOption<T>>, value: T, onChange: (T) -> U
                         PhIcon(o.icon, Modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value }, size = 16.dp, tint = if (on) c.textPrimary else c.textSecondary, weight = if (on) IconWeight.Fill else IconWeight.Duotone)
                         Spacer(Modifier.width(NhakoSpace.s2))
                     }
-                    BasicText(o.label, style = NhakoType.callout.style(if (on) c.textPrimary else c.textSecondary).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(if (on) 600 else 500)))
+                    BasicText(
+                        o.label,
+                        Modifier.padding(horizontal = NhakoSpace.s1),
+                        style = NhakoType.callout.style(if (on) c.textPrimary else c.textSecondary).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(if (on) 600 else 500), textAlign = TextAlign.Center),
+                        maxLines = if (large) 2 else 1,
+                    )
                 }
             }
         }
     }
 }
 
+/** The system font is at 150% or more: things that share a line stack instead, so nothing is cut off. */
+@Composable
+fun largeText(): Boolean = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f
+
 enum class BannerTone { Warning, Danger, Info }
 
 @Composable
-fun NBanner(text: String, modifier: Modifier = Modifier, icon: String = "warning-circle", tone: BannerTone = BannerTone.Warning, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
+fun NBanner(
+    text: String,
+    modifier: Modifier = Modifier,
+    icon: String = "warning-circle",
+    tone: BannerTone = BannerTone.Warning,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    /** A quieter second action, before the main one (the update's Not now). */
+    otherLabel: String? = null,
+    onOther: (() -> Unit)? = null,
+) {
     val c = Nhako.colors
     val (bg, fg) = when (tone) {
         BannerTone.Warning -> c.warningSubtle to (if (Nhako.dark) c.warning else Color(0xFF8A5300))
@@ -347,6 +368,10 @@ fun NBanner(text: String, modifier: Modifier = Modifier, icon: String = "warning
         PhIcon(icon, size = 20.dp, tint = fg)
         Spacer(Modifier.width(NhakoSpace.s4))
         BasicText(text, Modifier.weight(1f), style = NhakoType.callout.style(fg))
+        if (otherLabel != null && onOther != null) {
+            Spacer(Modifier.width(NhakoSpace.s2))
+            BasicText(otherLabel, Modifier.clickable(role = Role.Button, onClick = withTap(onOther)).padding(NhakoSpace.s2), style = NhakoType.callout.style(fg).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)))
+        }
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.width(NhakoSpace.s3))
             BasicText(actionLabel, Modifier.clickable(role = Role.Button, onClick = withTap(onAction)).padding(NhakoSpace.s2), style = NhakoType.callout.style(fg).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)))
@@ -377,6 +402,8 @@ fun NTextField(
     onDone: () -> Unit = {},
     error: Boolean = false,
     trailing: @Composable (() -> Unit)? = null,
+    /** What a screen reader calls the field ("Device name"). Without it, the placeholder. */
+    label: String = placeholder,
 ) {
     val c = Nhako.colors
     val border by animateColorAsState(if (error) c.danger else Color.Transparent, tween(NhakoMotion.Duration.fast), label = "border")
@@ -395,7 +422,7 @@ fun NTextField(
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(capitalization = if (capitalize) KeyboardCapitalization.Words else KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = imeAction),
         keyboardActions = KeyboardActions(onDone = { onDone() }, onGo = { onDone() }),
-        modifier = modifier,
+        modifier = if (label.isEmpty()) modifier else modifier.semantics { contentDescription = label },
         decorationBox = { inner ->
             Box {
                 Row(

@@ -163,14 +163,16 @@
       <section class="group" in:springIn={{ delay: stagger(4) }} data-testid="settings-desktop">
         <h2>{t('settings.section.desktop')}</h2>
         <div class="card">
-          <Toggle
-            bind:checked={startAtLogin}
-            label={t('settings.desktop.startAtLogin')}
-            hint={t('settings.desktop.startAtLogin.hint')}
-            testid="start-at-login"
-            onchange={(on) => change(startAtLoginSetting, on, () => (startAtLogin = !on))}
-          />
-          <div class="sep"></div>
+          {#if !fileMenu.sandboxed}
+            <Toggle
+              bind:checked={startAtLogin}
+              label={t('settings.desktop.startAtLogin')}
+              hint={t('settings.desktop.startAtLogin.hint')}
+              testid="start-at-login"
+              onchange={(on) => change(startAtLoginSetting, on, () => (startAtLogin = !on))}
+            />
+            <div class="sep"></div>
+          {/if}
           <Toggle
             bind:checked={keepRunning}
             label={t('settings.desktop.keepRunning')}
@@ -246,6 +248,25 @@
       <h2>{t('settings.about.title')}</h2>
       <div class="card">
         <div class="field"><span>{t('settings.about.version', { version: app.version || '0.1.0' })}</span></div>
+        {#if app.update}
+          <div class="sep"></div>
+          <button class="field link update" onclick={() => app.openUpdate()} data-testid="settings-update" in:springIn={{ y: 6 }}>
+            <span>{t('update.available', { version: app.update.version })}</span>
+            <span class="update-go">{t('update.download')}<Icon name="arrow-square-out" size={16} weight="bold" /></span>
+          </button>
+        {/if}
+        {#if app.updateCheck !== null}
+          <div class="sep"></div>
+          <Toggle
+            checked={app.updateCheck}
+            label={t('settings.about.updates')}
+            hint={t('settings.about.updates.hint')}
+            testid="update-check"
+            onchange={async (on) => {
+              if (!(await app.setUpdateCheck(on))) app.updateCheck = !on;
+            }}
+          />
+        {/if}
         {#if app.fingerprint}
           <div class="sep"></div>
           <div class="field"><span>{t('settings.about.fingerprint')}</span><span class="muted tabular" data-testid="fingerprint">{app.fingerprint}</span></div>
@@ -288,6 +309,8 @@
   }
   .sections {
     display: grid;
+    /* One column as wide as the screen: a long row wraps inside it instead of widening the page. */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-7);
   }
   .sub-h {
@@ -310,6 +333,15 @@
   }
   .card.lan {
     margin-bottom: var(--space-4);
+  }
+  .update {
+    color: var(--color-accent-text);
+    font-weight: 600;
+  }
+  .update-go {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
   }
   .field.link {
     width: 100%;

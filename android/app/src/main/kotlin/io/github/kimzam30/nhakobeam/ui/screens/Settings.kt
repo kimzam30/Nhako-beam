@@ -81,6 +81,7 @@ import io.github.kimzam30.nhakobeam.ui.components.NButton
 import io.github.kimzam30.nhakobeam.ui.components.NCard
 import io.github.kimzam30.nhakobeam.ui.components.NIconButton
 import io.github.kimzam30.nhakobeam.ui.components.NSegmented
+import io.github.kimzam30.nhakobeam.ui.components.largeText
 import io.github.kimzam30.nhakobeam.ui.components.NTextField
 import io.github.kimzam30.nhakobeam.ui.components.NToggle
 import io.github.kimzam30.nhakobeam.ui.components.SectionTitle
@@ -118,14 +119,22 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
             Section(0, t("settings.section.device")) {
                 NCard {
                     Column {
-                        Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalAlignment = Alignment.CenterVertically) {
-                            BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
-                            Spacer(Modifier.width(NhakoSpace.s5))
-                            var name by remember { mutableStateOf(app.selfName) }
-                            NTextField(name, { name = it.take(32) }, Modifier.weight(1f), align = androidx.compose.ui.text.style.TextAlign.End, capitalize = true, onDone = { if (name.isNotBlank()) app.renameSelf(name) })
-                            LaunchedEffect(name) {
-                                delay(800)
-                                if (name.isNotBlank() && name != app.selfName) app.renameSelf(name)
+                        var name by remember { mutableStateOf(app.selfName) }
+                        LaunchedEffect(name) {
+                            delay(800)
+                            if (name.isNotBlank() && name != app.selfName) app.renameSelf(name)
+                        }
+                        // The label beside the field, or above it when the system font is large.
+                        if (largeText()) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s2)) {
+                                BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
+                                NTextField(name, { name = it.take(32) }, Modifier.fillMaxWidth(), capitalize = true, onDone = { if (name.isNotBlank()) app.renameSelf(name) }, label = t("settings.device.name"))
+                            }
+                        } else {
+                            Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalAlignment = Alignment.CenterVertically) {
+                                BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
+                                Spacer(Modifier.width(NhakoSpace.s5))
+                                NTextField(name, { name = it.take(32) }, Modifier.weight(1f), align = androidx.compose.ui.text.style.TextAlign.End, capitalize = true, onDone = { if (name.isNotBlank()) app.renameSelf(name) }, label = t("settings.device.name"))
                             }
                         }
                         Separator()
@@ -246,6 +255,27 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4)) {
                             BasicText(t("settings.about.version", "version" to app.version.ifBlank { "0.1.0" }), style = NhakoType.body.style(c.textPrimary))
+                        }
+                        app.update?.let { u ->
+                            Separator()
+                            Row(
+                                Modifier.fillMaxWidth().clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = withTap { app.openUpdate() }).padding(vertical = NhakoSpace.s4),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                val style = NhakoType.body.style(c.accentText).copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600))
+                                BasicText(t("update.available", "version" to u.version), Modifier.weight(1f), style = style)
+                                BasicText(t("update.download"), style = style)
+                                Spacer(Modifier.width(NhakoSpace.s1))
+                                PhIcon("arrow-square-out", size = 16.dp, tint = c.accentText, weight = io.github.kimzam30.nhakobeam.ui.theme.IconWeight.Bold)
+                            }
+                        }
+                        app.updateCheck?.let { on ->
+                            Separator()
+                            val scope = rememberCoroutineScope()
+                            NToggle(on, t("settings.about.updates"), { v ->
+                                app.updateCheck = v
+                                scope.launch { if (!app.setUpdateCheck(v)) app.updateCheck = !v }
+                            }, hint = t("settings.about.updates.hint"))
                         }
                         app.fingerprint?.let {
                             Separator()

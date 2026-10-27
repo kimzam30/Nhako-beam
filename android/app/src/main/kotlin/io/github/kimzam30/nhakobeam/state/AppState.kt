@@ -17,6 +17,7 @@ import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
 import io.github.kimzam30.nhakobeam.model.HistoryEntry
 import io.github.kimzam30.nhakobeam.model.IncomingRequest
+import io.github.kimzam30.nhakobeam.model.LinkShare
 import io.github.kimzam30.nhakobeam.model.PairVia
 import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.ServerProblem
@@ -28,6 +29,8 @@ import io.github.kimzam30.nhakobeam.model.TransferDirection
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.model.TrustOutcome
 import io.github.kimzam30.nhakobeam.model.TrustRequest
+import io.github.kimzam30.nhakobeam.model.UpdateInfo
+import io.github.kimzam30.nhakobeam.model.VisitorState
 import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.isLink
@@ -63,6 +66,8 @@ sealed interface Sheet {
     data class TrustAsk(val deviceId: String, val check: String) : Sheet
     /** Text that was sent or received (a transfer, or a History entry). */
     data class TextSheet(val id: String) : Sheet
+    /** The link being shared: its QR, who opened it, Stop. */
+    data object Link : Sheet
 }
 
 enum class ToastTone { Neutral, Success, Warning, Danger }
@@ -151,6 +156,16 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var pickTarget: String? = null
     /** Reached the engine at least once (the radar shows "starting" before). */
     var started by mutableStateOf(false)
+    /** The link being shared (Share via link). */
+    var linkShare by mutableStateOf<LinkShare?>(null)
+    /** Browsers already heard asking, so each one rings once. */
+    private val visitorsHeard = mutableSetOf<String>()
+    /** A newer version, when the daily check found one. */
+    var update by mutableStateOf<UpdateInfo?>(null)
+    /** Check for new versions (saved by the engine); null in builds that get updates from a store. */
+    var updateCheck by mutableStateOf<Boolean?>(null)
+    /** The version whose Home banner was closed with Not now. */
+    var updateSeen by mutableStateOf(prefs.updateSeen)
 
     val reachable by derivedStateOf { devices.filter { it.reachable } }
     /** Radar order: reachable first, trusted first, then by name. */
@@ -176,6 +191,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             runCatching { connection = engine.getConnection() }
             runCatching { lanDiscovery = engine.getLanDiscovery() }
             runCatching { whoCanSend = engine.getWhoCanSend() }
+            runCatching { updateCheck = engine.getUpdateCheck() }
             loadSelf()
             if (onboarded) startEngine()
         }
@@ -245,6 +261,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             }
             is EngineEvent.TrustWaiting -> (sheet as? Sheet.TrustWait)?.let { if (it.deviceId == e.deviceId) sheet = it.copy(check = e.check) }
             is EngineEvent.TrustEnded -> trustEnded(e.deviceId, e.outcome)
+            is EngineEvent.LinkShareChanged -> onLinkShare(e.share)
+            is EngineEvent.Update -> update = e.update
             is EngineEvent.SnapshotEvent -> applySnapshot(e.snapshot)
         }
         afterEvent(e)
@@ -263,6 +281,9 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         serverProblem = s.serverProblem
         history = s.history
         trustAsks = s.trustAsks
+        linkShare = s.linkShare
+        s.linkShare?.visitors?.forEach { visitorsHeard += it.id }
+        update = s.update
     }
 
     private fun onTransfer(next: Transfer) {
@@ -413,6 +434,88 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
                 toast(e.message ?: t("send.failed"), ToastTone.Danger)
             }
         }
+    }
+
+    // ---------- Share via link ----------
+
+    /** Shares what's waiting (files or text) with a link, for a device without the app. */
+    fun shareLink() {
+        if (!hasStaged) return
+        val files = staged
+        val text = stagedText
+        scope.launch {
+            try {
+                linkShare = engine.shareLink(files, text)
+                staged = emptyList()
+                stagedText = null
+                sheet = Sheet.Link
+                sound(NhakoSound.Send)
+            } catch (e: Exception) {
+                toast(e.message ?: t("send.failed"), ToastTone.Danger)
+            }
+        }
+    }
+
+    fun stopLink() {
+        engine.stopLink()
+        linkShare = null
+        if (sheet == Sheet.Link) sheet = null
+        toast(t("link.stopped"))
+        sound(NhakoSound.Cancel)
+    }
+
+    fun answerVisitor(visitorId: String, allow: Boolean) {
+        linkShare = linkShare?.let { share ->
+            share.copy(visitors = share.visitors.map { if (it.id == visitorId) it.copy(state = if (allow) VisitorState.Allowed else VisitorState.Denied) else it })
+        }
+        engine.answerVisitor(visitorId, allow)
+        platform.haptic(if (allow) NhakoHaptic.Accept else NhakoHaptic.Decline)
+        sound(if (allow) NhakoSound.Accept else NhakoSound.Decline)
+    }
+
+    private fun onLinkShare(share: LinkShare?) {
+        val had = linkShare
+        linkShare = share
+        if (share == null) {
+            visitorsHeard.clear()
+            if (sheet == Sheet.Link) sheet = null
+            // Stopped here says so already; this is the link ending by itself.
+            if (had != null) toast(t("link.ended"))
+            return
+        }
+        for (v in share.visitors) {
+            if (v.state != VisitorState.Asking || !visitorsHeard.add(v.id)) continue
+            sound(NhakoSound.Incoming)
+            // Someone is standing there with a browser: show who, unless something else is open.
+            if (sheet == null) sheet = Sheet.Link
+            else if (sheet != Sheet.Link) toast(t("link.asks", "browser" to v.label), ToastTone.Neutral, t("text.show")) { sheet = Sheet.Link }
+        }
+    }
+
+    // ---------- Updates ----------
+
+    suspend fun setUpdateCheck(on: Boolean): Boolean {
+        try {
+            engine.setUpdateCheck(on)
+        } catch (e: Exception) {
+            toast(t("settings.about.updates.failed"), ToastTone.Danger)
+            return false
+        }
+        updateCheck = on
+        if (!on) update = null
+        return true
+    }
+
+    /** The Home banner's Not now: hidden until the next version. */
+    fun hideUpdate() {
+        val u = update ?: return
+        updateSeen = u.version
+        prefs.updateSeen = u.version
+    }
+
+    /** Opens the release page, where the downloads are. */
+    fun openUpdate() {
+        update?.let { openLink(it.url) }
     }
 
     // ---------- Trust from Nearby ----------

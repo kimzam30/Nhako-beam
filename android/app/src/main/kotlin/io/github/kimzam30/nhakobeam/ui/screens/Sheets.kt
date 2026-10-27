@@ -42,6 +42,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -209,6 +211,16 @@ fun SheetHost(app: AppState) {
                 }
             }
         }
+        Sheet.Link -> {
+            val share = app.linkShare
+            if (share == null) {
+                LaunchedEffect(Unit) { app.sheet = null }
+                return
+            }
+            NSheet(visible, t("link.title"), ::close, footer = {
+                NButton(t("link.stop"), { app.stopLink() }, variant = ButtonVariant.Secondary, full = true, icon = "x-circle")
+            }) { LinkContent(app, share) }
+        }
         Sheet.ConfirmClearHistory -> NSheet(visible, t("history.clear"), ::close, footer = {
             Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
                 NButton(t("common.cancel"), ::close, Modifier.weight(1f), variant = ButtonVariant.Secondary, full = true)
@@ -248,6 +260,124 @@ private fun SendContent(app: AppState) {
         }
     }
     NButton(t("send.choose.useCode"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Plain, icon = "qr-code", full = true)
+    // For a device without the app: a web page on the same Wi-Fi (Share via link).
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(NhakoRadius.md))
+            .clickable(enabled = app.onLan, role = Role.Button, onClick = withTap { app.shareLink() })
+            .alpha(if (app.onLan) 1f else 0.5f).padding(vertical = NhakoSpace.s2)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(c.fill), contentAlignment = Alignment.Center) { PhIcon("link-simple", size = 22.dp, tint = c.accentText) }
+        Spacer(Modifier.width(NhakoSpace.s3))
+        Column(Modifier.weight(1f)) {
+            BasicText(t("send.choose.link"), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)))
+            BasicText(t(if (app.onLan) "send.choose.link.hint" else "send.choose.link.offLan"), style = NhakoType.footnote.style(c.textSecondary))
+        }
+        PhIcon("caret-right", size = 16.dp, tint = c.textTertiary, weight = IconWeight.Bold)
+    }
+}
+
+/** The link being shared: its QR and address, what's shared and for how long, who opened it. */
+@Composable
+private fun LinkContent(app: AppState, share: io.github.kimzam30.nhakobeam.model.LinkShare) {
+    val c = Nhako.colors
+    val matrix = remember(share.url) { io.github.kimzam30.nhakobeam.ui.components.qrMatrix(share.url) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(share.id) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val left = share.expiresAt - now
+    BasicText(t("link.how"), style = NhakoType.footnote.style(c.textSecondary))
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.clip(RoundedCornerShape(22.dp)).background(androidx.compose.ui.graphics.Color.White).padding(14.dp)
+                .semantics { contentDescription = t("link.qr") },
+        ) { io.github.kimzam30.nhakobeam.ui.components.QrDots(matrix, c.accent) }
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(NhakoRadius.md)).background(c.surfaceSunken).padding(start = NhakoSpace.s3, end = NhakoSpace.s2, top = NhakoSpace.s2, bottom = NhakoSpace.s2),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicText(share.url, Modifier.weight(1f), style = NhakoType.footnote.style(c.textPrimary).copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
+        Spacer(Modifier.width(NhakoSpace.s2))
+        NButton(t("link.copy"), { app.copyText(share.url) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "copy")
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        FileStack(share.files, 32.dp, text = if (share.files.isEmpty()) share.text else null)
+        Spacer(Modifier.width(NhakoSpace.s3))
+        val what = if (share.files.isEmpty()) textPreview(share.text.orEmpty()) else "${summarizeFiles(share.files)} · ${formatBytes(share.totalBytes)}"
+        BasicText(what, Modifier.weight(1f), style = NhakoType.callout.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        PhIcon("timer", size = 16.dp, tint = c.textSecondary, weight = IconWeight.Bold)
+        Spacer(Modifier.width(NhakoSpace.s1))
+        BasicText(
+            if (left <= 0) t("link.endsAfter") else t("link.endsIn", "time" to io.github.kimzam30.nhakobeam.ui.components.formatRemaining(left)),
+            style = NhakoType.footnote.style(c.textSecondary),
+        )
+    }
+    BasicText(t("link.visitors"), style = NhakoType.footnote.style(c.textSecondary).copy(fontWeight = FontWeight(600)))
+    if (share.visitors.isEmpty()) BasicText(t("link.visitors.none"), style = NhakoType.footnote.style(c.textSecondary))
+    for ((i, v) in share.visitors.withIndex()) VisitorRow(app, v, i)
+    Row(verticalAlignment = Alignment.Top) {
+        PhIcon("lock-simple", Modifier.padding(top = 2.dp), size = 16.dp, tint = c.textSecondary, weight = IconWeight.Bold)
+        Spacer(Modifier.width(NhakoSpace.s2))
+        BasicText(t("link.plain"), style = NhakoType.footnote.style(c.textSecondary))
+    }
+}
+
+/** What a browser at a shared link is doing (desktop: `visitorStatus` in Sheets.svelte). */
+internal fun visitorStatus(v: io.github.kimzam30.nhakobeam.model.LinkVisitor): String = when {
+    v.state == io.github.kimzam30.nhakobeam.model.VisitorState.Asking -> t("link.visitor.asking")
+    v.state == io.github.kimzam30.nhakobeam.model.VisitorState.Denied -> t("link.visitor.denied")
+    v.activeTotal > 0 -> t("link.visitor.downloading", "percent" to "${percent(v.activeBytes, v.activeTotal)}%")
+    v.downloads > 1 -> t("link.visitor.doneMany", "n" to v.downloads)
+    v.downloads == 1 -> t("link.visitor.done")
+    else -> t("link.visitor.waiting")
+}
+
+@Composable
+private fun VisitorRow(app: AppState, v: io.github.kimzam30.nhakobeam.model.LinkVisitor, order: Int) {
+    val c = Nhako.colors
+    val asking = v.state == io.github.kimzam30.nhakobeam.model.VisitorState.Asking
+    val enter = remember(v.id) { Animatable(0f) }
+    LaunchedEffect(v.id) {
+        delay((order.coerceAtMost(5) * NhakoMotion.staggerStepMs).toLong())
+        enter.animateTo(1f, NhakoMotion.bouncy.spec())
+    }
+    val tint by androidx.compose.animation.animateColorAsState(if (asking) c.accentSubtle else androidx.compose.ui.graphics.Color.Transparent, label = "visitor")
+    Column(
+        Modifier.fillMaxWidth().graphicsLayer { translationY = (1 - enter.value) * 10.dp.toPx(); alpha = enter.value.coerceIn(0f, 1f) }
+            .clip(RoundedCornerShape(NhakoRadius.md)).background(tint)
+            .alpha(if (v.state == io.github.kimzam30.nhakobeam.model.VisitorState.Denied) 0.55f else 1f).padding(NhakoSpace.s2),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val phone = Regex("Android|iPhone|iPad").containsMatchIn(v.label)
+            Box(Modifier.size(40.dp).clip(CircleShape).background(c.fill), contentAlignment = Alignment.Center) { PhIcon(if (phone) "device-mobile" else "laptop", size = 22.dp, tint = c.accentText) }
+            Spacer(Modifier.width(NhakoSpace.s3))
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                BasicText(v.label, style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                BasicText("${v.address} · ${visitorStatus(v)}", style = NhakoType.footnote.style(c.textSecondary))
+            }
+            if (v.state == io.github.kimzam30.nhakobeam.model.VisitorState.Allowed && v.downloads > 0 && v.activeTotal == 0L) {
+                PhIcon("check-circle", size = 22.dp, tint = c.success, weight = IconWeight.Fill)
+            }
+        }
+        if (v.activeTotal > 0) {
+            val p by animateFloatAsState((v.activeBytes.toFloat() / v.activeTotal).coerceIn(0f, 1f), tween(250), label = "visitorBar")
+            Box(Modifier.padding(start = 52.dp, top = NhakoSpace.s1).fillMaxWidth().height(4.dp).clip(CircleShape).background(c.fill)) {
+                Box(Modifier.fillMaxWidth(p).height(4.dp).background(c.accent))
+            }
+        }
+        if (asking) {
+            Row(Modifier.fillMaxWidth().padding(top = NhakoSpace.s2), horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s2, Alignment.End)) {
+                NButton(t("link.visitor.deny"), { app.answerVisitor(v.id, false) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm)
+                NButton(t("link.visitor.allow"), { app.answerVisitor(v.id, true) }, size = ButtonSize.Sm, icon = "check")
+            }
+        }
+    }
 }
 
 @Composable
@@ -266,8 +396,19 @@ private fun DeviceRow(app: AppState, d: Device, order: Int) {
     ) {
         DeviceOrb(d, 40.dp, showName = false)
         Spacer(Modifier.width(NhakoSpace.s3))
-        BasicText(d.name, Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        d.route?.let { RouteBadge(it) } ?: BasicText(t(if (d.wakeable) "home.orb.asleep" else "home.orb.offline"), style = NhakoType.footnote.style(c.textTertiary))
+        val state: @Composable () -> Unit = {
+            d.route?.let { RouteBadge(it) } ?: BasicText(t(if (d.wakeable) "home.orb.asleep" else "home.orb.offline"), style = NhakoType.footnote.style(c.textTertiary))
+        }
+        // With the system font large, the badge goes under the name so the name has the width.
+        if (io.github.kimzam30.nhakobeam.ui.components.largeText()) {
+            Column(Modifier.weight(1f)) {
+                BasicText(d.name, style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                state()
+            }
+        } else {
+            BasicText(d.name, Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            state()
+        }
         if (!d.trusted && d.route == io.github.kimzam30.nhakobeam.model.Route.Nearby) {
             Spacer(Modifier.width(NhakoSpace.s2))
             NButton(t("send.choose.trust"), { app.askTrust(d.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "handshake")

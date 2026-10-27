@@ -57,10 +57,28 @@
     }
   }
 
+  const FOCUSABLE = 'a[href], button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
   function key(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.stopPropagation();
       onclose();
+      return;
+    }
+    // Focus stays inside while the sheet is open (it's modal): Tab from the last control goes to
+    // the first, Shift+Tab from the first to the last.
+    if (e.key !== 'Tab' || !panel) return;
+    const all = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+    if (!all.length) return;
+    const first = all[0]!;
+    const last = all[all.length - 1]!;
+    const inside = panel.contains(document.activeElement);
+    if (e.shiftKey && (document.activeElement === first || !inside)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+      e.preventDefault();
+      first.focus();
     }
   }
 

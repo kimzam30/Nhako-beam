@@ -16,6 +16,8 @@ interface Prefs {
     var motion: MotionPref
     /** Soft by default. */
     var sounds: SoundPref
+    /** The version whose Home banner was closed with Not now. */
+    var updateSeen: String?
 }
 
 /** Saved in SharedPreferences; the Compose state makes theme and motion switch live. */
@@ -50,6 +52,9 @@ class SharedPrefs(context: Context) : Prefs {
             soundsState = v
             sp.edit().putString("soundLevel", v.name).apply()
         }
+    override var updateSeen: String?
+        get() = sp.getString("updateSeen", null)
+        set(v) = sp.edit().putString("updateSeen", v).apply()
 }
 
 /** For previews and tests. */
@@ -58,4 +63,5 @@ class MemoryPrefs(onboarded: Boolean = true) : Prefs {
     override var theme by mutableStateOf(ThemePref.System)
     override var motion by mutableStateOf(MotionPref.System)
     override var sounds by mutableStateOf(SoundPref.Soft)
+    override var updateSeen: String? = null
 }

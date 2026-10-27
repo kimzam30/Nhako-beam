@@ -17,6 +17,7 @@ import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.ContractJson
 import io.github.kimzam30.nhakobeam.model.EngineEvent
 import io.github.kimzam30.nhakobeam.model.FileItem
+import io.github.kimzam30.nhakobeam.model.LinkShare
 import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.RedeemResult
 import io.github.kimzam30.nhakobeam.model.SelfInfo
@@ -50,6 +51,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         NhakoEngine(context.filesDir.resolve("engine").path, defaultSaveDir(), object : EventListener {
             override fun onEvent(json: String) = onEngineEvent(json)
         }).also { engine ->
+            // F-Droid gets its updates from F-Droid: no check against GitHub there.
+            engine.setFromStore(BuildConfig.FROM_STORE)
             // Files in a picked folder are opened one at a time as each is sent, never all at once.
             engine.setFileOpener(object : FileOpener {
                 override fun open(uri: String): Int {
@@ -82,6 +85,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
                 copies.remove(event.transfer.id)?.deleteRecursively()
             }
         }
+        // A link stopped (Stop, or its time ran out): its files can close.
+        if (event is EngineEvent.LinkShareChanged && event.share == null) closeLinkFiles()
         _events.tryEmit(event)
     }
 
@@ -198,23 +203,7 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         val handles = mutableListOf<ParcelFileDescriptor>()
         val copyDir = File(context.cacheDir, "outgoing/${seq.incrementAndGet()}")
         try {
-            val list = files.map { item ->
-                folderSources[item.id]?.let { (uri, folder) -> return@map SendFile(path = uri.toString(), name = item.name, folder = folder) }
-                val uri = sources[item.id] ?: throw EngineException("${item.name} can't be found any more. Add it again.")
-                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
-                    ?: throw EngineException("Couldn't open ${item.name}.")
-                if (pfd.statSize >= 0) {
-                    handles += pfd
-                    SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name, folder = null)
-                } else {
-                    pfd.close()
-                    val copy = File(copyDir, "${handles.size}-${item.name.replace('/', '_')}").also { it.parentFile?.mkdirs() }
-                    context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
-                        ?: throw EngineException("Couldn't open ${item.name}.")
-                    SendFile(path = copy.path, name = item.name, folder = null)
-                }
-            }
-            val id = call { send(deviceId, list) }
+            val id = call { send(deviceId, toSend(files, handles, copyDir)) }
             openFiles[id] = handles
             if (copyDir.exists()) copies[id] = copyDir
             id
@@ -224,6 +213,55 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
             throw if (e is EngineException) e else EngineException(e.message ?: "Couldn't send.")
         }
     }
+
+    /** The engine's view of [files], opening each one (into [handles]) or copying it (into [copyDir]). */
+    private fun toSend(files: List<FileItem>, handles: MutableList<ParcelFileDescriptor>, copyDir: File): List<SendFile> = files.map { item ->
+        folderSources[item.id]?.let { (uri, folder) -> return@map SendFile(path = uri.toString(), name = item.name, folder = folder) }
+        val uri = sources[item.id] ?: throw EngineException("${item.name} can't be found any more. Add it again.")
+        val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+            ?: throw EngineException("Couldn't open ${item.name}.")
+        if (pfd.statSize >= 0) {
+            handles += pfd
+            SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name, folder = null)
+        } else {
+            pfd.close()
+            val copy = File(copyDir, "${handles.size}-${item.name.replace('/', '_')}").also { it.parentFile?.mkdirs() }
+            context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
+                ?: throw EngineException("Couldn't open ${item.name}.")
+            SendFile(path = copy.path, name = item.name, folder = null)
+        }
+    }
+
+    /** The shared link's open files, kept until it stops. */
+    private var linkHandles: Pair<List<ParcelFileDescriptor>, File>? = null
+
+    private fun closeLinkFiles() {
+        val (handles, dir) = linkHandles ?: return
+        linkHandles = null
+        handles.forEach { runCatching { it.close() } }
+        dir.deleteRecursively()
+    }
+
+    override suspend fun shareLink(files: List<FileItem>, text: String?): LinkShare = withContext(Dispatchers.IO) {
+        val handles = mutableListOf<ParcelFileDescriptor>()
+        val copyDir = File(context.cacheDir, "outgoing/link-${seq.incrementAndGet()}")
+        try {
+            val share: LinkShare = ContractJson.decodeFromString(call { shareLink(toSend(files, handles, copyDir), text) })
+            closeLinkFiles()
+            linkHandles = handles to copyDir
+            share
+        } catch (e: Exception) {
+            handles.forEach { runCatching { it.close() } }
+            copyDir.deleteRecursively()
+            throw if (e is EngineException) e else EngineException(e.message ?: "Couldn't share.")
+        }
+    }
+
+    override fun stopLink() = fire { stopLink() }
+    override fun answerVisitor(visitorId: String, allow: Boolean) = fire { answerVisitor(visitorId, allow) }
+
+    override suspend fun getUpdateCheck(): Boolean? = call { getUpdateCheck() }
+    override suspend fun setUpdateCheck(on: Boolean) = call { setUpdateCheck(on) }
 
     override suspend fun sendText(deviceId: String, text: String): String = call { sendText(deviceId, text) }
 
