@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (end of Phase 15)
+# Handoff: where Nhako Beam stands (end of Phase 17)
 
-Last updated 2026-10-13, at the end of Phase 15. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-28, at the end of Phase 17. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -9,8 +9,11 @@ Last updated 2026-10-13, at the end of Phase 15. Read [CLAUDE.md](../CLAUDE.md) 
   - `abe8915` ("beambrandkit"): the brand kit in `docs/brand/`.
   - `d6264f7`: these handoff notes for Phase 8.
   - `f2843f3` ("initialrelease"): Phases 8 and 9.
-- **Branch `main`:** `009d45d` ("phase10-phase14:securityfix"): Phases 10 to 14, and `2139efc`, the owner's fix so the engine tests compile on Windows.
-- **Phase 15 is not committed yet.** It sits in the working tree on `main` until the owner commits it.
+- **Branch `main`:** `009d45d` ("phase10-phase14:securityfix"): Phases 10 to 14, `2139efc` (the owner's fix so the engine tests compile on Windows), and `95a16b4`, the lightning mascot logo.
+- **Branch `dev`:** the same up to `2139efc`, then `484b4ba` ("fdroid/flatpak"): Phase 15, and `c2c6145`, the same logo change as `95a16b4` made again on top.
+- **`78db661`** (2026-10-28, local, not pushed): `dev` merged into `main`, so `main` has Phase 15 too and both branches hold the same files.
+- **Phases 16 and 17:** one commit on top of the merge, on both `main` and `dev` (local, 2026-10-28). Both branches point at the same commit.
+- The audit of 2026-10-27 that set Phases 16 and 17 is in `~/.claude/plans/scan-whole-repo-and-clever-lighthouse.md` on the owner's machine.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
 - `claude/youthful-euler-vxt9o5` is an unused cloud branch.
 - Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
@@ -32,6 +35,8 @@ Last updated 2026-10-13, at the end of Phase 15. Read [CLAUDE.md](../CLAUDE.md) 
 | 12 | Performance: a benchmark script, small progress updates instead of the whole file list, part files made as each file starts, background disk syncs, resume save points, fewer device checks in the background, long file lists a page at a time |
 | 14 | Folders (sent as folders, kept in shape), text, links and the clipboard, "Trust this device" from Nearby (both devices agree and check the same code), and a clearer screen off Wi-Fi |
 | 15 | Accessibility (axe on every screen in both themes, keyboard focus kept in sheets, 320 px reflow, token contrast, Android names and touch sizes, 200% font), release ready at RM0 (update check, winget, SignPath, Flathub, F-Droid build, .aab), folders from the file manager, Share via link |
+| 16 | The fix pass from the 2026-10-27 audit: stuck request cards, offer limits that held under a burst, memory and connection caps, the code host listening for Stop mid-handshake, events never dropped on Android, listeners that doubled on desktop, Pause and Cancel sounds on Android, and the protocol, copy and building docs brought in line with the code |
+| 17 | Cleanup: unused copy keys, functions, dependencies and the `select` sound removed; the prototype's dev panel out of the desktop bundle |
 | 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
 
 ### Phase 8 in detail
@@ -191,6 +196,56 @@ Measured first with `scripts/bench.sh` (the ignored `bench_` tests in `core/test
   - Phones: how much faster small files and resumes are on real phone storage. The benchmark ran on a laptop's NVMe disk.
   - The radar and beam animations' CPU use while the window is in the tray (P7) wasn't profiled.
 
+### Phase 16 in detail
+
+From the audit of 2026-10-27 (the whole repo against the docs). Every finding was checked again on `dev` before fixing.
+
+- **Engine:**
+  - A waiting request loses its card whenever its sender's stream ends or says anything out of turn, not only on `Withdraw` (before, a stray `Done` left a card that couldn't be accepted).
+  - The duplicate check, the "Everyone nearby" limits and adding the request happen in one hold of the state lock, so offers arriving at once can't all slip under the one-per-device and five-waiting limits (`admit_offer`, `bad_offer`).
+  - At most 4 frames are read ahead per stream (was 64, each up to 4 MiB), and at most 256 incoming connections are handled at once; past that they're refused (`FRAMES_AHEAD`, `CONNECTIONS_MAX`). The copied frame reader is gone; `wire::read_raw` is the one.
+  - The code host keeps watching for Stop and the code running out while someone is mid-handshake, and burns the code after 10 attempts that never finish (`MAX_DROPPED_ATTEMPTS`), as it does after 3 wrong ones.
+- **FFI (Android):** events reach Kotlin in order on a thread of their own (`nhako-events`), never on a runtime thread, so Kotlin may block or call back into the engine there. `RealEngine` uses that to wait instead of dropping an event when the app falls behind.
+- **Desktop app:**
+  - `Engine.start()` now returns a promise (contract change in `types.ts`, mock and Tauri), so a failed start shows its reason as a toast, as on Android.
+  - The Tauri engine lets go of its listeners when a start fails or is stopped halfway, so a retry never hears every event twice (`tauri.test.ts`).
+  - Reset onboarding no longer adds the window listeners and "Send with Nhako Beam" a second time, and stops listening to the old engine.
+  - The phone layout (and its pretend QR scanner) never turns on in the desktop app, even on a touch screen.
+  - Copy code and Copy diagnostics go through the Rust clipboard in the app, and say "Copied" only when it worked.
+  - An unknown server problem shows as it came instead of breaking the Connection screen (as Android does).
+  - The pairing animation stops when its sheet closes; "Pair and send" sends staged text too; a long press on an orb that goes away doesn't open its menu; the code countdown stops ticking once the code runs out.
+  - Calls that could fail with no one listening now log or toast.
+  - The Rust side reads dropped and picked folders off the async threads, and forgets staged files once they're sent or shared.
+- **Android:**
+  - Pause, Resume, Cancel and Try again play their own sounds, as on desktop.
+  - After Android stops the transfer service (its 6-hour daily limit, or nothing to show), the next transfer starts it again.
+  - A swiped answer goes even when the card leaves mid-flight.
+- **Docs:** the real app test steps are back, in [building.md](building.md) (they went with `desktop/README.md` in `f2843f3`; CLAUDE.md points there now). The protocol doc has `nhako-pair/2`, the `addr` field in the pairing messages, same-network connections in "Who may offer files", the 100,000-file limit and the 300 s background checks. `ux-copy.md` matches `copy.ts`: the 22 keys drafted in Phase 1 and never built moved to their own list at the end, and two values were corrected. The README's Development link works again.
+- **Phase 15's own code** (`share.rs`, `update.rs`, the file manager menus) was read for the same kinds of bugs; none found. `share_link` opens each file once on the calling thread, which is slow for a huge folder but not wrong.
+
+### Phase 17 in detail
+
+- **Removed:** 7 copy keys no screen used (`onboarding.skip`, `home.badge.trusted`, `home.orb.busy`, `send.summary`, `send.retry`, `history.detail.text`, `common.done`); `Engine::online`; the FFI's `set_save_dir` (Android never called it); the desktop's `quit` command, `springAnimate` and `hasIcon`; Android's `wakeAvailable` property and five unused FakeEngine hooks; the `select` sound (21 sounds now).
+- **Dependencies removed:** npm `@tauri-apps/plugin-notification` and `@tauri-apps/plugin-opener` (only the Rust side uses those plugins); `tracing` in `ffi/`, tokio's `signal` feature and a second `rand` in `core/`; Gradle `compose-ui-tooling`, `compose-ui-tooling-preview`, `lifecycle-process` and `kotlinx-coroutines-test`. Licenses regenerated.
+- **The browser prototype's scenario panel and Motion lab** load on demand, so the desktop app's bundle no longer carries them (a separate 15 KB chunk).
+- **Left as they are, on purpose:**
+  - The engine host in `desktop/src-tauri/src/engine.rs` and in `ffi/` (start, stop, restart on a setting): sharing it would mean a new layer in `core` for two callers that differ in threads and errors.
+  - The plain-language error words in those two places: they differ on purpose (Android can't name a file shared as a handle, and phones have no cable).
+  - Splitting `core/src/engine.rs` (about 2,600 lines) and `Sheets.svelte` (14 sheets): pure moves with no change in behavior, best done when nothing else is in flight.
+  - Contract values the engine never sends (`TransferError::Network` and `RelayUnreachable`, `RedeemFailure::Expired`): harmless, and removing them changes all three contract files. `DiscoveryState::Offline` is used by the desktop app itself.
+
+### Phases 16 and 17: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 54 engine unit tests (2 new: `a_request_whose_sender_speaks_out_of_turn_loses_its_card`, `offers_arriving_at_once_still_get_one_card_per_device`), 27 engine and 4 own-server integration tests, 10 desktop tests.
+  - Desktop: svelte-check 0 errors, 127 unit tests (3 new in `tauri.test.ts`: one pair of listeners, none left after a failed start, a stop while starting wins), 142 Playwright flows (8 skipped, as in Phase 15).
+  - Android: 67 JVM tests, new `pauseAndCancelOnATransferPlayTheirOwnSoundsAsOnDesktop`. `SharedCopyTest` passes with the regenerated `Copy.kt`.
+- **Not verified:**
+  - No automated test for: Reset onboarding not doubling listeners, the code host stopping mid-handshake, the 10-attempt burn, the service starting again after Android stops it, Kotlin calling back into the engine from an event, the connection cap.
+  - The real desktop app (`npm run test:app`, still no `tauri-driver`): the clipboard for Copy code, folders read off the async threads, and a failed start's toast.
+  - Real devices and Windows: nothing new tried.
+  - The flows print Svelte warnings (`derived_inert`, and `assignment_value_stale` at `Home.svelte:238`); they were there before these phases and nothing fails.
+
 ### Phase 15 in detail
 
 The owner chose three of the four options: an accessibility pass, release ready at RM0, and folders from the file manager plus Share via link. Decisions they made: a browser opening a shared link **waits until you let it in**; the apps **check GitHub for a new version once a day, on by default, with a switch**; prepare **winget and SignPath, Flathub, F-Droid, and an .aab** for Play later.
@@ -262,6 +317,7 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
+- **Git (the owner's):** push `main` and `dev`; both are ahead of GitHub with the same commits.
 - **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
 - **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
 - **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.

@@ -54,5 +54,5 @@ cd android && ./gradlew testDebugUnitTest                  # screenshots in app/
 
 - Add `-Pnhako.abis=arm64-v8a` to Gradle commands to build the engine for one phone type only (much faster).
 - `CARGO_PROFILE_DEV_DEBUG=line-tables-only` keeps Rust test builds small on disk.
-- Devices often can't find each other inside containers and VMs (no multicast). Point both at a local relay instead: see "The real app test" in [desktop/README.md](desktop/README.md).
+- Devices often can't find each other inside containers and VMs (no multicast). Point both at a local relay instead: see "The real app test" in [docs/building.md](docs/building.md).
 - Android screens are checked by looking at the Robolectric screenshots against the browser prototype; there's no emulator in the tests.

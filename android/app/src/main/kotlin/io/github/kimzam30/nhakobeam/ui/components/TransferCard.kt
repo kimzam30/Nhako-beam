@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
+import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
 import io.github.kimzam30.nhakobeam.model.Route
@@ -230,15 +231,15 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                         RouteBadge(tr.route)
                     }
                     if (tr.status == TransferStatus.Paused && tr.pausedBy != Side.Peer) {
-                        NIconButton("play", t("transfer.resume"), { app.engine.resume(tr.id) }, tint = c.accent, weight = IconWeight.Fill)
+                        NIconButton("play", t("transfer.resume"), { app.engine.resume(tr.id) }, tint = c.accent, weight = IconWeight.Fill, sound = NhakoSound.Resume)
                     } else if (tr.status == TransferStatus.Transferring) {
-                        NIconButton("pause", t("transfer.pause"), { app.engine.pause(tr.id) }, tint = c.textPrimary, weight = IconWeight.Fill)
+                        NIconButton("pause", t("transfer.pause"), { app.engine.pause(tr.id) }, tint = c.textPrimary, weight = IconWeight.Fill, sound = NhakoSound.Pause)
                     }
                     if (onDetails != null) NIconButton("files", t("transfer.details"), onDetails)
-                    NIconButton("x", t("send.cancel"), { app.engine.cancel(tr.id) })
+                    NIconButton("x", t("send.cancel"), { app.engine.cancel(tr.id) }, sound = NhakoSound.Cancel)
                 } else if (tr.status == TransferStatus.Waiting) {
                     Spacer(Modifier.weight(1f))
-                    NButton(t("send.cancel"), { app.engine.cancel(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm)
+                    NButton(t("send.cancel"), { app.engine.cancel(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, sound = NhakoSound.Cancel)
                 } else if (tr.status == TransferStatus.Done) {
                     if (text != null) {
                         NButton(t("text.copy"), { app.copyText(text) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "copy")
@@ -257,9 +258,9 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                         // Showing a code here and typing it there makes this one of their devices; then Try again works.
                         NButton(t("send.notAllowed.pair"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "qr-code")
                         Spacer(Modifier.width(NhakoSpace.s2))
-                        NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "arrow-clockwise")
+                        NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "arrow-clockwise", sound = NhakoSound.Resume)
                     } else if (canRetry) {
-                        NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "arrow-clockwise")
+                        NButton(t("transfer.failed.retry"), { app.engine.retry(tr.id) }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "arrow-clockwise", sound = NhakoSound.Resume)
                     }
                     Spacer(Modifier.weight(1f))
                     NIconButton("x", t("transfer.dismiss"), { app.dismissTransfer(tr.id) })

@@ -37,7 +37,3 @@ const sets: Record<IconWeight, Map<string, string>> = {
 export function iconMarkup(name: string, weight: IconWeight): string {
   return sets[weight].get(name) ?? sets.duotone.get(name) ?? '';
 }
-
-export function hasIcon(name: string): boolean {
-  return sets.duotone.has(name);
-}

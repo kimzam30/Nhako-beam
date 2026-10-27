@@ -6,7 +6,6 @@ pub const SOUNDS: &[(&str, &[u8])] = &[
     ("toggleOff", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_toggle_off.wav"))),
     ("open", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_open.wav"))),
     ("close", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_close.wav"))),
-    ("select", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_select.wav"))),
     ("found", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_found.wav"))),
     ("incoming", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_incoming.wav"))),
     ("accept", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/res/raw/snd_accept.wav"))),

@@ -23,7 +23,6 @@ export const copy = {
   'onboarding.save.change': 'Change',
   'onboarding.save.body.android': 'Files you receive go to your Download folder, where your Files and Gallery apps can find them.',
   'onboarding.done.cta': 'Start beaming',
-  'onboarding.skip': 'Skip',
 
   'home.title': 'Ready to beam',
   'home.searching': 'Looking for devices',
@@ -40,9 +39,7 @@ export const copy = {
   'home.action.folder': 'Folder',
   'home.action.text': 'Text',
   'home.action.clipboard': 'Clipboard',
-  'home.badge.trusted': 'Trusted',
   'home.orb.you': 'This device',
-  'home.orb.busy': 'Sending',
   'home.orb.offline': 'Offline',
   'home.orb.asleep': 'Asleep',
   'home.banner.offline': "You're offline. Nearby devices will appear when you reconnect.",
@@ -146,7 +143,6 @@ export const copy = {
   'trust.ended.busy': '{device} is busy. Try again in a moment.',
   'trust.ended.withdrawn': '{device} stopped asking.',
   'send.failed': "Couldn't send.",
-  'send.summary': '{count} files · {size}',
   'send.waiting': 'Waiting for {device} to accept',
   'send.waiting.long': 'Still waiting for {device}',
   'send.waiting.keep': 'Keep waiting',
@@ -156,7 +152,6 @@ export const copy = {
   'send.notAllowed': '{device} only takes files from its own devices',
   'send.notAllowed.hint': 'Pair with a code first, then send again.',
   'send.notAllowed.pair': 'Pair with a code',
-  'send.retry': 'Try again',
   'send.clear': 'Clear',
 
   'code.show.title': 'Your code',
@@ -365,7 +360,6 @@ export const copy = {
   'history.detail.duration': 'Took',
   'history.detail.speed': 'Average speed',
   'history.detail.partial': '{done} of {total}',
-  'history.detail.text': 'Text',
 
   'popover.devices': 'Your devices',
   'popover.devices.hint': 'Click a device to send files, or drop files on it.',
@@ -383,7 +377,6 @@ export const copy = {
   'open.risky.confirm': 'Open anyway',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
-  'common.done': 'Done',
 
   'notify.channel.requests': 'File requests',
   'notify.channel.transfers': 'Transfers',

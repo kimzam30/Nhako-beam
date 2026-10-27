@@ -25,7 +25,6 @@ Adding a sound: add it to `build.mjs`, run the build, then play it where it belo
 | `toggleOff` | A switch turned off | 130 ms |
 | `open` | A sheet slides up, or a screen opens | 150 ms |
 | `close` | A sheet closes, or Back | 130 ms |
-| `select` | Picking files, or picking where they go | 170 ms |
 | `found` | A device shows up on the radar | 260 ms |
 | `incoming` | Someone wants to send you files (also the notification) | 950 ms |
 | `accept` | Accept | 420 ms |

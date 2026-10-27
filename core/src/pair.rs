@@ -18,6 +18,9 @@ use crate::{
 
 /// Bad handshakes allowed before a shown code is burned.
 const MAX_BAD_ATTEMPTS: u32 = 3;
+/// Attempts that time out or break off before they're right or wrong. Real ones can fail a few
+/// times on a weak network; one that keeps the code busy this often is burned like a wrong one.
+const MAX_DROPPED_ATTEMPTS: u32 = 10;
 
 pub(crate) struct HostedCode {
     pub code: PairingCode,
@@ -106,6 +109,7 @@ impl Engine {
         let expiry = tokio::time::sleep(left);
         tokio::pin!(expiry);
         let mut bad = 0;
+        let mut dropped = 0;
         loop {
             tokio::select! {
                 _ = &mut stop => break,
@@ -113,8 +117,17 @@ impl Engine {
                 incoming = ep.accept() => {
                     let Some(incoming) = incoming else { break };
                     let Ok(accepting) = incoming.accept() else { continue };
-                    let Ok(conn) = accepting.await else { continue };
-                    match self.host_handshake(&keys, conn).await {
+                    let attempt = async {
+                        let conn = accepting.await.map_err(Handshake::other)?;
+                        self.host_handshake(&keys, conn).await
+                    };
+                    // Stop and the code running out still count while someone is mid-handshake.
+                    let result = tokio::select! {
+                        _ = &mut stop => break,
+                        _ = &mut expiry => break,
+                        r = attempt => r,
+                    };
+                    match result {
                         Ok(()) => break,
                         Err(Handshake::Bad) => {
                             bad += 1;
@@ -123,7 +136,14 @@ impl Engine {
                                 break;
                             }
                         }
-                        Err(Handshake::Other(err)) => debug!(%err, "pairing attempt dropped"),
+                        Err(Handshake::Other(err)) => {
+                            debug!(%err, "pairing attempt dropped");
+                            dropped += 1;
+                            if dropped >= MAX_DROPPED_ATTEMPTS {
+                                warn!("code burned after {dropped} attempts that never finished");
+                                break;
+                            }
+                        }
                     }
                 }
             }

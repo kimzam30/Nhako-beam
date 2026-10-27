@@ -323,11 +323,6 @@ pub fn set_background(shell: State<'_, Shell>, on: bool) {
     shell.save();
 }
 
-#[tauri::command]
-pub fn quit(app: AppHandle) {
-    quit_app(app);
-}
-
 /// Opens a web page in the default browser (the licenses screen links to each project).
 #[tauri::command]
 pub fn open_link(app: AppHandle, url: String) -> Result<(), String> {

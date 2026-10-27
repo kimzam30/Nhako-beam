@@ -122,7 +122,6 @@ pub fn run() {
             shell::set_file_menu,
             shell::get_background,
             shell::set_background,
-            shell::quit,
             sound::play_sound,
         ])
         .build(tauri::generate_context!())

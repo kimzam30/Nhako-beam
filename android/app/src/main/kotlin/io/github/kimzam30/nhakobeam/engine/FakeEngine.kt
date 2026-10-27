@@ -18,7 +18,6 @@ import io.github.kimzam30.nhakobeam.model.RedeemResult
 import io.github.kimzam30.nhakobeam.model.Route
 import io.github.kimzam30.nhakobeam.model.SelfInfo
 import io.github.kimzam30.nhakobeam.model.ServerCheck
-import io.github.kimzam30.nhakobeam.model.ServerProblem
 import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.Snapshot
 import io.github.kimzam30.nhakobeam.model.Transfer
@@ -271,7 +270,6 @@ class FakeEngine : Engine {
         )
     }
 
-    fun simTransfer(t: Transfer) = emit(EngineEvent.TransferChanged(t))
     fun simIncoming(deviceId: String = "d-aisyah", files: List<FileItem> = mixed()): IncomingRequest {
         val r = IncomingRequest("r${++seq}", deviceId, files, files.sumOf { it.size }, System.currentTimeMillis())
         emit(EngineEvent.Incoming(r))
@@ -284,10 +282,6 @@ class FakeEngine : Engine {
         return r
     }
     fun simTrustAsk(deviceId: String = "d-studio") = emit(EngineEvent.TrustAsk(TrustRequest(deviceId, TRUST_CHECK, System.currentTimeMillis())))
-    fun simTrustEnded(deviceId: String, outcome: TrustOutcome) = emit(EngineEvent.TrustEnded(deviceId, outcome))
-    fun simDiscovery(state: DiscoveryState) = emit(EngineEvent.Discovery(state))
-    fun simHistory(entry: HistoryEntry) = emit(EngineEvent.History(entry))
-    fun simServer(problem: ServerProblem?) = emit(EngineEvent.Server(problem))
     /** A browser opens the shared link: asking, or (with [state] and [done]) let in and downloading. */
     fun simVisitor(label: String = "Chrome on Android", address: String = "192.168.1.23", state: VisitorState = VisitorState.Asking, done: Double = 0.0, downloads: Int = 0) {
         val share = link ?: return

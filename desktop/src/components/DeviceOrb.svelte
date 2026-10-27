@@ -2,6 +2,7 @@
   // A device as a round "orb". States: idle, target (something is being dragged near it),
   // snapped (dragged files locked onto it), waiting (pulsing ring), busy (progress ring),
   // offline (dimmed), done (check pop). `pulse` bumps play the bouncy arrival pulse.
+  import { onDestroy } from 'svelte';
   import type { Device, DeviceKind } from '../lib/engine/types';
   import { SpringValue } from '../lib/motion/springs';
   import { app } from '../lib/state/app.svelte';
@@ -50,6 +51,8 @@
     if (pressTimer) clearTimeout(pressTimer);
     pressTimer = null;
   }
+  // An orb that leaves mid-press (the device went away) doesn't open its menu afterwards.
+  onDestroy(pressEnd);
   function click() {
     if (pressed) {
       pressed = false;

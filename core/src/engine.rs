@@ -50,6 +50,8 @@ pub struct Outgoing {
 pub const TEXT_MAX: usize = 64 * 1024;
 /// The most files one offer can hold; the receiver refuses more.
 pub const FILES_MAX: usize = 100_000;
+/// Incoming connections handled at once (transfers, pings, trust asks). Plenty for real use.
+const CONNECTIONS_MAX: usize = 256;
 
 /// How the engine is set up. `EngineConfig::new` gives the real defaults.
 #[derive(Debug, Clone)]
@@ -597,11 +599,6 @@ impl Engine {
         }
     }
 
-    /// Waits until the relay connection is up (or `timeout` passes). Returns true if online.
-    pub async fn online(&self, timeout: Duration) -> bool {
-        tokio::time::timeout(timeout, self.inner.endpoint.online()).await.is_ok()
-    }
-
     pub fn devices(&self) -> Vec<Device> {
         let ids: Vec<EndpointId> = self.st().devices.keys().copied().collect();
         let mut out: Vec<Device> = ids.iter().filter_map(|id| self.device_snapshot(id)).collect();
@@ -756,8 +753,9 @@ impl Engine {
         self.send_named(device, &named)
     }
 
-    /// Sends files under the names given, for paths that don't carry a name. Android shares files
-    /// as open handles (`/proc/self/fd/N`), which must stay open until the transfer is finished.
+    /// Sends files under the names given, for paths that don't carry a name (an open handle,
+    /// `/proc/self/fd/N`, which must stay open until the transfer is finished). The apps use
+    /// [`Engine::send_files`], which also takes folders.
     pub fn send_named(&self, device: &str, files: &[(PathBuf, String)]) -> Result<String, EngineError> {
         let out: Vec<Outgoing> = files
             .iter()
@@ -1425,14 +1423,15 @@ impl Engine {
 
     /// Whether a request from `peer` may be shown: Who can send to me, then for devices that
     /// aren't yours, one request at a time and a few a minute, so a busy network can't flood you.
-    fn admit_offer(&self, peer: &EndpointId, yours: bool) -> Result<(), DeclineReason> {
+    /// Whether an offer from `peer` may become a request. Called with the state locked, in the same
+    /// hold that adds the request, so offers arriving at once can't all slip under the limits.
+    fn admit_offer(st: &mut St, peer: &EndpointId, yours: bool, who: WhoCanSend) -> Result<(), DeclineReason> {
         if yours {
             return Ok(());
         }
-        if self.who_can_send() == WhoCanSend::YourDevices {
+        if who == WhoCanSend::YourDevices {
             return Err(DeclineReason::NotAllowed);
         }
-        let mut st = self.st();
         // Every ask counts, refused ones too.
         let now = Instant::now();
         st.stranger_offers.retain(|_, times| {
@@ -1495,9 +1494,18 @@ impl Engine {
     }
 
     async fn accept_loop(self) {
+        let open = Arc::new(tokio::sync::Semaphore::new(CONNECTIONS_MAX));
         while let Some(incoming) = self.inner.endpoint.accept().await {
+            // Past the cap, new connections are refused until some end: a flood of them can't
+            // take the memory or the tasks that real transfers need.
+            let Ok(permit) = open.clone().try_acquire_owned() else {
+                debug!("too many connections at once, refusing one");
+                incoming.refuse();
+                continue;
+            };
             let e = self.clone();
             tokio::spawn(async move {
+                let _permit = permit;
                 let conn = match incoming.accept() {
                     Ok(accepting) => match accepting.await {
                         Ok(c) => c,
@@ -1765,6 +1773,13 @@ impl Engine {
         }
     }
 
+    /// An offer that can't be taken (malformed, or an id already in use): declined and closed.
+    async fn bad_offer(conn: &Connection, send: &mut SendStream) -> Result<(), String> {
+        let _ = wire::write_frame(send, &Answer::Decline(DeclineReason::Unknown)).await;
+        conn.close(wire::close::DECLINED, b"bad offer");
+        Err("bad offer".into())
+    }
+
     async fn handle_offer(
         &self,
         conn: Connection,
@@ -1775,19 +1790,11 @@ impl Engine {
         ext: HelloExt,
     ) -> Result<(), String> {
         let valid = !offer.files.is_empty() && offer.files.len() <= FILES_MAX && offer.files.iter().try_fold(0u64, |a, f| a.checked_add(f.size)).is_some();
-        if !valid || self.st().transfers.contains_key(&offer.id) || self.st().requests.contains_key(&offer.id) {
-            let _ = wire::write_frame(&mut send, &Answer::Decline(DeclineReason::Unknown)).await;
-            conn.close(wire::close::DECLINED, b"bad offer");
-            return Err("bad offer".into());
+        if !valid {
+            return Self::bad_offer(&conn, &mut send).await;
         }
         let yours = self.is_yours(&peer);
-        if let Err(reason) = self.admit_offer(&peer, yours) {
-            info!(peer = %peer.fmt_short(), ?reason, "refused a request");
-            let _ = wire::write_frame(&mut send, &Answer::Decline(reason)).await;
-            let _ = send.finish();
-            let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
-            return Ok(());
-        }
+        let who = self.who_can_send();
         // Text comes in the request itself. Its one file is the same text, for older builds; one
         // that doesn't match it isn't taken as text.
         let body = ext
@@ -1823,15 +1830,37 @@ impl Engine {
             received_at: now_ms(),
             text: body.clone(),
         });
-        self.st().requests.insert(
-            offer.id,
-            Pending {
-                peer,
-                yours,
-                decide: Some(decide_tx),
-                request: request.clone(),
-            },
-        );
+        let admitted = {
+            let mut st = self.st();
+            if st.transfers.contains_key(&offer.id) || st.requests.contains_key(&offer.id) {
+                None
+            } else {
+                let admitted = Self::admit_offer(&mut st, &peer, yours, who);
+                if admitted.is_ok() {
+                    st.requests.insert(
+                        offer.id,
+                        Pending {
+                            peer,
+                            yours,
+                            decide: Some(decide_tx),
+                            request: request.clone(),
+                        },
+                    );
+                }
+                Some(admitted)
+            }
+        };
+        match admitted {
+            None => return Self::bad_offer(&conn, &mut send).await,
+            Some(Err(reason)) => {
+                info!(peer = %peer.fmt_short(), ?reason, "refused a request");
+                let _ = wire::write_frame(&mut send, &Answer::Decline(reason)).await;
+                let _ = send.finish();
+                let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
+                return Ok(());
+            }
+            Some(Ok(())) => {}
+        }
         match request {
             None => {
                 let _ = self.accept(&request_id, false, true);
@@ -1841,10 +1870,10 @@ impl Engine {
 
         let decision = tokio::select! {
             d = decide_rx => d.unwrap_or(Decision::Decline),
-            frame = frames.recv() => {
-                // The sender withdrew (or the connection dropped) while we were deciding.
-                self.st().requests.remove(&offer.id);
-                if matches!(frame.as_ref().map(|f| f.as_ref().ok().and_then(|b| postcard::from_bytes::<Ctrl>(b).ok())), Some(Some(Ctrl::Withdraw)) | None | Some(None)) {
+            _ = frames.recv() => {
+                // The sender withdrew, the connection dropped, or the sender said something out of
+                // turn while we were deciding: the request is over either way, so its card goes too.
+                if self.st().requests.remove(&offer.id).is_some_and(|p| p.request.is_some()) {
                     self.emit(EngineEvent::IncomingWithdrawn { request_id });
                 }
                 return Ok(());
@@ -2541,12 +2570,16 @@ fn prepare_dst(save: &Path, wanted: Vec<(String, u64, Option<String>)>) -> Resul
     Ok((dst, made))
 }
 
+/// Frames read ahead of the one being handled. Each can be up to 4 MiB, so this caps what a peer
+/// can make us hold per stream (QUIC's flow control holds back the rest).
+const FRAMES_AHEAD: usize = 4;
+
 /// Reads frames off a stream on its own task, so callers can `select!` on them safely.
 pub(crate) fn spawn_frame_reader(mut recv: RecvStream) -> FrameRx {
-    let (tx, rx) = mpsc::channel(64);
+    let (tx, rx) = mpsc::channel(FRAMES_AHEAD);
     tokio::spawn(async move {
         loop {
-            let frame = read_raw_frame(&mut recv).await;
+            let frame = wire::read_raw(&mut recv).await;
             let end = frame.is_err();
             if tx.send(frame).await.is_err() || end {
                 return;
@@ -2554,22 +2587,6 @@ pub(crate) fn spawn_frame_reader(mut recv: RecvStream) -> FrameRx {
         }
     });
     rx
-}
-
-async fn read_raw_frame(recv: &mut RecvStream) -> Result<Vec<u8>, wire::WireError> {
-    let mut len = [0u8; 4];
-    match recv.read_exact(&mut len).await {
-        Ok(()) => {}
-        Err(iroh::endpoint::ReadExactError::FinishedEarly(0)) => return Err(wire::WireError::Closed),
-        Err(e) => return Err(wire::WireError::Read(e.to_string())),
-    }
-    let len = u32::from_be_bytes(len) as usize;
-    if len > wire::MAX_FRAME {
-        return Err(wire::WireError::TooLong(len));
-    }
-    let mut body = vec![0u8; len];
-    recv.read_exact(&mut body).await.map_err(|e| wire::WireError::Read(e.to_string()))?;
-    Ok(body)
 }
 
 /// The next frame as a hello with its extension.
@@ -2605,5 +2622,93 @@ async fn watch_route(e: Engine, id: TransferId, conn: Connection) {
         if let iroh::endpoint::PathEvent::Selected { remote_addr, .. } = ev {
             update(net::route_for(&remote_addr));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codekeys::KdfCost;
+
+    async fn engine(mem: &MemoryLookup, name: &str) -> Engine {
+        let dir = std::env::temp_dir().join(format!("nhako-unit-{name}-{}", rand::random::<u32>()));
+        let mut cfg = EngineConfig::new(dir.join("config"));
+        cfg.update_url = None;
+        cfg.save_dir = Some(dir.join("save"));
+        cfg.network = Some(Network::LocalOnly);
+        cfg.mdns = false;
+        cfg.beacon = None;
+        cfg.kdf = KdfCost::TEST;
+        cfg.memory_lookup = Some(mem.clone());
+        cfg.wake_url = None;
+        let e = Engine::start(cfg).await.unwrap();
+        e.set_who_can_send(WhoCanSend::EveryoneNearby).unwrap();
+        e
+    }
+
+    fn offer(n: u8) -> Intent {
+        Intent::Offer(Offer {
+            id: [n; 16],
+            files: vec![FileMeta {
+                name: "note.txt".into(),
+                size: 3,
+            }],
+        })
+    }
+
+    async fn wait_for(events: &mut broadcast::Receiver<EngineEvent>, mut f: impl FnMut(&EngineEvent) -> bool) {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                if let Ok(e) = events.recv().await
+                    && f(&e)
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("the event never came");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_request_whose_sender_speaks_out_of_turn_loses_its_card() {
+        let mem = MemoryLookup::new();
+        let (a, b) = (engine(&mem, "a").await, engine(&mem, "b").await);
+        let mut events = b.subscribe();
+        let (_conn, mut send, _frames) = a.open(b.id(), offer(1), &HelloExt::default()).await.unwrap();
+        wait_for(&mut events, |e| matches!(e, EngineEvent::Incoming { .. })).await;
+        assert_eq!(b.requests().len(), 1);
+        // Not Withdraw, and not a closed connection: something a sender shouldn't send yet.
+        wire::write_frame(&mut send, &Ctrl::Done).await.unwrap();
+        wait_for(&mut events, |e| matches!(e, EngineEvent::IncomingWithdrawn { .. })).await;
+        assert!(b.requests().is_empty());
+        a.stop().await;
+        b.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn offers_arriving_at_once_still_get_one_card_per_device() {
+        let mem = MemoryLookup::new();
+        let (a, b) = (engine(&mem, "a").await, engine(&mem, "b").await);
+        let mut events = b.subscribe();
+        let none = HelloExt::default();
+        let (x, y, z) = tokio::join!(
+            a.open(b.id(), offer(1), &none),
+            a.open(b.id(), offer(2), &none),
+            a.open(b.id(), offer(3), &none)
+        );
+        let opened = [x, y, z];
+        let mut held = Vec::new();
+        for o in opened {
+            let (conn, send, mut frames) = o.unwrap();
+            // A refused offer is answered straight away; one shown as a card waits for you.
+            let answer: Result<Answer, _> = next_frame(&mut frames, Duration::from_millis(1500)).await;
+            held.push((conn, send, frames, answer.is_ok()));
+        }
+        wait_for(&mut events, |e| matches!(e, EngineEvent::Incoming { .. })).await;
+        assert_eq!(b.requests().len(), 1, "one waiting request per device that isn't yours");
+        assert_eq!(held.iter().filter(|h| h.3).count(), 2, "the other two were turned away");
+        a.stop().await;
+        b.stop().await;
     }
 }

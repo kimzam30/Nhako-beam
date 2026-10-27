@@ -155,6 +155,12 @@ class Background(private val context: Context, private val app: AppState, privat
         return notifier.ready(readyWoken, minutes)
     }
 
+    /** The service stopped by itself: nothing to show, or Android's daily time for it ran out. The
+     *  next transfer starts it again (Android refuses until its time comes back; that's caught). */
+    fun serviceStopped() {
+        serviceRunning = false
+    }
+
     /** Starts the service when files start moving, keeps its notification fresh, stops it after. */
     private fun syncService() {
         val active = app.activeTransfers

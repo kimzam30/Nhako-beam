@@ -341,7 +341,7 @@ pub async fn read_hello<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<(T
     decode_hello(&read_raw(recv).await?)
 }
 
-async fn read_raw(recv: &mut RecvStream) -> Result<Vec<u8>, WireError> {
+pub(crate) async fn read_raw(recv: &mut RecvStream) -> Result<Vec<u8>, WireError> {
     let mut len = [0u8; 4];
     match recv.read_exact(&mut len).await {
         Ok(()) => {}

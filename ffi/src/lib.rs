@@ -5,7 +5,7 @@
 //! server checks. One contract for every app, and Kotlin parses it with kotlinx.serialization.
 //!
 //! Calls block (the engine has its own runtime here), so Kotlin calls them off the main thread.
-//! Events arrive on an engine thread through [`EventListener`].
+//! Events arrive on a thread of their own (`nhako-events`) through [`EventListener`].
 
 use std::{
     path::{Path, PathBuf},
@@ -34,7 +34,8 @@ fn failed(reason: impl Into<String>) -> NhakoError {
     NhakoError::Failed { reason: reason.into() }
 }
 
-/// Gets every engine event as JSON (`{"type":"transfer","transfer":{...}}`), on an engine thread.
+/// Gets every engine event as JSON (`{"type":"transfer","transfer":{...}}`), in order, on the
+/// `nhako-events` thread. It may block, or call back into [`NhakoEngine`].
 #[uniffi::export(foreign)]
 pub trait EventListener: Send + Sync {
     fn on_event(&self, json: String);
@@ -375,18 +376,6 @@ impl NhakoEngine {
         )
     }
 
-    pub fn set_save_dir(&self, dir: String) -> Result<(), NhakoError> {
-        let dir = PathBuf::from(dir);
-        std::fs::create_dir_all(&dir).map_err(|e| failed(format!("Can't use that folder: {e}")))?;
-        self.settings(
-            |e| e.set_save_dir(&dir),
-            |s| {
-                s.state.save_dir = dir.clone();
-                s.save().map_err(|e| failed(e.to_string()))
-            },
-        )
-    }
-
     /// The saved Connection as JSON.
     pub fn get_connection(&self) -> Result<String, NhakoError> {
         self.settings(|e| e.connection(), |s| Ok(s.state.connection.clone())).and_then(|c| json(&c))
@@ -530,6 +519,19 @@ impl NhakoEngine {
 
     /// Only with `lifecycle` held.
     fn start_locked(&self) -> Result<Engine, NhakoError> {
+        // Kotlin hears events on a thread of its own, never a runtime thread: it may then call back
+        // into the engine (which blocks on the runtime) or wait for its own side to catch up,
+        // without stalling the engine. The thread ends when the task below does.
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let listener = self.listener.clone();
+        std::thread::Builder::new()
+            .name("nhako-events".into())
+            .spawn(move || {
+                for text in rx {
+                    listener.on_event(text);
+                }
+            })
+            .map_err(|e| failed(e.to_string()))?;
         let mut cfg = EngineConfig::new(&self.config_dir);
         cfg.default_save_dir = Some(self.default_save_dir.clone());
         if self.from_store.load(Ordering::Relaxed) {
@@ -537,22 +539,20 @@ impl NhakoEngine {
         }
         let engine = self.rt.block_on(Engine::start(cfg)).map_err(|e| failed(e.to_string()))?;
         self.in_rt(|| engine.set_foreground(self.foreground.load(Ordering::Relaxed)));
-        let listener = self.listener.clone();
         let forwarded = engine.clone();
         let task = self.rt.spawn(async move {
             let mut events = forwarded.subscribe();
             loop {
-                match events.recv().await {
-                    Ok(event) => {
-                        if let Ok(text) = serde_json::to_string::<EngineEvent>(&event) {
-                            listener.on_event(text);
-                        }
-                    }
-                    Err(RecvError::Lagged(_)) => {
-                        let snapshot = serde_json::json!({ "type": "snapshot", "snapshot": forwarded.snapshot() });
-                        listener.on_event(snapshot.to_string());
-                    }
+                let text = match events.recv().await {
+                    Ok(event) => match serde_json::to_string::<EngineEvent>(&event) {
+                        Ok(text) => text,
+                        Err(_) => continue,
+                    },
+                    Err(RecvError::Lagged(_)) => serde_json::json!({ "type": "snapshot", "snapshot": forwarded.snapshot() }).to_string(),
                     Err(RecvError::Closed) => break,
+                };
+                if tx.send(text).is_err() {
+                    break;
                 }
             }
         });

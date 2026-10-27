@@ -3,6 +3,7 @@
   // and "Open Nhako Beam". Click a device to pick files for it, or drop files on it. Files dropped
   // anywhere else go to the main window, which asks where to send them. src-tauri/src/popover.rs.
   import { invoke } from '@tauri-apps/api/core';
+  import { message } from './lib/engine/tauri';
   import { app } from './lib/state/app.svelte';
   import { prefs } from './lib/state/prefs.svelte';
   import { listenForTaps } from './lib/sounds.svelte';
@@ -51,7 +52,7 @@
       drop: async (x, y, paths) => {
         const target = deviceAt(x, y);
         dropOn = null;
-        if (!target) return void invoke('hand_to_main', { paths });
+        if (!target) return void invoke('hand_to_main', { paths }).catch((e) => app.toast(message(e), 'danger'));
         const files = await app.stagePaths(paths);
         if (files.length) app.sendTo(target, files);
       },
@@ -141,7 +142,7 @@
   {/if}
 
   <footer>
-    <Button full icon="arrow-square-out" testid="pop-open" onclick={() => invoke('open_main')}>{t('popover.open')}</Button>
+    <Button full icon="arrow-square-out" testid="pop-open" onclick={() => invoke('open_main').catch((e) => console.warn('Could not open the main window:', message(e)))}>{t('popover.open')}</Button>
   </footer>
 </main>
 

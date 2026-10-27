@@ -15,8 +15,6 @@ enum class NhakoSound(val res: Int) {
     Open(R.raw.snd_open),
     /** A sheet closes, or Back. */
     Close(R.raw.snd_close),
-    /** Picking files, or picking where they go. */
-    Select(R.raw.snd_select),
     /** A device shows up on the radar. */
     Found(R.raw.snd_found),
     /** Someone wants to send you files (also the notification). */

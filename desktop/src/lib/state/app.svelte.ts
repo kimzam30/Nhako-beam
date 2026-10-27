@@ -173,7 +173,8 @@ class AppState {
     return this.engine instanceof MockEngine ? this.engine : null;
   }
 
-  isAndroid = $derived(this.platformMode === 'android' || (this.platformMode === 'auto' && this.coarsePointer));
+  /** The phone layout and its parts (the QR scanner). Never in the desktop app, even on a touch screen. */
+  isAndroid = $derived(!this.native && (this.platformMode === 'android' || (this.platformMode === 'auto' && this.coarsePointer)));
   layout = $derived<Layout>(this.width >= breakpoint.expanded ? 'expanded' : this.width >= breakpoint.medium ? 'medium' : 'compact');
   reachable = $derived(this.devices.filter((d) => d.reachable));
   /** Radar order: trusted first, then nearby, offline last. */
@@ -191,6 +192,10 @@ class AppState {
   /** Devices whose request was accepted on the card, so no extra "Receiving" toast. */
   private acceptedHere = new Set<string>();
   private started = false;
+  /** Window listeners and the file manager hookup, set up once for the page's life. */
+  private wired = false;
+  /** Stops listening to the current engine (Reset onboarding swaps it for a new one). */
+  private offEngine: (() => void) | null = null;
 
   /** `popover`: the tray popover's copy of the app, which leaves files from the file manager to the
    *  main window. */
@@ -202,25 +207,20 @@ class AppState {
     this.selfName = s.selfName;
     this.saveLocation = s.saveLocation;
     this.screen = this.onboarded ? 'home' : 'onboarding';
-    void this.engine.getConnection().then((c) => (this.connection = c));
-    void this.engine.getLanDiscovery().then((on) => (this.lanDiscovery = on));
-    void this.engine.getWhoCanSend().then((who) => (this.whoCanSend = who));
-    void this.engine.getUpdateCheck().then((on) => (this.updateCheck = on));
+    const unread = (what: string) => (e: unknown) => console.warn(`Could not read ${what}:`, message(e));
+    void this.engine.getConnection().then((c) => (this.connection = c), unread('the connection'));
+    void this.engine.getLanDiscovery().then((on) => (this.lanDiscovery = on), unread('Find nearby devices'));
+    void this.engine.getWhoCanSend().then((who) => (this.whoCanSend = who), unread('Who can send'));
+    void this.engine.getUpdateCheck().then((on) => (this.updateCheck = on), unread('the update check'));
     try {
       this.updateSeen = localStorage.getItem(UPDATE_SEEN);
     } catch {
       // Blocked storage: the banner shows again next time.
     }
     void this.loadSelf();
-    if (this.native && !opts.popover) void shell.onSendRequest((paths) => void this.sendFromFileManager(paths));
+    this.wire(opts);
 
-    const coarse = matchMedia('(pointer: coarse)');
-    this.coarsePointer = coarse.matches;
-    coarse.addEventListener('change', (e) => (this.coarsePointer = e.matches));
-    this.width = innerWidth;
-    addEventListener('resize', () => (this.width = innerWidth));
-
-    this.engine.on((e) => {
+    this.offEngine = this.engine.on((e) => {
       switch (e.type) {
         case 'discovery':
           this.discovery = e.state;
@@ -305,7 +305,25 @@ class AppState {
           break;
       }
     });
-    if (this.onboarded) this.engine.start();
+    if (this.onboarded) this.startEngine();
+  }
+
+  private wire(opts: { popover?: boolean }): void {
+    if (this.wired) return;
+    this.wired = true;
+    if (this.native && !opts.popover) {
+      shell.onSendRequest((paths) => void this.sendFromFileManager(paths)).catch((e) => console.warn('"Send with Nhako Beam" is not connected:', message(e)));
+    }
+    const coarse = matchMedia('(pointer: coarse)');
+    this.coarsePointer = coarse.matches;
+    coarse.addEventListener('change', (e) => (this.coarsePointer = e.matches));
+    this.width = innerWidth;
+    addEventListener('resize', () => (this.width = innerWidth));
+  }
+
+  /** Starts the engine; when it can't start, says why (as Android does). */
+  private startEngine(): void {
+    this.engine.start().catch((e) => this.toast(message(e), 'danger'));
   }
 
   /** Redraws from what the engine has (window loaded, or engine restarted). Finished transfers the
@@ -394,10 +412,12 @@ class AppState {
     this.persist();
     this.engine.renameSelf(this.selfName);
     this.navigate('home');
-    this.engine.start();
+    this.startEngine();
   }
 
   resetOnboarding(): void {
+    this.offEngine?.();
+    this.offEngine = null;
     this.engine.stop();
     this.engine = newEngine();
     this.started = false;
@@ -546,8 +566,8 @@ class AppState {
     );
   }
 
-  /** Copies text you chose to copy (a button), with a toast. */
-  async copyText(text: string): Promise<boolean> {
+  /** Copies text you chose to copy (a button), with a toast (`said`, or "Copied"). */
+  async copyText(text: string, said = t('text.copied')): Promise<boolean> {
     try {
       if (this.native) await shell.writeClipboard(text);
       else await navigator.clipboard.writeText(text);
@@ -556,7 +576,7 @@ class AppState {
       return false;
     }
     playHaptic('buttonPress');
-    this.toast(t('text.copied'), 'success');
+    this.toast(said, 'success');
     return true;
   }
 
@@ -578,7 +598,9 @@ class AppState {
   /** Settings > About: copies the diagnostics report. False (with a toast) if it couldn't. */
   async copyDiagnostics(): Promise<boolean> {
     try {
-      await navigator.clipboard.writeText(await this.engine.diagnostics());
+      const report = await this.engine.diagnostics();
+      if (this.native) await shell.writeClipboard(report);
+      else await navigator.clipboard.writeText(report);
     } catch {
       this.toast(t('settings.about.diagnostics.failed'), 'danger');
       return false;

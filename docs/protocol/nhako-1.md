@@ -36,7 +36,7 @@ The message is 40 bytes, all big-endian:
 Receivers also read a higher version if it is at least 40 bytes (later versions may add fields at the end). They ignore anything shorter than 40 or longer than 512 bytes, with another magic, or with port 0.
 
 - **When:** an ask when the app starts, rescans, or its adapters change, sent three times 2 s apart; then a plain announcement every 30 s. A device that hears an ask answers the sender directly (unicast), at most once per 2 s per address.
-- **On hearing one:** the receiver adds `source IP : port` as an address for that EndpointId, then pings it as it does for mDNS. Nothing in the message is trusted: the QUIC handshake checks the EndpointId's key. A device announcing itself again within 20 s isn't pinged again. One not heard from for 100 s is pinged once more and loses its "nearby" mark if that fails. At most 256 devices are tracked.
+- **On hearing one:** the receiver adds `source IP : port` as an address for that EndpointId, then pings it as it does for mDNS. Nothing in the message is trusted: the QUIC handshake checks the EndpointId's key. A device announcing itself again within 20 s isn't pinged again (300 s while the app is in the background or the tray, where the same 300 s also replaces the 60 s check of trusted devices). One not heard from for 100 s is pinged once more and loses its "nearby" mark if that fails. At most 256 devices are tracked.
 - One device hearing the other is enough: the ping that follows shows each to the other. That matters on Linux with ufw, which lets mDNS in but drops other incoming traffic by default.
 
 ## 3. Framing
@@ -44,7 +44,7 @@ Receivers also read a higher version if it is at least 40 bytes (later versions 
 Two ALPNs:
 
 - `nhako/1` for everything between real device keys.
-- `nhako-pair/1` only for the short-lived code endpoint (section 7).
+- `nhako-pair/2` only for the short-lived code endpoint (section 7). Builds from before Phase 11 used `nhako-pair/1`.
 
 **Control frames** are a 4-byte big-endian length followed by a [postcard](https://docs.rs/postcard) 1.x encoding of the Rust type. The longest allowed frame is 4 MiB. Anything longer is a protocol error.
 
@@ -81,6 +81,8 @@ enum Intent {
 struct Offer { id: TransferId /* 16 random bytes */, files: Vec<FileMeta> }
 struct FileMeta { name: String, size: u64 }
 ```
+
+An offer lists at least 1 and at most 100,000 files, and their sizes must add up without overflowing a `u64`, and its id must be new. Anything else is answered `Decline(Unknown)` and closed with code 2.
 
 ### Hello extension (added in Phase 8)
 
@@ -158,7 +160,8 @@ The receiver answers `Decline(NotAllowed)` and closes with code 4 unless the sen
 
 - a trusted device,
 - a device seen on the same network through mDNS or the beacon,
-- a device paired with a code during this run of the app.
+- a device paired with a code during this run of the app,
+- any connection whose path is a same-network address (private ranges, link-local, and CGNAT `100.64.0.0/10`, which also covers Tailscale).
 
 So someone who only knows your EndpointId can't push requests at you from across the internet.
 
@@ -237,8 +240,8 @@ Argon2id is slow on purpose (64 MB of memory and about 0.13 s per try on a deskt
 **Joiner (types the code).** It connects from its normal endpoint to the rendezvous EndpointId. It keeps trying for up to 20 seconds, because the host may still be starting and its address can take a few seconds to appear in lookups. If nothing answers, the result is `noMatch`. The TLS handshake already proves the host holds `rendezvous_key`, so it knows the code. Then:
 
 ```rust
-struct PairJoin    { version: u16, info: DeviceInfo, device: EndpointId, mac: [u8; 32] }
-struct PairWelcome { info: DeviceInfo, device: EndpointId, mac: [u8; 32] }
+struct PairJoin    { version: u16, info: DeviceInfo, device: EndpointId, addr: EndpointAddr, mac: [u8; 32] }
+struct PairWelcome { info: DeviceInfo, device: EndpointId, addr: EndpointAddr, mac: [u8; 32] }
 struct PairDone    { ok: bool }
 
 join mac    = BLAKE3.keyed(confirm_key, "join" || rendezvous_id || joiner_id)
@@ -246,7 +249,8 @@ welcome mac = BLAKE3.keyed(confirm_key, "welcome" || rendezvous_id || joiner_id 
 check       = BLAKE3.derive_key("nhakobeam 2026-10 pair check", confirm_key || host_id || joiner_id)[0..4]
 ```
 
-- The host checks that the connection's authenticated remote id equals `PairJoin.device` and that the mac is right. After 3 bad attempts the code is burned.
+- The host checks that the connection's authenticated remote id equals `PairJoin.device` and that the mac is right. After 3 bad attempts the code is burned, and so it is after 10 attempts that time out or break off before they're right or wrong. The host keeps watching for Stop and the code running out while an attempt is under way.
+- `addr` is where that side's real endpoint can be reached right now (relay and addresses), so the first `nhako/1` connection doesn't wait on a lookup. It isn't covered by the mac; the TLS handshake on that connection checks the key.
 - The joiner checks the welcome mac, then sends `PairDone { ok: true }`.
 - Both sides now know each other's real EndpointId, and the code endpoint shuts down. Both show `check` in hex (`5D19 E04A`) under "Check that both screens show". If someone in the middle knew the code, the two screens would show different values.
 - Afterwards, files move over normal `nhako/1` connections between the real device keys.

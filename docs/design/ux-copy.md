@@ -66,9 +66,7 @@ Words we use and avoid:
 | `home.action.receiveCode` | Receive with a code |
 | `home.action.chooseFiles` | Choose files |
 | `home.action.sendFiles` | Send files |
-| `home.badge.trusted` | Trusted |
 | `home.orb.you` | This device |
-| `home.orb.busy` | Sending |
 | `home.orb.offline` | Offline |
 | `home.banner.offline` | You're offline. Nearby devices will appear when you reconnect. |
 | `home.banner.discoveryBlocked` | Can't look for nearby devices. Check that local network access is allowed. |
@@ -91,19 +89,12 @@ Words we use and avoid:
 | `send.choose.nearby` | Nearby |
 | `send.choose.trusted` | Your devices |
 | `send.choose.useCode` | Use a code instead |
-| `send.summary` | {count} files · {size} |
-| `send.summary.one` | {fileName} · {size} |
-| `send.review.title` | Check before sending |
-| `send.review.remove` | Remove |
 | `send.waiting` | Waiting for {device} to accept |
 | `send.waiting.long` | Still waiting for {device} |
 | `send.waiting.keep` | Keep waiting |
 | `send.cancel` | Cancel |
 | `send.declined` | {device} declined |
 | `send.unreachable` | {device} is no longer reachable |
-| `send.retry` | Try again |
-| `send.unreadable` | Can't read {fileName}. Send the rest? |
-| `send.unreadable.skip` | Send the rest |
 
 ## 4. Codes
 
@@ -113,7 +104,6 @@ Words we use and avoid:
 | `code.show.body` | On the other device, choose Receive with a code and enter these words or scan this code. |
 | `code.show.copy` | Copy |
 | `code.show.copied` | Copied |
-| `code.show.expiring` | Expires in {seconds}s |
 | `code.show.expired` | This code expired |
 | `code.show.new` | New code |
 | `code.enter.title` | Enter the code |
@@ -123,9 +113,8 @@ Words we use and avoid:
 | `code.enter.unknownWord` | That word isn't in the list. Check the spelling. |
 | `code.enter.connect` | Connect |
 | `code.scan.title` | Point at the code |
-| `code.scan.noCamera` | Camera access is off. You can type the words instead. |
 | `code.matched` | Connected to {device} |
-| `code.matched.verify` | Check that both screens show {check} |
+| `code.matched.verify` | Check that both screens show |
 | `code.matched.trust` | Save as a trusted device |
 | `code.matched.trust.body` | Trusted devices find each other without a code. |
 
@@ -134,11 +123,8 @@ Words we use and avoid:
 | Key | Text |
 |---|---|
 | `incoming.title` | {device} wants to send you |
-| `incoming.summary` | {summary} · {size} |
 | `incoming.accept` | Accept |
 | `incoming.decline` | Decline |
-| `incoming.swipeAccept` | Accept |
-| `incoming.swipeDecline` | Decline |
 | `incoming.alwaysAccept` | Always accept from {device} |
 | `incoming.noSpace` | Not enough space. You need {needed} more. |
 | `incoming.noSpace.fix` | Change save location |
@@ -155,7 +141,6 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `transfer.connecting` | Connecting |
 | `transfer.sending` | Sending to {device} |
 | `transfer.receiving` | Receiving from {device} |
-| `transfer.speed` | {speed}/s |
 | `transfer.eta` | About {time} left |
 | `transfer.eta.calculating` | Working out time left |
 | `transfer.route.nearby` | Nearby |
@@ -173,7 +158,6 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `transfer.done.open` | Open |
 | `transfer.done.showInFolder` | Show in folder |
 | `transfer.done.share` | Share |
-| `transfer.done.partial` | Done, but {count} files were skipped |
 | `transfer.failed` | Transfer stopped |
 | `transfer.failed.retry` | Try again |
 | `transfer.failed.retry.hint` | Picks up where it left off |
@@ -181,8 +165,6 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `transfer.cancelled.byOther` | {device} cancelled this transfer |
 | `transfer.diskFull` | This device ran out of space. Free some up, then resume. |
 | `transfer.diskFull.other` | {device} ran out of space. Paused until they free some up. |
-| `transfer.notification.ongoing` | {percent}% · {speed}/s |
-| `transfer.notification.done` | Sent {count} files to {device} |
 
 ### Failure reasons (shown under `transfer.failed`)
 
@@ -271,9 +253,6 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `server.problem.extra` | Remove the user name and anything after ? or #. |
 | `server.problem.tokenChars` | Use only letters, digits and symbols, with no spaces. |
 | `server.problem.tokenLong` | Keep it under 512 characters. |
-| `settings.desktop.startAtLogin` | Start at login |
-| `settings.desktop.closeToTray` | Keep running in the tray when closed |
-| `settings.desktop.contextMenu` | Show "Send with Nhako Beam" in the file manager |
 | `settings.about.title` | About |
 | `settings.about.version` | Version {version} |
 | `settings.about.fingerprint` | This device's fingerprint |
@@ -285,14 +264,7 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 
 ## 9. Accessibility labels (screen readers)
 
-| Key | Text |
-|---|---|
-| `a11y.orb` | {device}, {status}. Double tap to send files. |
-| `a11y.orb.trusted` | {device}, trusted device, {status} |
-| `a11y.beam` | {percent} percent, {speed} per second, about {time} left |
-| `a11y.incoming` | Incoming files from {device}: {summary}, {size}. Actions: accept, decline. |
-| `a11y.codeWords` | Code: {word1}, {word2}, {word3} |
-| `a11y.progress.announce` | {percent} percent sent |
+There are no keys only for screen readers. Each control's name comes from the same copy as its visible label (or its tooltip, for icon buttons), so both always say the same thing. The Phase 1 drafts for spoken labels are at the end, under "Written in Phase 1, never built".
 
 ## 10. Added in Phase 2 (prototype)
 
@@ -300,7 +272,6 @@ Strings the prototype needed that were not in the first list.
 
 | Key | Text |
 |---|---|
-| `onboarding.skip` | Skip |
 | `send.clear` | Clear |
 | `code.show.expiresIn` | Expires in {time} |
 | `code.scan.type` | Type the words instead |
@@ -316,7 +287,6 @@ Strings the prototype needed that were not in the first list.
 | `settings.section.appearance` | Appearance |
 | `common.cancel` | Cancel |
 | `common.close` | Close |
-| `common.done` | Done |
 
 ## 11. Added in Phase 5 (desktop app)
 
@@ -520,7 +490,6 @@ Summaries add folders: "Trip folder, 240 files", "2 folders, 31 files", "Trip fo
 | `code.matched.nearby` | {device} is one of your devices now |
 | `code.matched.nearby.body` | You'll find each other anywhere now, over the internet too. |
 | `settings.trusted.nearby` | Nearby, not yours yet |
-| `history.detail.text` | Text |
 | `notify.request.text` | some text |
 | `notify.request.link` | a link |
 | `notify.copied.title` | Copied {what} from {device} |
@@ -592,3 +561,32 @@ Served by the engine (`core/src/share_page.html` and `share_gone.html`), so thes
 | When | Text |
 |---|---|
 | A browser asks | {browser} wants to download what you shared / From {address} on this network. Buttons: Let in, No |
+
+## Written in Phase 1, never built
+
+These were drafted before the apps existed and aren't in `copy.ts`, so neither app shows them. They stay here as ideas. If one gets built, move it into its section above and add it to `copy.ts`. (`a11y.codeWords` still has the old three-word codes.)
+
+| Key | Copy |
+|---|---|
+| `send.summary.one` | {fileName} · {size} |
+| `send.review.title` | Check before sending |
+| `send.review.remove` | Remove |
+| `send.unreadable` | Can't read {fileName}. Send the rest? |
+| `send.unreadable.skip` | Send the rest |
+| `code.show.expiring` | Expires in {seconds}s |
+| `code.scan.noCamera` | Camera access is off. You can type the words instead. |
+| `incoming.summary` | {summary} · {size} |
+| `incoming.swipeAccept` | Accept |
+| `incoming.swipeDecline` | Decline |
+| `transfer.speed` | {speed}/s |
+| `transfer.done.partial` | Done, but {count} files were skipped |
+| `transfer.notification.ongoing` | {percent}% · {speed}/s |
+| `transfer.notification.done` | Sent {count} files to {device} |
+| `settings.desktop.closeToTray` | Keep running in the tray when closed |
+| `settings.desktop.contextMenu` | Show "Send with Nhako Beam" in the file manager |
+| `a11y.orb` | {device}, {status}. Double tap to send files. |
+| `a11y.orb.trusted` | {device}, trusted device, {status} |
+| `a11y.beam` | {percent} percent, {speed} per second, about {time} left |
+| `a11y.incoming` | Incoming files from {device}: {summary}, {size}. Actions: accept, decline. |
+| `a11y.codeWords` | Code: {word1}, {word2}, {word3} |
+| `a11y.progress.announce` | {percent} percent sent |

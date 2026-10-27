@@ -20,10 +20,6 @@ export const sounds = {
     "file": "snd_close.wav",
     "use": "A sheet closes, or Back"
   },
-  "select": {
-    "file": "snd_select.wav",
-    "use": "Picking files, or picking where they go"
-  },
   "found": {
     "file": "snd_found.wav",
     "use": "A device shows up on the radar"

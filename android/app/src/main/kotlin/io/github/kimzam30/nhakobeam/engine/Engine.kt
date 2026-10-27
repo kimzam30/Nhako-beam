@@ -98,8 +98,6 @@ interface Engine {
 
     /** This phone's wake token from Firebase (null when push isn't set up), shared with trusted devices. */
     fun setWakeToken(token: String?) {}
-    /** Whether other devices can wake this one: a wake service was built in. */
-    val wakeAvailable: Boolean get() = false
 }
 
 /** Files ready to send, and how many shared items couldn't be read. */

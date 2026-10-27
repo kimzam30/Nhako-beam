@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 /**
@@ -87,7 +88,9 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         }
         // A link stopped (Stop, or its time ran out): its files can close.
         if (event is EngineEvent.LinkShareChanged && event.share == null) closeLinkFiles()
-        _events.tryEmit(event)
+        // This runs on the engine's own events thread, so when the app falls behind (a burst of
+        // progress) it can wait here rather than drop an event, such as a transfer finishing.
+        if (!_events.tryEmit(event)) runBlocking { _events.emit(event) }
     }
 
     /** Runs a blocking engine call off the main thread, turning its errors into [EngineException]. */
@@ -304,7 +307,6 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
     }
 
     override fun setWakeToken(token: String?) = fire { setWakeToken(token) }
-    override val wakeAvailable: Boolean by lazy { runCatching { native.wakeAvailable() }.getOrDefault(false) }
 
     companion object {
         /** The engine's own limit on one transfer (core FILES_MAX). */

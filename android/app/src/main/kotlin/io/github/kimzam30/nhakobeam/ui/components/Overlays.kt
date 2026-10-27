@@ -184,10 +184,17 @@ fun IncomingCard(app: AppState, request: IncomingRequest, modifier: Modifier = M
         (if (accept) NhakoHaptic.Accept else NhakoHaptic.Decline).perform(view)
         app.sound(if (accept) NhakoSound.Accept else NhakoSound.Decline)
         scope.launch {
-            if (!reduced) x.animateTo((if (accept) 1 else -1) * widthPx * 1.4f, NhakoMotion.settle.spec(), initialVelocity = velocity)
-            if (!accept) return@launch app.decline(request.id)
-            app.accept(request.id, autoAccept = always)
-            if (text != null) if (then == "open") app.openLink(text) else app.copyText(text)
+            try {
+                if (!reduced) x.animateTo((if (accept) 1 else -1) * widthPx * 1.4f, NhakoMotion.settle.spec(), initialVelocity = velocity)
+            } finally {
+                // The answer goes even when the card leaves mid-flight (another screen opened).
+                if (!accept) {
+                    app.decline(request.id)
+                } else {
+                    app.accept(request.id, autoAccept = always)
+                    if (text != null) if (then == "open") app.openLink(text) else app.copyText(text)
+                }
+            }
         }
     }
 

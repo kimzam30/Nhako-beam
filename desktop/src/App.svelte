@@ -15,7 +15,6 @@
   import IncomingLayer from './components/IncomingLayer.svelte';
   import Sheets from './components/Sheets.svelte';
   import Toasts from './components/Toasts.svelte';
-  import DevPanel from './components/DevPanel.svelte';
   import SplashIntro from './components/SplashIntro.svelte';
 
   prefs.init();
@@ -162,7 +161,11 @@
 <IncomingLayer />
 <Sheets />
 <Toasts />
-{#if app.mock}<DevPanel mock={app.mock} />{/if}
+<!-- The prototype's scenario panel and Motion lab load only in the browser prototype, so the
+     desktop app's bundle doesn't carry them. -->
+{#if app.mock}
+  {#await import('./components/DevPanel.svelte') then { default: DevPanel }}<DevPanel mock={app.mock} />{/await}
+{/if}
 {#if intro}<SplashIntro ondone={() => (intro = false)} />{/if}
 
 <style>

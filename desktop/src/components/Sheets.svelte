@@ -156,7 +156,12 @@
   // ---------- Scan ----------
   async function scanned() {
     // Only the prototype pretends to scan; the real scanner comes with the Android app.
-    if (app.mock) await app.engine.redeemCode(app.mock.peerCode);
+    if (!app.mock) return;
+    try {
+      await app.engine.redeemCode(app.mock.peerCode);
+    } catch (e) {
+      app.toast(message(e), 'danger');
+    }
   }
 
   // ---------- Paired ----------
@@ -176,13 +181,19 @@
       r.style.transform = `translateX(${v}px)`;
     });
     gap.set(70);
+    let alive = true;
     (async () => {
       await wait(120);
+      if (!alive) return;
       await gap.to(6, 'smooth');
+      if (!alive) return;
       met = true;
       if (pairedDevice) app.bump(pairedDevice.id);
     })();
-    return () => gap.stop();
+    return () => {
+      alive = false;
+      gap.stop();
+    };
   });
 
   /** Throws sparks from an element once it has landed in place. */
@@ -197,7 +208,7 @@
     // From Nearby, both have already saved each other.
     if (trustNew && s.via !== 'nearby') app.engine.setTrusted(s.deviceId, true);
     app.sheet = null;
-    if (send && app.staged.length) app.sendTo(s.deviceId);
+    if (send && app.hasStaged) app.sendTo(s.deviceId);
   }
 
   // ---------- Transfer details ----------

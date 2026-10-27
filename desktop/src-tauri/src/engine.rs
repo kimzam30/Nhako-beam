@@ -474,7 +474,7 @@ pub async fn files_from_paths(host: State<'_, Host>, paths: Vec<PathBuf>) -> Res
             refused += 1;
         }
     }
-    let mut picked = stage(&host, allowed);
+    let mut picked = stage(&host, allowed).await;
     picked.skipped += refused;
     Ok(picked)
 }
@@ -499,7 +499,7 @@ pub async fn pick_files(window: tauri::Window, host: State<'_, Host>) -> Result<
         .into_iter()
         .filter_map(|p| p.into_path().ok())
         .collect();
-    Ok((!paths.is_empty()).then(|| stage(&host, paths)))
+    Ok(if paths.is_empty() { None } else { Some(stage(&host, paths).await) })
 }
 
 /// The native "choose folder" dialog for folders to send, over the window that asked. `None`
@@ -523,7 +523,7 @@ pub async fn pick_folders(window: tauri::Window, host: State<'_, Host>) -> Resul
         .into_iter()
         .filter_map(|p| p.into_path().ok())
         .collect();
-    Ok((!paths.is_empty()).then(|| stage(&host, paths)))
+    Ok(if paths.is_empty() { None } else { Some(stage(&host, paths).await) })
 }
 
 /// The native "choose folder" dialog for where received files go, starting at `current`.
@@ -545,31 +545,42 @@ pub async fn pick_save_dir(window: tauri::Window, host: State<'_, Host>, current
     Ok(dir)
 }
 
-fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
+/// Reads what the paths are (files, or folders and everything inside), off the async threads:
+/// a big folder takes a while. Then gives each file an id the page can send by.
+async fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
+    let (found, skipped) = tokio::task::spawn_blocking(move || scan(paths)).await.unwrap_or_default();
+    let mut known = host.files.lock().expect("files lock");
+    let files = found
+        .into_iter()
+        .map(|(p, size, folder)| {
+            let id = format!("p{}", host.file_seq.fetch_add(1, Ordering::Relaxed));
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+            known.insert(id.clone(), (p, folder.clone()));
+            FileItem {
+                id,
+                mime: files::mime_for(&name),
+                name,
+                size,
+                folder,
+            }
+        })
+        .collect();
+    Picked { files, skipped }
+}
+
+/// Each file with its size and folder, and how many paths couldn't be read (or were empty folders).
+fn scan(paths: Vec<PathBuf>) -> (Vec<(PathBuf, u64, Option<String>)>, usize) {
     let mut out = Vec::new();
     let mut skipped = 0;
-    let mut known = host.files.lock().expect("files lock");
-    let mut add = |out: &mut Vec<FileItem>, p: PathBuf, size: u64, folder: Option<String>| {
-        let id = format!("p{}", host.file_seq.fetch_add(1, Ordering::Relaxed));
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-        out.push(FileItem {
-            id: id.clone(),
-            mime: files::mime_for(&name),
-            name,
-            size,
-            folder: folder.clone(),
-        });
-        known.insert(id, (p, folder));
-    };
     for p in paths {
         match std::fs::metadata(&p) {
-            Ok(m) if m.is_file() => add(&mut out, p, m.len(), None),
+            Ok(m) if m.is_file() => out.push((p, m.len(), None)),
             // A folder goes with everything inside it, keeping its shape.
             Ok(m) if m.is_dir() => match files::walk_folder(&p, engine_limits::FILES_MAX) {
                 Ok(inside) if !inside.is_empty() => {
                     for (file, folder) in inside {
                         match std::fs::metadata(&file) {
-                            Ok(m) => add(&mut out, file, m.len(), Some(folder)),
+                            Ok(m) => out.push((file, m.len(), Some(folder))),
                             Err(_) => skipped += 1,
                         }
                     }
@@ -579,31 +590,42 @@ fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
             _ => skipped += 1,
         }
     }
-    Picked { files: out, skipped }
+    (out, skipped)
 }
 
-#[tauri::command]
-pub async fn send(host: State<'_, Host>, device_id: String, file_ids: Vec<String>) -> Result<String, String> {
-    let out: Vec<Outgoing> = {
-        let known = host.files.lock().expect("files lock");
-        file_ids
-            .iter()
-            .filter_map(|id| known.get(id).cloned())
-            .map(|(path, folder)| Outgoing {
+/// The staged files for these ids, or `None` when one isn't known (any more).
+fn outgoing(host: &Host, ids: &[String]) -> Option<Vec<Outgoing>> {
+    let known = host.files.lock().expect("files lock");
+    ids.iter()
+        .map(|id| {
+            known.get(id).cloned().map(|(path, folder)| Outgoing {
                 name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
                 path,
                 folder,
             })
-            .collect()
-    };
-    if out.len() != file_ids.len() {
-        return Err("Some of those files can't be found any more. Add them again.".into());
+        })
+        .collect()
+}
+
+/// Files the engine has taken (sent, or shared with a link) aren't staged any more: the page
+/// lets go of them too, and a retry goes through the engine, which keeps its own paths.
+fn forget(host: &Host, ids: &[String]) {
+    let mut known = host.files.lock().expect("files lock");
+    for id in ids {
+        known.remove(id);
     }
-    host.engine()?.send_files(&device_id, &out).map_err(|e| match e {
+}
+
+#[tauri::command]
+pub async fn send(host: State<'_, Host>, device_id: String, file_ids: Vec<String>) -> Result<String, String> {
+    let out = outgoing(&host, &file_ids).ok_or("Some of those files can't be found any more. Add them again.")?;
+    let id = host.engine()?.send_files(&device_id, &out).map_err(|e| match e {
         nhako_core::EngineError::File { path, .. } => format!("Couldn't read {}. It may have been moved or deleted.", display_name(&path)),
         nhako_core::EngineError::UnknownDevice => "That device isn't known any more.".into(),
         other => other.to_string(),
-    })
+    })?;
+    forget(&host, &file_ids);
+    Ok(id)
 }
 
 /// Sends text: a note, a link, a clipboard. Returns the transfer id.
@@ -620,28 +642,16 @@ pub async fn send_text(host: State<'_, Host>, device_id: String, text: String) -
 /// Shares the staged files (and or text) with a link, for a device without the app.
 #[tauri::command]
 pub async fn share_link(host: State<'_, Host>, file_ids: Vec<String>, text: Option<String>) -> Result<LinkShare, String> {
-    let out: Vec<Outgoing> = {
-        let known = host.files.lock().expect("files lock");
-        file_ids
-            .iter()
-            .filter_map(|id| known.get(id).cloned())
-            .map(|(path, folder)| Outgoing {
-                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
-                path,
-                folder,
-            })
-            .collect()
-    };
-    if out.len() != file_ids.len() {
-        return Err("Some of those files can't be found any more. Add them again.".into());
-    }
-    host.engine()?.share_link(&out, text.as_deref()).map_err(|e| match e {
+    let out = outgoing(&host, &file_ids).ok_or("Some of those files can't be found any more. Add them again.")?;
+    let share = host.engine()?.share_link(&out, text.as_deref()).map_err(|e| match e {
         nhako_core::EngineError::NoLan => "Connect to Wi-Fi or a network cable first. Share via link works on the same network.".into(),
         nhako_core::EngineError::File { path, .. } => format!("Couldn't read {}. It may have been moved or deleted.", display_name(&path)),
         nhako_core::EngineError::TextTooLong => "That's too long to share as text. Save it in a file and share that.".into(),
         nhako_core::EngineError::NoFiles => "There's nothing to share.".into(),
         other => other.to_string(),
-    })
+    })?;
+    forget(&host, &file_ids);
+    Ok(share)
 }
 
 #[tauri::command]

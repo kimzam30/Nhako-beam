@@ -20,6 +20,7 @@ class TransferService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = (application as NhakoApplication).background.serviceNotification()
         if (notification == null) {
+            (application as NhakoApplication).background.serviceStopped()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -30,6 +31,7 @@ class TransferService : Service() {
 
     /** Android 15 limits data sync services to 6 hours a day; when that runs out, step aside. */
     override fun onTimeout(startId: Int, fgsType: Int) {
+        (application as NhakoApplication).background.serviceStopped()
         stopSelf()
     }
 }

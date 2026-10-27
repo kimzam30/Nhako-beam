@@ -123,6 +123,31 @@ class SoundsTest {
         assertEquals(listOf(NhakoSound.Open), heard)
     }
 
+    @Test fun pauseAndCancelOnATransferPlayTheirOwnSoundsAsOnDesktop() {
+        val handler = Handler(Looper.getMainLooper())
+        val live = SoundPlayer({ heard += it }, { true }, { handler.post(it) }, { handler.removeCallbacks(it) })
+        val prefs = MemoryPrefs()
+        val fake = FakeEngine()
+        lateinit var app: AppState
+        compose.setContent {
+            val scope = rememberCoroutineScope()
+            app = remember { AppState(fake, prefs, scope).also { it.sound = live::play; it.init() } }
+            NhakoBeamApp(app, prefs)
+        }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.runOnIdle { app.onEvent(EngineEvent.TransferChanged(fake.transfer(TransferDirection.Receive, "d-aisyah", fake.photos(), TransferStatus.Transferring, 0.4))) }
+        compose.mainClock.advanceTimeBy(1500)
+        heard.clear()
+        compose.onNodeWithContentDescription(t("transfer.pause")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.onNodeWithContentDescription(t("send.cancel")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.waitForIdle()
+        assertEquals(listOf(NhakoSound.Pause, NhakoSound.Cancel), heard)
+    }
+
     @Test fun notificationsUseTheNewSounds() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         Notifier(context)

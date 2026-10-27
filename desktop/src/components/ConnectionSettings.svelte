@@ -1,7 +1,7 @@
 <script lang="ts">
   // Settings > Connection: n0's public servers, or your own (the Docker setup in relay/).
   import { app } from '../lib/state/app.svelte';
-  import { t, type CopyKey } from '../lib/copy';
+  import { copy, t, type CopyKey } from '../lib/copy';
   import type { CheckResult, ServerCheck } from '../lib/engine/types';
   import { hostOf, readOwnForm, type OwnForm } from '../lib/engine/server';
   import { message } from '../lib/engine/tauri';
@@ -97,8 +97,11 @@
     return c.relay.status === 'ok' && (c.lookup === null || c.lookup.status === 'ok');
   }
 
+  /** A problem the engine names; one this build has no words for shows as it came (as on Android). */
   function problemText(p: string | undefined): string {
-    return p ? t(`server.problem.${p}` as CopyKey) : '';
+    if (!p) return '';
+    const key = `server.problem.${p}`;
+    return key in copy ? t(key as CopyKey) : p;
   }
 
   function resultText(r: CheckResult, isRelay: boolean): string {

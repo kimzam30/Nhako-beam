@@ -95,14 +95,4 @@ export async function shake(el: HTMLElement, distance = 6, cycles = 3): Promise<
   el.style.translate = '';
 }
 
-/** Animates element properties with a token spring using Motion (WAAPI, GPU friendly). */
-export function springAnimate(
-  el: Element,
-  keyframes: Record<string, number | string | (number | string)[]>,
-  preset: SpringName = 'smooth',
-): Controls {
-  const s = spring[preset];
-  return animate(el, keyframes, { type: 'spring', stiffness: s.stiffness, damping: s.damping, mass: s.mass });
-}
-
 export const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

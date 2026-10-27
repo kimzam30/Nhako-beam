@@ -302,7 +302,8 @@ export type EngineEvent =
   | { type: 'snapshot'; snapshot: Snapshot };
 
 export interface Engine {
-  start(): void;
+  /** Resolves once the engine runs; rejects with the reason (plain words) when it can't start. */
+  start(): Promise<void>;
   stop(): void;
   on(listener: (e: EngineEvent) => void): () => void;
   rescan(): void;

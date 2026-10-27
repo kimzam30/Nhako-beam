@@ -118,6 +118,19 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 
 The installer lands in `out\`. It isn't signed yet, so Windows SmartScreen asks first: More info, then Run anyway.
 
+## The real app test (Linux)
+
+`npm run test:app` in `desktop/` drives the built desktop app through WebDriver, with the `nhako` command line tool as the other device on the same machine. It goes through onboarding, pairs with a code, receives a file after Accept, sends a file, checks Settings, turns start at login on and off, and sends a file with "Send with Nhako Beam" from Files. Each run uses fresh temporary folders, so your own settings are never touched. Screenshots go to `desktop/test-results/app/`.
+
+```bash
+cargo install tauri-driver --locked
+sudo apt install webkit2gtk-driver xvfb dbus-x11
+cd desktop && npm run build && npx tauri build --no-bundle && cargo build --release -p nhako-cli
+xvfb-run -a dbus-run-session -- npm run test:app
+```
+
+Where devices can't find each other on the local network (some containers and VMs, no multicast), point both at your own server from `relay/`: `NHAKO_TEST_RELAY=http://127.0.0.1:3340 NHAKO_TEST_LOOKUP=http://127.0.0.1:3341 NHAKO_RELAY_TOKEN=...`. That also tests Settings > Connection.
+
 ## The Build workflow on GitHub
 
 `.github/workflows/build.yml` runs three jobs when you start it:

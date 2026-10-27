@@ -1,6 +1,7 @@
 <script lang="ts">
   // Shows this device's pairing code: QR (rounded dots, no images), the words and a
   // countdown ring around the QR that drains over the code's 10 minute life.
+  import { onDestroy } from 'svelte';
   import type { PairingCode } from '../lib/engine/types';
   import { t } from '../lib/copy';
   import { app } from '../lib/state/app.svelte';
@@ -13,8 +14,13 @@
 
   const LIFETIME = 10 * 60 * 1000;
   let now = $state(Date.now());
+  // Ticks until the code runs out, then stops (a new code restarts it).
   $effect(() => {
-    const id = setInterval(() => (now = Date.now()), 250);
+    const until = code.expiresAt;
+    const id = setInterval(() => {
+      now = Date.now();
+      if (now >= until) clearInterval(id);
+    }, 250);
     return () => clearInterval(id);
   });
 
@@ -31,15 +37,13 @@
 
   let copied = $state(false);
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(code.words.join(' '));
-    } catch {
-      // Clipboard can be blocked; the toast still confirms the intent in the prototype.
-    }
+    if (!(await app.copyText(code.words.join(' '), t('code.show.copied')))) return;
     copied = true;
-    app.toast(t('code.show.copied'), 'success');
-    setTimeout(() => (copied = false), 1600);
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 1600);
   }
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(copiedTimer));
 </script>
 
 <div class="code" class:expired data-testid="code-display">

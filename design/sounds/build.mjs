@@ -122,11 +122,6 @@ const SOUNDS = {
     dur: 130, peak: -21,
     make: (o) => note(o, 0, { f: 600, dur: 125, decay: 30, timbre: SOFT, glide: 1.45, glideMs: 26 }),
   },
-  select: {
-    use: 'Picking files, or picking where they go',
-    dur: 170, peak: -19,
-    make: (o) => note(o, 0, { f: N.C6, dur: 170, decay: 34, timbre: [...MARIMBA, [2, 0.18, 0.5]] }),
-  },
   found: {
     use: 'A device shows up on the radar',
     dur: 260, peak: -15,

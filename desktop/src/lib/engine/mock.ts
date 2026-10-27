@@ -268,12 +268,13 @@ export class MockEngine implements Engine {
     this.timers.push(setTimeout(fn, ms));
   }
 
-  start(): void {
+  start(): Promise<void> {
     this.emit({ type: 'freeSpace', bytes: this.freeSpace });
     this.history ??= seedHistory(this.now());
     for (const entry of [...this.history].reverse()) this.emit({ type: 'history', entry: { ...entry } });
     this.scan(this.seeds());
     this.tickTimer = setInterval(() => this.tick(TICK_MS), TICK_MS);
+    return Promise.resolve();
   }
 
   stop(): void {

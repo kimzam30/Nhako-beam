@@ -49,31 +49,52 @@ export class TauriEngine implements Engine {
     invoke(cmd, args).catch((e) => console.warn(`${cmd} failed:`, message(e)));
   }
 
-  start(): void {
-    if (this.booting) return;
-    this.booting = this.boot().catch((e) => {
+  start(): Promise<void> {
+    if (this.booting) return this.booting;
+    const booting = this.boot().catch((e) => {
       console.error('The engine did not start:', message(e));
-      this.booting = null;
+      if (this.booting === booting) this.booting = null;
       this.emit({ type: 'discovery', state: 'offline' });
+      throw e;
     });
+    this.booting = booting;
+    return booting;
   }
 
+  /** Bumped by `stop()`, so a start still waiting when it's stopped lets go of what it set up. */
+  private run = 0;
+
   private async boot(): Promise<void> {
+    const run = this.run;
     // Listen first, hold events until the snapshot is drawn, then let them through in order.
     let held: EngineEvent[] | null = [];
     const pass = (e: EngineEvent) => (held ? held.push(e) : this.emit(e));
-    this.unlisten.push(await listen<EngineEvent>(EVENT, (m) => pass(m.payload)));
-    this.unlisten.push(await listen<Snapshot>(RESYNC, (m) => pass({ type: 'snapshot', snapshot: m.payload })));
-    const started = await invoke<Started>('engine_start', { name: this.pendingName });
-    this.pendingName = null;
-    this.started = true;
-    this.emit({ type: 'snapshot', snapshot: started.snapshot });
-    const queue = held;
-    held = null;
-    for (const e of queue) this.emit(e);
+    const mine: UnlistenFn[] = [];
+    const letGo = () => {
+      for (const u of mine) u();
+      this.unlisten = this.unlisten.filter((u) => !mine.includes(u));
+    };
+    try {
+      mine.push(await listen<EngineEvent>(EVENT, (m) => pass(m.payload)));
+      mine.push(await listen<Snapshot>(RESYNC, (m) => pass({ type: 'snapshot', snapshot: m.payload })));
+      if (run !== this.run) return letGo();
+      this.unlisten.push(...mine);
+      const started = await invoke<Started>('engine_start', { name: this.pendingName });
+      if (run !== this.run) return;
+      this.pendingName = null;
+      this.started = true;
+      this.emit({ type: 'snapshot', snapshot: started.snapshot });
+      const queue = held;
+      held = null;
+      for (const e of queue) this.emit(e);
+    } catch (e) {
+      letGo();
+      throw e;
+    }
   }
 
   stop(): void {
+    this.run++;
     for (const u of this.unlisten.splice(0)) u();
     this.booting = null;
     this.started = false;
