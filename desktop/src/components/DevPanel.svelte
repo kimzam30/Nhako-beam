@@ -85,6 +85,7 @@
         ['Search again', () => e.simDiscovery('searching'), 'disc-search'],
         ['Go offline', () => e.simDiscovery('offline'), 'disc-offline'],
         ['Discovery blocked', () => e.simDiscovery('blocked'), 'disc-blocked'],
+        ['Windows Firewall keeps devices out', () => (app.firewallBlocked = true), 'disc-firewall'],
         ['Add a device', () => e.simAddDevice(), 'disc-add'],
         ['Remove a device', () => e.simRemoveDevice(), 'disc-remove'],
         ['Add 6 devices', () => Array.from({ length: 6 }, () => e.simAddDevice()), 'disc-many'],

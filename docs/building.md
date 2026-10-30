@@ -58,7 +58,6 @@ The first build takes a while (it compiles the engine once per phone type). Late
 Things to know:
 
 - It's a **shrunk release build** (R8 removes the code the app never uses, about half the size of a debug build). It's signed with the release key if you've set up `android/keystore.properties` ([releasing.md](releasing.md)), otherwise with your computer's own debug key.
-- Before Phase 8 the script made debug builds, whose app id ends in `.debug`. Android treats that as a different app, so uninstall the old "Nhako Beam" if you see two.
 - Without the release key, each computer signs with its own debug key, and so does the Build workflow. If Android says **"App not installed"** when you update, the new .apk was signed with a different key: uninstall Nhako Beam first, then install. That also resets the app's device key, so pair your devices again.
 - Google Play Protect may warn about an app it hasn't seen. Choose "Install anyway".
 

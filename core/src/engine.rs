@@ -363,6 +363,8 @@ pub(crate) struct Inner {
     pub code_task: Mutex<Option<JoinHandle<()>>>,
     /// The app is on screen (see `set_foreground`).
     foreground: std::sync::atomic::AtomicBool,
+    /// Connections turned away by `peer_allowed`, for Copy diagnostics.
+    pub(crate) turned_away: std::sync::atomic::AtomicU64,
 }
 
 /// The transfer engine. Cheap to clone; all clones share one engine.
@@ -401,6 +403,11 @@ const ANNOUNCE_EVERY: Duration = Duration::from_secs(30);
 const ASK_AGAIN: Duration = Duration::from_secs(2);
 /// How often the beacon looks for new network adapters (Wi-Fi joined, cable plugged in).
 const ADAPTERS_EVERY: Duration = Duration::from_secs(10);
+/// How often the beacon joins its multicast group again on every adapter.
+const REJOIN_EVERY: Duration = Duration::from_secs(300);
+/// How long a connection from a device this one doesn't know may take to move onto a
+/// same-network path before it's turned away (it often starts on the relay, see `peer_allowed`).
+const LAN_PATH_WAIT: Duration = Duration::from_secs(3);
 /// A device whose beacon hasn't been heard for this long (three announcements missed) is checked again.
 const QUIET_AFTER: Duration = Duration::from_secs(100);
 /// The most devices the beacon keeps track of.
@@ -549,6 +556,7 @@ impl Engine {
             tasks: Mutex::new(Vec::new()),
             code_task: Mutex::new(None),
             foreground: std::sync::atomic::AtomicBool::new(true),
+            turned_away: std::sync::atomic::AtomicU64::new(0),
         };
         let engine = Self { inner: Arc::new(inner) };
         info!(id = %engine.id().fmt_short(), "engine started");
@@ -1448,12 +1456,29 @@ impl Engine {
         Ok(())
     }
 
-    fn peer_allowed(&self, id: &EndpointId, conn: &Connection) -> bool {
+    /// Who may connect at all: your devices, devices paired or seen nearby, and anyone on this
+    /// network. Strangers from the internet are turned away.
+    async fn peer_allowed(&self, id: &EndpointId, conn: &Connection) -> bool {
         if self.store().trusted(id).is_some() {
             return true;
         }
-        let known = self.st().devices.get(id).is_some_and(|d| d.paired || d.nearby);
-        known || net::is_lan_conn(conn)
+        let known = |e: &Self| e.st().devices.get(id).is_some_and(|d| d.paired || d.nearby);
+        if known(self) || net::is_lan_conn(conn) {
+            return true;
+        }
+        // A device on this network that our firewall kept out (Windows on a Public network) often
+        // arrives over the relay first, then moves to a same-network path within a second or so,
+        // once our own packets to it have opened the way back.
+        let until = tokio::time::Instant::now() + LAN_PATH_WAIT;
+        while tokio::time::Instant::now() < until {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if known(self) || net::is_lan_conn(conn) {
+                return true;
+            }
+        }
+        info!(peer = %id.fmt_short(), "turned away a connection from a device that isn't on this network");
+        self.inner.turned_away.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        false
     }
 
     async fn check_device(self, id: EndpointId) {
@@ -1548,6 +1573,7 @@ impl Engine {
         let mut asks_left = 3u8;
         let mut announce_at = tokio::time::Instant::now();
         let mut adapters_at = tokio::time::Instant::now() + ADAPTERS_EVERY;
+        let mut rejoin_at = tokio::time::Instant::now() + REJOIN_EVERY;
         loop {
             tokio::select! {
                 got = b.recv() => {
@@ -1559,7 +1585,12 @@ impl Engine {
                         }
                     };
                     let now = Instant::now();
-                    if p.ask && replied.get(&from.ip()).is_none_or(|t| now - *t > Duration::from_secs(2)) {
+                    // Asks get an answer, and so does anyone this device can't reach yet: a device
+                    // whose firewall blocks what comes in unasked (Windows on a Public network) still
+                    // lets in an answer to its own broadcast for a few seconds, and then connects
+                    // out to us itself.
+                    let answer = p.ask || !self.st().devices.get(&p.id).is_some_and(|d| d.reachable);
+                    if answer && replied.get(&from.ip()).is_none_or(|t| now - *t > Duration::from_secs(2)) {
                         replied.retain(|_, t| now - *t < Duration::from_secs(10));
                         replied.insert(from.ip(), now);
                         b.reply(from).await;
@@ -1582,7 +1613,12 @@ impl Engine {
                     if b.refresh_adapters() {
                         asks_left = 3;
                         announce_at = tokio::time::Instant::now();
+                        rejoin_at = tokio::time::Instant::now() + REJOIN_EVERY;
                     }
+                }
+                _ = tokio::time::sleep_until(rejoin_at) => {
+                    rejoin_at = tokio::time::Instant::now() + REJOIN_EVERY;
+                    b.rejoin();
                 }
                 _ = tokio::time::sleep_until(announce_at) => {
                     b.announce(asks_left > 0).await;
@@ -1713,7 +1749,7 @@ impl Engine {
             conn.close(wire::close::PROTOCOL, b"version");
             return Err(format!("unsupported version {}", hello.version));
         }
-        if !self.peer_allowed(&peer, &conn) {
+        if !self.peer_allowed(&peer, &conn).await {
             conn.close(wire::close::NOT_ALLOWED, b"not allowed");
             return Err("not allowed".into());
         }

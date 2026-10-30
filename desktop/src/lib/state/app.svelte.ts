@@ -167,6 +167,10 @@ class AppState {
   updateCheck = $state<boolean | null>(null);
   /** The version whose Home banner was closed with Not now. */
   updateSeen = $state<string | null>(null);
+  /** Windows Firewall keeps nearby devices out (the desktop app on Windows, without its rule). */
+  firewallBlocked = $state(false);
+  /** Fix it is waiting for Windows' admin prompt. */
+  fixingFirewall = $state(false);
 
   /** The pretend engine's test hooks (browser prototype and UI tests only). */
   get mock(): MockEngine | null {
@@ -218,6 +222,7 @@ class AppState {
       // Blocked storage: the banner shows again next time.
     }
     void this.loadSelf();
+    if (this.native) void this.checkFirewall();
     this.wire(opts);
 
     this.offEngine = this.engine.on((e) => {
@@ -821,6 +826,34 @@ class AppState {
     this.updateCheck = on;
     if (!on) this.update = null;
     return true;
+  }
+
+  async checkFirewall(): Promise<void> {
+    try {
+      this.firewallBlocked = (await shell.firewall.status()) === false;
+    } catch (e) {
+      console.warn('Could not check Windows Firewall:', message(e));
+    }
+  }
+
+  /** The firewall banner's Fix it: one Windows admin prompt, then a fresh look for devices. */
+  async fixFirewall(): Promise<void> {
+    if (this.fixingFirewall) return;
+    this.fixingFirewall = true;
+    try {
+      const fixed = this.native ? await shell.firewall.fix() : true;
+      this.firewallBlocked = !fixed;
+      if (fixed) {
+        this.toast(t('firewall.fixed'), 'success');
+        this.engine.rescan();
+      } else {
+        this.toast(t('firewall.notFixed'), 'danger');
+      }
+    } catch (e) {
+      this.toast(message(e), 'danger');
+    } finally {
+      this.fixingFirewall = false;
+    }
   }
 
   /** The Home banner's Not now: hidden until the next version. */

@@ -1057,3 +1057,16 @@ test.describe('share via link and updates (phase 15)', () => {
     expect(await page.evaluate(() => (window as any).__nhako.app.updateCheck)).toBe(false);
   });
 });
+
+test.describe('windows firewall (phase 19)', () => {
+  test('a firewall banner offers Fix it, and goes once it worked', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'disc-firewall');
+    await closePanel(page);
+    const banner = page.getByTestId('banner-firewall');
+    await expect(banner).toContainText('Windows Firewall is keeping nearby devices out');
+    await page.getByTestId('firewall-fix').click();
+    await expect(banner).toHaveCount(0);
+    await expect(page.getByText('Nearby devices can reach this PC now')).toBeVisible();
+  });
+});

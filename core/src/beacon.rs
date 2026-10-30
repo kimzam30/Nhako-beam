@@ -21,7 +21,7 @@ use std::{
 use iroh::EndpointId;
 use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use tokio::{net::UdpSocket, sync::Notify};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// The beacon's UDP port.
 pub const PORT: u16 = 47820;
@@ -118,6 +118,8 @@ pub struct Status {
     pub last_send_error: Option<String>,
     pub received: u64,
     pub last_heard: Option<Instant>,
+    /// Adapters that couldn't join the multicast group, with the reason (they still broadcast).
+    pub join_errors: Vec<String>,
 }
 
 pub struct Beacon {
@@ -209,15 +211,28 @@ impl Beacon {
         for gone in current.difference(&now) {
             let _ = sock.leave_multicast_v4(&GROUP, &gone.addr);
         }
-        for new in now.difference(&current) {
-            if let Err(e) = sock.join_multicast_v4(&GROUP, &new.addr) {
-                debug!(adapter = %new.name, "beacon couldn't join the group: {e}");
-            }
-        }
         info!(adapters = ?now.iter().map(|a| format!("{} {}/{}", a.name, a.addr, a.prefix)).collect::<Vec<_>>(), "beacon adapters");
         self.status.lock().expect("beacon status lock").adapters = now.iter().cloned().collect();
         *current = now;
+        drop(current);
+        self.rejoin();
         true
+    }
+
+    /// Joins the multicast group on every adapter again. Windows can drop a membership when an
+    /// adapter sleeps and wakes with the same address, which the adapter check doesn't see.
+    pub fn rejoin(&self) {
+        let adapters: Vec<Adapter> = self.adapters.lock().expect("adapters lock").iter().cloned().collect();
+        let sock = SockRef::from(&self.socket);
+        let mut errors = Vec::new();
+        for a in &adapters {
+            let _ = sock.leave_multicast_v4(&GROUP, &a.addr);
+            if let Err(e) = sock.join_multicast_v4(&GROUP, &a.addr) {
+                info!(adapter = %a.name, "beacon couldn't join the group: {e}");
+                errors.push(format!("{}: {e}", a.name));
+            }
+        }
+        self.status.lock().expect("beacon status lock").join_errors = errors;
     }
 
     /// Tells every device on the network this one is here.
@@ -270,7 +285,8 @@ impl Beacon {
 }
 
 /// The IPv4 adapters worth announcing on: up, not loopback, not a point-to-point tunnel (VPNs),
-/// with a same-network address.
+/// with a private address. Link-local (an adapter with no network) and 100.64/10 (Tailscale and
+/// other overlay VPNs, which carry no broadcast) are left out.
 pub fn lan_adapters() -> BTreeSet<Adapter> {
     let mut out = BTreeSet::new();
     for i in netdev::get_interfaces() {
@@ -280,7 +296,7 @@ pub fn lan_adapters() -> BTreeSet<Adapter> {
         let name = i.friendly_name.clone().unwrap_or_else(|| i.name.clone());
         for net in &i.ipv4 {
             let addr = net.addr();
-            if addr.is_loopback() || !crate::net::is_lan(IpAddr::V4(addr)) {
+            if !worth_announcing(addr) {
                 continue;
             }
             out.insert(Adapter {
@@ -291,6 +307,11 @@ pub fn lan_adapters() -> BTreeSet<Adapter> {
         }
     }
     out
+}
+
+fn worth_announcing(addr: Ipv4Addr) -> bool {
+    let overlay = addr.octets()[0] == 100 && (addr.octets()[1] & 0xc0) == 64;
+    crate::net::is_lan(IpAddr::V4(addr)) && !addr.is_loopback() && !addr.is_link_local() && !overlay
 }
 
 /// Whether mDNS can use IPv4 here: tries to share UDP port 5353 the way the mDNS library does.
@@ -352,5 +373,18 @@ mod tests {
         assert_eq!(a([192, 168, 1, 175], 24).broadcast(), Some(Ipv4Addr::new(192, 168, 1, 255)));
         assert_eq!(a([10, 1, 2, 3], 16).broadcast(), Some(Ipv4Addr::new(10, 1, 255, 255)));
         assert_eq!(a([10, 1, 2, 3], 32).broadcast(), None);
+    }
+
+    #[test]
+    fn announces_only_on_real_local_networks() {
+        let ok = |o: [u8; 4]| worth_announcing(o.into());
+        assert!(ok([192, 168, 1, 64]));
+        assert!(ok([10, 0, 0, 2]));
+        assert!(ok([172, 20, 1, 1]));
+        // Tailscale, an adapter with no network, loopback, a public address.
+        assert!(!ok([100, 117, 78, 26]));
+        assert!(!ok([169, 254, 163, 27]));
+        assert!(!ok([127, 0, 0, 1]));
+        assert!(!ok([8, 8, 8, 8]));
     }
 }

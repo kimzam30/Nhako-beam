@@ -333,6 +333,23 @@ pub fn open_link(app: AppHandle, url: String) -> Result<(), String> {
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Whether nearby devices can reach this PC through Windows Firewall: false without Nhako Beam's
+/// rule, null off Windows (core/src/firewall.rs).
+#[tauri::command]
+pub async fn firewall_status() -> Option<bool> {
+    tauri::async_runtime::spawn_blocking(nhako_core::firewall::rule_present).await.ok().flatten()
+}
+
+/// The Home banner's Fix it: one Windows admin prompt that adds the rule. True once it's there.
+#[tauri::command]
+pub async fn fix_firewall() -> Result<bool, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || nhako_core::firewall::allow(&exe))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

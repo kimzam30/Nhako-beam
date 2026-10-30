@@ -5,7 +5,7 @@
 //    that the Android code names somewhere -> app/src/main/res/drawable/ph_<name>_<weight>.xml
 //    vector drawables, and res/raw/keep.xml so lint knows they're used (PhIcon finds them by name)
 // Run from anywhere after `npm install` in desktop/:  node android/tools/shared-assets.mjs
-// CopyTest (app/src/test) fails when Copy.kt is out of date with copy.ts.
+// SharedCopyTest (app/src/test) fails when Copy.kt is out of date with copy.ts.
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 

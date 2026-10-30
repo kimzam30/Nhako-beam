@@ -56,7 +56,9 @@ android {
     // the size of one APK for all of them. Almost every phone today is arm64-v8a.
     splits {
         abi {
-            isEnable = true
+            // One APK per phone type. Not for an app bundle (.aab): Play makes the split itself, and
+            // with splits on, shrinking leaves one resource file per type and bundleRelease fails.
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include(*engineAbis.toTypedArray())
             isUniversalApk = false

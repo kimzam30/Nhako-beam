@@ -1,6 +1,6 @@
 # nhako-core
 
-The Nhako Beam transfer engine. One library for the command line tool, the desktop app (`desktop/src-tauri`) and Android (UniFFI, Phase 7).
+The Nhako Beam transfer engine. One library for the command line tool, the desktop app (`desktop/src-tauri`) and Android (through UniFFI, in `ffi/`).
 
 It runs on [iroh](https://iroh.computer) 1.x: encrypted QUIC between device keys, hole punching, and relay fallback. On top of that it adds the `nhako/1` protocol (see [docs/protocol/nhako-1.md](../docs/protocol/nhako-1.md)).
 
@@ -12,7 +12,7 @@ It runs on [iroh](https://iroh.computer) 1.x: encrypted QUIC between device keys
 let engine = Engine::start(EngineConfig::new(config_dir)).await?;
 let mut events = engine.subscribe();          // EngineEvent stream
 let id = engine.send(&device_id, &paths)?;     // to a nearby, trusted or code-paired device
-let code = engine.create_code();               // three words, 10 minutes, one use
+let code = engine.create_code();               // four words, 10 minutes, one use
 let result = engine.redeem_code(&words).await; // RedeemResult
 engine.accept(&request_id, trust, auto_accept);
 engine.pause(&id); engine.resume(&id); engine.cancel(&id); engine.retry(&id);
@@ -33,7 +33,7 @@ One difference from the TypeScript contract: `send` takes file paths, because th
 |---|---|
 | `src/engine.rs` | State, public API, incoming connections, discovery, reconnecting |
 | `src/session.rs` | One transfer over one connection: sender pump, receiver writer, pause, resume, verify |
-| `src/pair.rs` | Three-word codes: showing and entering |
+| `src/pair.rs` | Four-word codes: showing and entering |
 | `src/codekeys.rs` | Argon2id and BLAKE3 key derivation for codes |
 | `src/wire.rs` | Wire messages and framing |
 | `src/net.rs` | Endpoint setup (public, your own server, or same network only), route detection, ping |
@@ -41,7 +41,16 @@ One difference from the TypeScript contract: `send` takes file paths, because th
 | `src/store.rs` | Device key, name, save folder, trusted devices on disk |
 | `src/files.rs` | Safe file names, unique paths, free space |
 | `src/types.rs` | The UI contract types |
-| `src/words.txt` | The 256 code words (also read by the app) |
+| `src/beacon.rs` | The nearby beacon on UDP 47820, next to mDNS (Windows keeps the mDNS port to itself) |
+| `src/diag.rs` | Settings > About > Copy diagnostics and `nhako diagnostics` |
+| `src/history.rs` | `history.json`, the newest 500 transfers |
+| `src/logfile.rs` | The log file, 1 MB plus one older file |
+| `src/share.rs`, `share_page.html`, `share_gone.html` | Share via link: the small web server and its pages |
+| `src/text.rs` | Cleaning device names, file names and received text |
+| `src/trust.rs` | Trust this device from Nearby (both devices agree on a check code) |
+| `src/update.rs` | The once-a-day check for a new version on GitHub |
+| `src/wake.rs` | Waking a sleeping phone through the wake service |
+| `src/words.rs`, `src/words.txt` | The 256 code words (also read by the app) |
 
 ## Tests
 

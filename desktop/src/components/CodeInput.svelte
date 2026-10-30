@@ -109,10 +109,6 @@
     else if (slots[i]) shake(slots[i]);
     if (i !== null) inputs[i]?.focus();
   }
-
-  export function focusFirst() {
-    inputs[0]?.focus();
-  }
 </script>
 
 <div class="slots-wrap">

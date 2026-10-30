@@ -562,6 +562,18 @@ Served by the engine (`core/src/share_page.html` and `share_gone.html`), so thes
 |---|---|
 | A browser asks | {browser} wants to download what you shared / From {address} on this network. Buttons: Let in, No |
 
+## 18. Added in Phase 19 (Windows Firewall)
+
+Desktop app on Windows only, when Nhako Beam's firewall rule is missing (`core/src/firewall.rs`). Fix it asks Windows for admin rights once.
+
+| Key | Text |
+|---|---|
+| `firewall.banner` | Windows Firewall is keeping nearby devices out. Codes still work. |
+| `firewall.fix` | Fix it |
+| `firewall.fixing` | Waiting for Windows |
+| `firewall.fixed` | Nearby devices can reach this PC now |
+| `firewall.notFixed` | Windows didn't allow it. Try Fix it again and choose Yes. |
+
 ## Written in Phase 1, never built
 
 These were drafted before the apps existed and aren't in `copy.ts`, so neither app shows them. They stay here as ideas. If one gets built, move it into its section above and add it to `copy.ts`. (`a11y.codeWords` still has the old three-word codes.)

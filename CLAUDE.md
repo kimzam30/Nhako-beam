@@ -1,6 +1,6 @@
 # Nhako Beam: notes for Claude
 
-Nhako Beam sends files straight between your own devices (Windows, Linux, Android): no cloud, no size limit, no account. Start with [docs/handoff.md](docs/handoff.md) for where the work stands and what Phase 8 is.
+Nhako Beam sends files straight between your own devices (Windows, Linux, Android): no cloud, no size limit, no account. Start with [docs/handoff.md](docs/handoff.md) for where the work stands and what's next.
 
 ## How to work with me (the owner)
 
@@ -28,7 +28,9 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 | `design/sounds/` | Every sound, made from scratch by `build.mjs` into WAVs both apps use ([design/sounds/README.md](design/sounds/README.md)) |
 | `docs/design/` | Design system, motion spec, every screen and state, all UI copy |
 | `docs/brand/` | The brand kit: logo (SVG, PNG), posters, launch videos |
-| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)); `licenses.mjs` for About > Open source licenses; `bump-version.mjs` for releases ([docs/releasing.md](docs/releasing.md)) |
+| `scripts/` | Local builds: `build-android.sh`, `build-linux.sh`, `build-windows.ps1` ([docs/building.md](docs/building.md)); `bench.sh` for the engine benchmarks; `licenses.mjs` for About > Open source licenses; `bump-version.mjs` and `winget.mjs` for releases ([docs/releasing.md](docs/releasing.md)) |
+| `packaging/` | Flatpak manifest, the Linux desktop entry and AppStream file, the F-Droid recipe draft, store screenshots |
+| `fastlane/` | The F-Droid store listing (text, icon, phone screenshots) |
 
 ## Things that must stay in step
 

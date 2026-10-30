@@ -162,10 +162,6 @@
     if (card) paint();
   });
 
-  export function focusCard() {
-    card?.focus();
-  }
-
   // The bolt badge on the sender gives one small twitch once the card has landed.
   let twitch = $state(0);
   $effect(() => {

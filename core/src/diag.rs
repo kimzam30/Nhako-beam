@@ -7,7 +7,7 @@ use std::{fmt::Write, time::Instant};
 use crate::{
     Engine,
     engine::now_ms,
-    logfile,
+    firewall, logfile,
     net::{self, Network},
     types::{DiscoveryState, OsPlatform},
 };
@@ -83,13 +83,27 @@ impl Engine {
                     writeln!(o, "    Last send error: {e}")?;
                 }
                 writeln!(o, "    Heard: {} (last {})", s.received, heard.as_deref().unwrap_or("never"))?;
+                for e in &s.join_errors {
+                    writeln!(o, "    Couldn't join the group on {e}")?;
+                }
             }
             None => match &p.beacon {
                 Some(e) => writeln!(o, "  Beacon: couldn't start: {e}")?,
                 None => writeln!(o, "  Beacon: off")?,
             },
         }
+        let turned_away = self.inner.turned_away.load(std::sync::atomic::Ordering::Relaxed);
+        writeln!(o, "  Connections turned away (not on this network): {turned_away}")?;
         writeln!(o)?;
+
+        if let Some(present) = firewall::rule_present() {
+            writeln!(o, "Windows Firewall")?;
+            writeln!(o, "  Rule \"{}\": {}", firewall::RULE, if present { "there" } else { "missing" })?;
+            for p in firewall::profiles() {
+                writeln!(o, "  Network {}: {}", p.adapter, p.category)?;
+            }
+            writeln!(o)?;
+        }
 
         writeln!(o, "Devices ({devices})")?;
         for d in self.devices() {

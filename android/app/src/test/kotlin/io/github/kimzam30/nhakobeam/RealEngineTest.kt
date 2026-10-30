@@ -89,7 +89,6 @@ class RealEngineTest {
         engine.clearHistory()
         engine.setWakeToken("dQw4w9WgXcQ:APA91bHn-test_token-0123456789abcdefghijklmnopqrstuvwxyz")
         engine.setWakeToken(null)
-        assertEquals(false, engine.wakeAvailable())
 
         // Phase 14: text and trust asks to a device that isn't there say so in plain words; the
         // snapshot carries the asks waiting here.

@@ -168,6 +168,15 @@
           {/snippet}
         </Banner>
       {/if}
+      {#if app.firewallBlocked && app.discovery !== 'offline' && app.onLan}
+        <Banner icon="shield-check" text={t('firewall.banner')} testid="banner-firewall">
+          {#snippet action()}
+            <button onclick={() => app.fixFirewall()} disabled={app.fixingFirewall} data-testid="firewall-fix">
+              {t(app.fixingFirewall ? 'firewall.fixing' : 'firewall.fix')}
+            </button>
+          {/snippet}
+        </Banner>
+      {/if}
       {#if app.linkShare && app.sheet?.kind !== 'link'}
         {@const asking = app.linkShare.visitors.filter((v) => v.state === 'asking').length}
         <Banner tone="info" icon="link-simple" text={asking ? `${t('link.active')} · ${t('link.active.asking', { n: asking })}` : t('link.active')} testid="banner-link">

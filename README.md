@@ -53,6 +53,8 @@ It's an open alternative to apps like Blip.
 - A request card with **Accept** and **Decline**, or files straight in from devices you trust.
 - Notifications with Accept and Decline buttons while the app is in the background.
 - **Send with a code** to a device you haven't paired with.
+- Folders (kept in shape), text, links and the clipboard.
+- **Share via link** to any browser on the same Wi-Fi, no app needed.
 
 </td>
 <td width="50%" valign="top">
@@ -70,7 +72,7 @@ It's an open alternative to apps like Blip.
 
 #### Desktop (Windows and Linux)
 - Tray icon with a quick view of your devices and transfers.
-- Starts at login and keeps running when the window is closed.
+- Can start at login, and keeps running in the tray when the window is closed.
 - Explorer and Files integration for sending from the file manager.
 
 </td>
@@ -97,6 +99,8 @@ It's an open alternative to apps like Blip.
 
 #### Privacy and control
 - Turn finding nearby devices on or off.
+- **Who can send to me**: only your own devices by default, or everyone nearby.
+- A quiet once-a-day check for new versions, with a switch.
 - Point the apps at your own relay and lookup server.
 - Every open source package used is listed under Settings > About > Open source licenses.
 
@@ -196,7 +200,7 @@ Then on each device: **Settings > Connection > Your own**. Details in
 
 ## Development
 
-**Requirements:** Rust 1.91+, Node 22, and for Android: JDK 17+, the Android SDK with NDK
+**Requirements:** Rust 1.91+, Node 20 or newer (CI uses 22), and for Android: JDK 17+, the Android SDK with NDK
 `29.0.14206865`, the three Rust Android targets and `cargo-ndk`. For the Linux app: the GTK,
 WebKit and ALSA development packages. Full setup in [docs/building.md](docs/building.md).
 
@@ -247,6 +251,13 @@ on a Galaxy S24+).
 | 7 | The Android app |
 | 8 | Brand and icons, launch intro, history, licenses, tray quick view, notification buttons, nearby switch, Quick Settings tile, push wake-up, smaller APKs |
 | 9 | Sounds for every interaction on both apps, and fixes from real-device testing |
+| 10 | Nearby discovery on Windows (the beacon), a log file, Copy diagnostics |
+| 11 | Security: four-word codes, Who can send to me, safer files and names |
+| 12 | Performance: thousands of files, faster resumes, less battery in the background |
+| 13 | The bolt motion pass on both apps |
+| 14 | Folders, text, links and the clipboard, Trust this device from Nearby |
+| 15 | Accessibility, Share via link, the update check, Flathub, F-Droid and winget builds |
+| 16 and 17 | Fixes from a full audit, and cleanup |
 
 **Next:** more real-device testing (especially across the internet), signed Windows builds, and a
 Play Store release.

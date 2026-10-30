@@ -114,6 +114,8 @@ pub fn run() {
             engine::set_who_can_send,
             engine::clear_history,
             shell::open_link,
+            shell::firewall_status,
+            shell::fix_firewall,
             popover::open_main,
             popover::hand_to_main,
             engine::open_received,

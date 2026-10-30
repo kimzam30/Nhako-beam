@@ -438,12 +438,6 @@ impl NhakoEngine {
         )
     }
 
-    /// Whether other devices could wake this one (a wake service was built in). The app shows it in
-    /// Settings > About.
-    pub fn wake_available(&self) -> bool {
-        nhako_core::wake::default_url().is_some()
-    }
-
     pub fn clear_history(&self) -> Result<(), NhakoError> {
         self.engine()?.clear_history();
         Ok(())

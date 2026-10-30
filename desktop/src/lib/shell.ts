@@ -121,6 +121,14 @@ export function onFileDrop(h: DropHandlers): Promise<() => void> {
   });
 }
 
+/** Windows Firewall and Nhako Beam's own rule (core/src/firewall.rs). */
+export const firewall = {
+  /** Whether nearby devices can reach this PC: false without the rule, null off Windows. */
+  status: (): Promise<boolean | null> => invoke<boolean | null>('firewall_status'),
+  /** Asks Windows for admin rights once and adds the rule. True when it's there afterwards. */
+  fix: (): Promise<boolean> => invoke<boolean>('fix_firewall'),
+};
+
 /** Opens a web page in the default browser. */
 export function openLink(url: string): Promise<void> {
   return invoke('open_link', { url });

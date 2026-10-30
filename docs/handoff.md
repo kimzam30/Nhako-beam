@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (end of Phase 17)
+# Handoff: where Nhako Beam stands (Phase 19)
 
-Last updated 2026-10-28, at the end of Phase 17. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-30, during Phase 19 (waiting for the owner's push for the Windows test of the new build). Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -11,11 +11,12 @@ Last updated 2026-10-28, at the end of Phase 17. Read [CLAUDE.md](../CLAUDE.md) 
   - `f2843f3` ("initialrelease"): Phases 8 and 9.
 - **Branch `main`:** `009d45d` ("phase10-phase14:securityfix"): Phases 10 to 14, `2139efc` (the owner's fix so the engine tests compile on Windows), and `95a16b4`, the lightning mascot logo.
 - **Branch `dev`:** the same up to `2139efc`, then `484b4ba` ("fdroid/flatpak"): Phase 15, and `c2c6145`, the same logo change as `95a16b4` made again on top.
-- **`78db661`** (2026-10-28, local, not pushed): `dev` merged into `main`, so `main` has Phase 15 too and both branches hold the same files.
-- **Phases 16 and 17:** one commit on top of the merge, on both `main` and `dev` (local, 2026-10-28). Both branches point at the same commit.
+- **`78db661`** (2026-10-28): `dev` merged into `main`, so `main` has Phase 15 too and both branches hold the same files.
+- **`9c40fb8`, Phases 16 and 17:** one commit on top of the merge. `main` and `dev` both point at it, pushed to GitHub on 2026-10-28.
+- **Phases 18 and 19:** not committed yet (the owner's call).
+- The plan for Phases 18 to 23 (cleanup, Windows discovery, always on, the voxel mascot and 3D UI, the nightly build) is in `~/.claude/plans/check-the-code-repo-frolicking-storm.md` on the owner's machine.
 - The audit of 2026-10-27 that set Phases 16 and 17 is in `~/.claude/plans/scan-whole-repo-and-clever-lighthouse.md` on the owner's machine.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
-- `claude/youthful-euler-vxt9o5` is an unused cloud branch.
 - Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
 
 ## What's done
@@ -37,7 +38,52 @@ Last updated 2026-10-28, at the end of Phase 17. Read [CLAUDE.md](../CLAUDE.md) 
 | 15 | Accessibility (axe on every screen in both themes, keyboard focus kept in sheets, 320 px reflow, token contrast, Android names and touch sizes, 200% font), release ready at RM0 (update check, winget, SignPath, Flathub, F-Droid build, .aab), folders from the file manager, Share via link |
 | 16 | The fix pass from the 2026-10-27 audit: stuck request cards, offer limits that held under a burst, memory and connection caps, the code host listening for Stop mid-handshake, events never dropped on Android, listeners that doubled on desktop, Pause and Cancel sounds on Android, and the protocol, copy and building docs brought in line with the code |
 | 17 | Cleanup: unused copy keys, functions, dependencies and the `select` sound removed; the prototype's dev panel out of the desktop bundle |
+| 19 | Windows nearby discovery: a firewall rule at install (one admin prompt), devices answer beacons from devices they can't reach, a relayed first contact gets 3 s to go same-network, Tailscale and link-local left out of the beacon, the Fix it banner, diagnostics for the firewall; the Android .aab build fixed |
+| 18 | Cleanup: dead code, a finished plan doc and an unused icon copy removed; README, CLAUDE.md, `core/README.md` and `cli/README.md` brought in line with the code |
 | 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
+
+### Phase 19 in detail
+
+**What the owner's PC showed** (through the "beam testing windows" Claude session, read only):
+- Windows 11 Home 25H2. Wired Ethernet `192.168.1.64/24` on the **Public** network profile, Tailscale `100.117.78.26`. svchost holds UDP 5353 for IPv4, as found in Phase 10.
+- Before installing: no firewall rule for Nhako Beam, and the app wasn't installed.
+- The CI build of `dev` (`9c40fb8`) installed to `C:\APPS\Nhako Beam`. The owner allowed Windows' prompt on Private and Public. Windows then made two "Nhako Beam" Allow rules for both profiles, and **the PC found the laptop under Nearby by itself**, even with the laptop's ufw on. The two trusted each other from Nearby.
+- So the cause was the firewall: without a rule that covers Public, nothing comes in on a network Windows marks Public, while codes still work through the relay. Earlier installs most likely had a Private-only or Block rule from that prompt.
+
+**What changed:**
+- **Installer** (`desktop/src-tauri/windows/hooks.nsh`): one admin prompt after install, only if our rule ("Nhako Beam (nearby devices)") is missing and the install isn't silent (winget). It removes every rule for the exe first (Windows' own prompt rules, where a Block would win), then allows it in on every profile. Declining still installs. Uninstall removes the rule (another prompt, only if it's there).
+- **`core/src/firewall.rs`:** the rule, the same commands for the app's Fix it (PowerShell `Start-Process -Verb RunAs`), whether the rule is there (netsh's exit code, since its text is in the system's language), and each network's profile (`Get-NetConnectionProfile`).
+- **Engine:** devices answer beacons from devices they can't reach yet, not only asks. Windows lets a unicast answer to its own broadcast in for a few seconds even with no rule, then the PC connects out itself. A connection from a device the engine doesn't know gets up to 3 s to move from the relay to a same-network path before it's turned away (`LAN_PATH_WAIT`), and turned-away connections are logged at info and counted. The beacon leaves out link-local and 100.64/10 adapters (it was sending on Tailscale's /32 on the PC), and joins its group again every 5 minutes.
+- **Copy diagnostics:** a Windows Firewall section (the rule there or missing, each network's profile), group join errors, connections turned away.
+- **Desktop app:** on Windows without the rule, Home shows "Windows Firewall is keeping nearby devices out. Codes still work." with **Fix it** (`shell::fix_firewall`). The prototype's scenario panel has it under Discovery. Copy: ux-copy.md section 18. Android has no firewall, so nothing changes there.
+- **Android build:** the Phase 15 `.aab` step had never run on GitHub and failed: with one APK per phone type and shrinking, Gradle left three shrunk resource files and `bundleRelease` couldn't choose. ABI splits are now off for bundle builds (Play splits by itself).
+
+### Phase 19: verified, and not
+
+- **Verified:**
+  - Rust: fmt and clippy clean; 57 engine unit tests (3 new: the rule's commands, reading network profiles, which adapters get the beacon), 27 engine and 4 own-server integration tests, 10 desktop tests.
+  - Desktop: svelte-check 0 errors, 127 unit tests, 144 Playwright flows (8 skipped), new: the firewall banner and Fix it on both layouts.
+  - Android: 67 JVM tests; `bundleRelease` with two phone types builds a 46 MB `.aab` (the case that failed on GitHub).
+  - On the owner's PC with the `dev` build: with an Allow rule on Public, Nearby works by itself.
+- **Not verified:**
+  - The Windows-only code (`firewall.rs`'s Windows parts, the NSIS hook, Fix it) isn't compiled here: no Windows target on this computer. GitHub's Windows job compiles it once the owner pushes.
+  - The new installer on the PC, and the fallback without a rule (answers to broadcasts, the 3 s wait): no automated test can fake a firewall, so it needs the PC with our rule turned off for a few minutes, with the owner's OK.
+
+### Phase 18 in detail
+
+From a scan of the whole repo on 2026-10-30 (every pub fn, Tauri command, TS and Svelte export, Kotlin declaration, icon, copy key and markdown link).
+
+- **Removed:** `docs/logo-update-plan.md` (done, nothing linked to it); `desktop/src-tauri/icons/app-icon.png` (an unreferenced copy of `docs/brand/logo/png/nhako-beam-icon-1024.png`); `focusCard()` in `IncomingCard.svelte` and `focusFirst()` in `CodeInput.svelte` (never called); six bundled icons no screen uses (`power`, `arrow-counter-clockwise`, `dots-three`, `textbox`, `pencil-simple`, `scroll`); the FFI's `wake_available()` (only a test called it; Settings uses `wakeReady`).
+- **Docs fixed:** `core/README.md` (four-word codes, the twelve modules missing from its layout table), `cli/README.md` (folders are supported), `README.md` (features and status through Phase 17, Node 20 or newer, start at login is a choice), `CLAUDE.md` (no more "Phase 8", `packaging/`, `fastlane/`, `bench.sh` and `winget.mjs` in the map), `building.md` (the old Phase 8 note), the `shared-assets.mjs` comment (`SharedCopyTest`).
+- **Kept on purpose:** `.vscode/tasks.json` (building.md documents it), `.claude/launch.json` (the prototype preview), the brand kit's PNG sizes and videos, `fastlane/`, `design/*/build/`. `packaging/fdroid` and `packaging/flatpak` say 0.2.0 while the rest says 0.1.0; they're set by hand at release time ([releasing.md](releasing.md)).
+- **Disk, not in git:** `target/` is 53 GB (`cargo clean`), `out/` holds 37 MB of builds from Oct 12, `desktop/test-results` 98 MB.
+
+### Phase 18: verified, and not
+
+- **Verified:** fmt and clippy clean; Rust 54 engine unit, 27 engine and 4 own-server integration, 10 desktop tests. Desktop: svelte-check 0 errors, 127 unit tests, 142 Playwright flows (8 skipped, as before). Android: 67 JVM tests (the FFI bindings regenerated by Gradle without `wake_available`).
+- **Seen once:** `reconnects_after_a_drop_and_keeps_progress` failed while the Playwright run loaded the machine (resumed from 1.3 MB, the test wants 1.5 MB). It passed 5 times out of 5 alone and in the full run after. A timing margin in the test, not a code change from this phase; worth widening if it comes back.
+- **Noticed for Phase 19:** this laptop's beacon also goes out on `docker0` and `virbr0`, the same kind of virtual adapter that Windows' Hyper-V and WSL add.
+- **Not verified:** nothing here runs differently on a device, so no real-device or Windows try.
 
 ### Phase 8 in detail
 
@@ -317,7 +363,8 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
-- **Git (the owner's):** push `main` and `dev`; both are ahead of GitHub with the same commits.
+- **Git (the owner's):** commit Phase 18 when it suits you.
+- **Phase 19, the Windows test of the new build:** the owner pushes, the Build workflow makes the installer, the PC installs it (one admin prompt; Windows' two "Nhako Beam" rules are replaced by "Nhako Beam (nearby devices)"), then a few minutes with that rule off to try the fallback. The "beam testing windows" Claude session on the PC can read the logs and diagnostics.
 - **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
 - **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
 - **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.

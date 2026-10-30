@@ -80,6 +80,6 @@ Exit code is 0 when the transfer finished and 1 otherwise (declined, cancelled, 
 ## Notes
 
 - Ctrl+C cancels the transfer and tells the other device.
-- Folders aren't supported yet. Send the files inside.
+- A folder is sent as a folder and keeps its shape. If its name is taken on the other device, it arrives as `Trip (1)`.
 - Received files never overwrite anything: a second `photo.jpg` is saved as `photo (1).jpg`.
 - Partial files are saved as `name.nhakopart` until their hash checks out.

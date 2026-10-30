@@ -35,8 +35,9 @@ The message is 40 bytes, all big-endian:
 
 Receivers also read a higher version if it is at least 40 bytes (later versions may add fields at the end). They ignore anything shorter than 40 or longer than 512 bytes, with another magic, or with port 0.
 
-- **When:** an ask when the app starts, rescans, or its adapters change, sent three times 2 s apart; then a plain announcement every 30 s. A device that hears an ask answers the sender directly (unicast), at most once per 2 s per address.
+- **When:** an ask when the app starts, rescans, or its adapters change, sent three times 2 s apart; then a plain announcement every 30 s. A device that hears an ask answers the sender directly (unicast), at most once per 2 s per address. Since Phase 19 it also answers a plain announcement from a device it can't reach yet: Windows Firewall without a rule drops what comes in unasked, but lets in a unicast answer to its own broadcast for a few seconds, after which the Windows device connects out by itself.
 - **On hearing one:** the receiver adds `source IP : port` as an address for that EndpointId, then pings it as it does for mDNS. Nothing in the message is trusted: the QUIC handshake checks the EndpointId's key. A device announcing itself again within 20 s isn't pinged again (300 s while the app is in the background or the tray, where the same 300 s also replaces the 60 s check of trusted devices). One not heard from for 100 s is pinged once more and loses its "nearby" mark if that fails. At most 256 devices are tracked.
+- **Adapters** (Phase 19): up, not loopback or point-to-point, with a private address; not link-local (169.254/16, an adapter with no network) and not 100.64/10 (Tailscale and other overlay VPNs, which carry no broadcast). The multicast group is joined again on every adapter every 5 minutes, since Windows can drop a membership across sleep without the address changing.
 - One device hearing the other is enough: the ping that follows shows each to the other. That matters on Linux with ufw, which lets mDNS in but drops other incoming traffic by default.
 
 ## 3. Framing
@@ -162,6 +163,8 @@ The receiver answers `Decline(NotAllowed)` and closes with code 4 unless the sen
 - a device seen on the same network through mDNS or the beacon,
 - a device paired with a code during this run of the app,
 - any connection whose path is a same-network address (private ranges, link-local, and CGNAT `100.64.0.0/10`, which also covers Tailscale).
+
+A connection that starts on the relay from a device the receiver doesn't know gets up to 3 s to move onto a same-network path before it's closed (Phase 19): a device on the same network whose direct packets a firewall dropped often arrives over the relay first, then switches once the receiver's own packets have opened the way back.
 
 So someone who only knows your EndpointId can't push requests at you from across the internet.
 

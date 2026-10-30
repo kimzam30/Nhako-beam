@@ -10,6 +10,7 @@ pub mod codekeys;
 mod diag;
 mod engine;
 pub mod files;
+pub mod firewall;
 mod history;
 pub mod logfile;
 pub mod net;
