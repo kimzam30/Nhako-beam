@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import glbData from '../../../../design/mascot/build/mascot.glb?inline';
 import mascot from '../../../../design/mascot/build/mascot.json';
 import { ALL_FACE_PARTS, FACE_PARTS, MascotMotion, type Look, type MascotState, type Pose } from './pose';
-import { type Camera, type Vec3 } from './view';
+import { splitAlpha, type Camera, type Vec3 } from './view';
 
 export interface StageDevice {
   id: string;
@@ -137,7 +137,9 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   scene.add(floor, shadow);
 
   // Home's guide rings (the radar's), and the ripples that run out while it searches.
-  const ringMat = new THREE.MeshBasicMaterial({ color: css('--color-separator', '#1214181A'), transparent: true, opacity: 0.9 });
+  // The separator token carries its own alpha, as on Android.
+  const ringTint = () => splitAlpha(css('--color-separator', '#1214181A'));
+  const ringMat = new THREE.MeshBasicMaterial({ color: ringTint().color, transparent: true, opacity: ringTint().alpha });
   const rippleMat = new THREE.MeshBasicMaterial({ color: css('--color-accent', '#1A6FE0'), transparent: true, opacity: 0 });
   const ripples: THREE.Mesh[] = [];
   if (opts.home) {
@@ -489,7 +491,9 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     },
     retheme() {
       floorMat.color.set(css('--color-fill', '#ECEEF2'));
-      ringMat.color.set(css('--color-separator', '#1214181A'));
+      const ring = ringTint();
+      ringMat.color.set(ring.color);
+      ringMat.opacity = ring.alpha;
       for (const r of ripples) (r.material as THREE.MeshBasicMaterial).color.set(css('--color-accent', '#1A6FE0'));
       wake();
     },

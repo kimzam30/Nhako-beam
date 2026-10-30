@@ -55,3 +55,21 @@ export const soundsPlayed = (page: Page) =>
       .reverse()
       .filter((n) => n !== 'intro' && n !== 'found'),
   );
+
+/** Whether `act` throws sparks. They last about 300 ms, less than a polling gap on a busy runner,
+ *  so this watches for them from before `act` instead of looking afterwards. */
+export async function throwsSparks(page: Page, act: () => Promise<unknown>) {
+  await page.evaluate(() => {
+    (window as any).__sparkSeen = new Promise<boolean>((resolve) => {
+      const seen = new MutationObserver(() => {
+        if (!document.querySelector('[data-testid="spark"]')) return;
+        seen.disconnect();
+        resolve(true);
+      });
+      seen.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => resolve(false), 8000);
+    });
+  });
+  await act();
+  return page.evaluate(() => (window as any).__sparkSeen as Promise<boolean>);
+}

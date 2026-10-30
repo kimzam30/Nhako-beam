@@ -59,3 +59,10 @@ export function slotOnFloor(slot: { x: number; y: number }, size: number): Vec3 
   const k = (STAGE.slotReach * 2) / size;
   return [slot.x * k, 0, slot.y * k];
 }
+
+/** A token like `#1214181A` as a color three.js takes (it has no alpha) and that alpha, 0 to 1. */
+export function splitAlpha(hex: string): { color: string; alpha: number } {
+  const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+  if (!m) return { color: hex, alpha: 1 };
+  return { color: `#${m[1]}`, alpha: m[2] ? parseInt(m[2], 16) / 255 : 1 };
+}

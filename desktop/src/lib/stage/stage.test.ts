@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeCamera, project, slotOnFloor, STAGE } from './view';
+import { homeCamera, project, slotOnFloor, splitAlpha, STAGE } from './view';
 import { mascotMood, nextChange, type MoodInput } from './mood';
 import { MascotMotion } from './pose';
 import { mascot as timing } from '../tokens';
@@ -110,5 +110,13 @@ describe('the mascot pose', () => {
     let closed = false;
     for (let t = 0; t < 6000; t += 10) if (m.step(t, 0.01, null).eyeOpen < 0.3) closed = true;
     expect(closed).toBe(true);
+  });
+});
+
+describe('theme colors for the 3D scene', () => {
+  it('splits a token alpha off, since three.js colors have none', () => {
+    expect(splitAlpha('#1214181A')).toEqual({ color: '#121418', alpha: 26 / 255 });
+    expect(splitAlpha('#FFFFFF14')).toEqual({ color: '#FFFFFF', alpha: 20 / 255 });
+    expect(splitAlpha('#ECEEF2')).toEqual({ color: '#ECEEF2', alpha: 1 });
   });
 });

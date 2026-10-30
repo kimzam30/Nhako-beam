@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { center, closePanel, drag, haptics, ready, sim, soundsPlayed } from './helpers';
+import { center, closePanel, drag, haptics, ready, sim, soundsPlayed, throwsSparks } from './helpers';
 
 test.describe('onboarding', () => {
   test('walks through to the radar', async ({ page }, info) => {
@@ -777,8 +777,8 @@ test.describe('bolt motion (phase 13)', () => {
     await expect.poll(async () => Number(await page.getByTestId('radar').getAttribute('data-arcs'))).toBeGreaterThan(arcs);
     await closePanel(page);
     // A primary button throws sparks; they clear themselves.
-    await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));
-    await expect(page.getByTestId('spark').first()).toBeAttached();
+    const click = () => page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));
+    expect(await throwsSparks(page, click)).toBe(true);
     await expect(page.getByTestId('spark')).toHaveCount(0, { timeout: 2000 });
     // While bytes move a bolt rides the beam; when done the bolt turns into a check.
     await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0.3));
@@ -827,8 +827,7 @@ test.describe('bolt motion (phase 13)', () => {
     const lab = page.getByTestId('motion-lab');
     await expect(lab).toBeVisible();
     await expect(lab.locator('section')).toHaveCount(10);
-    await page.getByTestId('lab-spark').click();
-    await expect(page.getByTestId('spark').first()).toBeAttached();
+    expect(await throwsSparks(page, () => page.getByTestId('lab-spark').click())).toBe(true);
     await page.getByTestId('lab-count-up').click();
     await expect(lab.getByRole('img', { name: '44%' })).toBeVisible();
     await page.getByTestId('lab-motion').getByRole('radio', { name: 'Reduced' }).click();
