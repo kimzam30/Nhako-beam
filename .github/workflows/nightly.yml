@@ -1,0 +1,100 @@
+# The newest build of `dev`, always at the same place: the pre-release tagged `latest`
+# (GitHub > Releases > "Nhako Beam nightly"). Runs on every push to dev that changes more than
+# docs, and by hand (Actions > "Nightly" > Run workflow). Free on public repositories.
+#
+# It runs every check and build in build.yml, then replaces that one pre-release and its files.
+# The file names never change, so links to them keep working (docs/releasing.md "Nightly builds").
+# The apps' update check skips this tag (core/src/update.rs), so a nightly never shows up as a
+# new version.
+name: Nightly
+
+on:
+  push:
+    branches: [dev]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "fastlane/**"
+      - "packaging/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only the newest push matters: a new one stops the run before it.
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  publish:
+    name: Replace the nightly pre-release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nhako-beam-*
+          path: built
+          merge-multiple: true
+
+      # Fixed names, so a link to the newest Windows installer stays the same every night.
+      - name: Name the files
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir nightly
+          debs=(built/*.deb); exes=(built/*.exe); apks=(built/app-*-release.apk)
+          if [ ${#debs[@]} -ne 1 ] || [ ${#exes[@]} -ne 1 ] || [ ${#apks[@]} -ne 3 ]; then
+            echo "::error::Expected 1 .deb, 1 .exe and 3 .apk files, got ${#debs[@]}, ${#exes[@]} and ${#apks[@]}."
+            ls -l built
+            exit 1
+          fi
+          cp "${debs[0]}" nightly/nhako-beam-nightly-linux-amd64.deb
+          cp "${exes[0]}" nightly/nhako-beam-nightly-windows-x64-setup.exe
+          for apk in "${apks[@]}"; do
+            abi=$(basename "$apk" | sed -e 's/^app-//' -e 's/-release\.apk$//')
+            cp "$apk" "nightly/nhako-beam-nightly-android-$abi.apk"
+          done
+          (cd nightly && sha256sum -- * > SHA256SUMS.txt)
+          ls -l nightly
+
+      - name: Write the notes
+        run: |
+          set -euo pipefail
+          short=$(git rev-parse --short HEAD)
+          {
+            echo "The newest build of \`dev\`, made $(date -u '+%Y-%m-%d %H:%M') UTC from commit [\`$short\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)."
+            echo
+            echo "**Not a release.** It may have bugs a release wouldn't. For a stable version, pick a release with a version number."
+            echo
+            echo "- **Windows 10/11:** \`nhako-beam-nightly-windows-x64-setup.exe\`. Not signed yet, so SmartScreen warns (More info > Run anyway)."
+            echo "- **Linux (Debian, Ubuntu):** \`nhako-beam-nightly-linux-amd64.deb\`, then \`sudo apt install --reinstall ./nhako-beam-nightly-linux-amd64.deb\`."
+            echo "- **Android 8.0+:** \`arm64-v8a\` for almost every phone, \`armeabi-v7a\` for old ones, \`x86_64\` for emulators."
+            echo
+            echo "Check a download with \`sha256sum --check --ignore-missing SHA256SUMS.txt\`."
+          } > notes.md
+          cat notes.md
+
+      # Deleted and made again, so the tag moves to this commit and no old file is left behind.
+      # --latest=false keeps GitHub's "Latest" badge on the newest real release.
+      - name: Publish
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          gh release create "$TAG" nightly/* --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Nhako Beam nightly" --notes-file notes.md
+          echo "Nightly ready: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"

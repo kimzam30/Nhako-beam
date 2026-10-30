@@ -16,6 +16,8 @@ use crate::types::UpdateInfo;
 /// GitHub's list of releases, newest first. Pre-releases are in it (every 0.x release is one),
 /// which the "latest release" address would leave out.
 pub const RELEASES_URL: &str = "https://api.github.com/repos/kimzam30/Nhako-beam/releases?per_page=10";
+/// The nightly pre-release (`.github/workflows/nightly.yml`). Not a version: never offered.
+pub const NIGHTLY_TAG: &str = "latest";
 /// How often to look.
 pub const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 /// After a failed look (offline, GitHub busy), the next try.
@@ -56,7 +58,7 @@ pub fn pick(json: &str, current: &str) -> Result<Option<UpdateInfo>, String> {
     let list: Vec<Release> = serde_json::from_str(json).map_err(|e| format!("unexpected answer: {e}"))?;
     let best = list
         .into_iter()
-        .filter(|r| !r.draft && parse(&r.tag_name).is_some() && r.html_url.starts_with("https://github.com/"))
+        .filter(|r| !r.draft && r.tag_name != NIGHTLY_TAG && parse(&r.tag_name).is_some() && r.html_url.starts_with("https://github.com/"))
         .max_by_key(|r| parse(&r.tag_name));
     Ok(best.filter(|r| newer(&r.tag_name, current)).map(|r| UpdateInfo {
         version: r.tag_name.trim_start_matches('v').to_string(),
@@ -104,6 +106,7 @@ mod tests {
     #[test]
     fn picks_the_newest_published_release() {
         let json = r#"[
+            {"tag_name": "latest", "html_url": "https://github.com/kimzam30/Nhako-beam/releases/tag/latest", "prerelease": true},
             {"tag_name": "v0.4.0", "html_url": "https://github.com/kimzam30/Nhako-beam/releases/tag/v0.4.0", "draft": true},
             {"tag_name": "v0.2.0", "html_url": "https://github.com/kimzam30/Nhako-beam/releases/tag/v0.2.0", "prerelease": true},
             {"tag_name": "v0.3.0", "html_url": "https://github.com/kimzam30/Nhako-beam/releases/tag/v0.3.0", "prerelease": true},

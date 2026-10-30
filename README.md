@@ -119,9 +119,12 @@ It's an open alternative to apps like Blip.
 
 ## Install
 
-There are no store releases yet. You can build the apps yourself (free; the scripts check what you
-need and tell you what's missing), or run the **Build** workflow on GitHub and download the files
-from the run's Artifacts.
+There are no store releases yet. The newest build of `dev` is always on the
+[**Nhako Beam nightly**](https://github.com/kimzam30/Nhako-beam/releases/tag/latest) pre-release
+(Windows `.exe`, Linux `.deb`, Android `.apk`; more in
+[docs/releasing.md](docs/releasing.md#nightly-builds)). Numbered versions are under
+[Releases](https://github.com/kimzam30/Nhako-beam/releases). Or build the apps yourself (free; the
+scripts check what you need and tell you what's missing).
 
 | Platform | Build it | Install it |
 |---|---|---|
@@ -264,6 +267,8 @@ on a Galaxy S24+).
 | 16 and 17 | Fixes from a full audit, and cleanup |
 | 18 and 19 | Cleanup, and Windows finding nearby devices on its own (a firewall rule at install) |
 | 20 | Always ready to receive: the phone from the moment it starts, the desktop from login; send from the share sheet or the file manager without opening the app |
+| 21 and 22 | The voxel mascot from the logo's pixels, and a 3D UI on both apps: Home as a 3D stage with your devices, the bolt's mood for every state |
+| 23 | Nightly builds: the newest build of `dev` always on the `latest` pre-release |
 
 **Next:** more real-device testing (especially across the internet), signed Windows builds, and a
 Play Store release.

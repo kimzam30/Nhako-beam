@@ -40,11 +40,20 @@ Last updated 2026-10-30, at the end of Phase 22. Read [CLAUDE.md](../CLAUDE.md) 
 | 16 | The fix pass from the 2026-10-27 audit: stuck request cards, offer limits that held under a burst, memory and connection caps, the code host listening for Stop mid-handshake, events never dropped on Android, listeners that doubled on desktop, Pause and Cancel sounds on Android, and the protocol, copy and building docs brought in line with the code |
 | 17 | Cleanup: unused copy keys, functions, dependencies and the `select` sound removed; the prototype's dev panel out of the desktop bundle |
 | 19 | Windows nearby discovery: a firewall rule at install (one admin prompt), devices answer beacons from devices they can't reach, a relayed first contact gets 3 s to go same-network, Tailscale and link-local left out of the beacon, the Fix it banner, diagnostics for the firewall; the Android .aab build fixed |
+| 23 | Nightly builds: `.github/workflows/nightly.yml` runs the Build workflow on every push to `dev` (not docs-only ones) and by hand, then replaces the `latest` pre-release ("Nhako Beam nightly") with fixed-name files; the update check skips that tag |
 | 22 | The 3D UI in both apps: Home is a 3D stage (the voxel bolt as you, your devices as voxel devices on a floor, ripples, arcs, sparks, the bolt's mood for every state), the 3D splash, the sleeping bolt in empty History, two bolts meeting when pairing, sheets that lean towards the pointer. Desktop on three.js; Android on its own small renderer |
 | 21 | The voxel mascot, as a mockup for approval: `design/mascot/build.mjs` turns the logo's 48 x 48 pixels into one `.glb` (216 KB, 4,544 voxels, a node per moving part) and the ten states; a published page shows each in full and reduced motion. Nothing in the apps yet |
 | 20 | Always on, like Blip: Android always ready to receive from boot (a "connected device" service with a quiet notification and Pause), the battery prompt, the Send sheet over other apps and Direct Share; desktop start at login offered in setup, the engine starting before any window, and "Send with Nhako Beam" opening the tray popover |
 | 18 | Cleanup: dead code, a finished plan doc and an unused icon copy removed; README, CLAUDE.md, `core/README.md` and `cli/README.md` brought in line with the code |
 | 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
+
+### Phase 23 in detail
+
+- **`nightly.yml`:** on push to `dev` (paths-ignore for docs, Markdown, fastlane, packaging) and `workflow_dispatch`. Calls `build.yml` with `secrets: inherit` (so the APKs are signed with the release key, the same as releases), then one `publish` job, the only one with `contents: write`: names the files `nhako-beam-nightly-<platform>`, writes `SHA256SUMS.txt` and notes with the commit and date, deletes the old `latest` release and its tag, and makes it again at this commit with `--prerelease --latest=false`. `cancel-in-progress` keeps only the newest run.
+- **Update check** (`core/src/update.rs`): `NIGHTLY_TAG` is skipped by name (it was already skipped, since `latest` isn't a version; now it's said and tested).
+- **Docs:** releasing.md "Nightly builds" (the fixed download links and the rules), README Install points to it.
+- **Left out:** the F-Droid variant (the build is unsigned, F-Droid signs its own) and AppImage (not built; releasing.md "Not done yet").
+- **Verified:** the workflow parses as YAML with the expected triggers and jobs; the file-naming script is the same as release.yml's (which ran for v0.1.0); `cargo test` for the update check with a `latest` entry in the list. **Not verified:** a real run on GitHub (it needs the owner's push of `dev`); actionlint isn't installed here.
 
 ### Phase 22 in detail
 
@@ -437,9 +446,10 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
-- **Git (the owner's):** commit and push Phase 20.
+- **Git (the owner's):** commit and push Phase 23 (Phases 20 to 22 are in `610c75e`).
 - **The owner's try of Phase 20:** on the phone, restart it and send from the laptop without opening the app; share a photo to a trusted device from the share sheet. On Windows, right-click a file with the window closed (the popover should open next to the pointer).
-- **The owner's look at the 3D UI** on the laptop, the phone and the PC. Then Phase 23, the nightly build workflow, on "ready boss".
+- **The owner's look at the 3D UI** on the laptop, the phone and the PC.
+- **Phase 23's first run:** push `dev` (the Run workflow button on GitHub only shows once `nightly.yml` is on `main`), check the "Nhako Beam nightly" pre-release has 6 files, then install the `.exe` on the Windows PC.
 - **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
 - **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
 - **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.

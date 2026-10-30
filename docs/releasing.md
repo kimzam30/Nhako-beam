@@ -115,6 +115,38 @@ every release installs over the last one.
    (`sha256sum --check --ignore-missing SHA256SUMS.txt`). Add a few lines on what's new at the
    top of the notes, then press **Publish release**.
 
+## Nightly builds
+
+Every push to `dev` that changes more than docs starts the Nightly workflow
+(`.github/workflows/nightly.yml`). It runs the same checks and builds as the Build workflow, then
+replaces one pre-release, tagged `latest` and titled "Nhako Beam nightly", with the new files. You
+can also start it by hand: GitHub > Actions > Nightly > Run workflow.
+
+The files keep the same names every time, so these links always give the newest build:
+
+| File | For |
+|---|---|
+| [`nhako-beam-nightly-windows-x64-setup.exe`](https://github.com/kimzam30/Nhako-beam/releases/download/latest/nhako-beam-nightly-windows-x64-setup.exe) | Windows 10 and 11 |
+| [`nhako-beam-nightly-linux-amd64.deb`](https://github.com/kimzam30/Nhako-beam/releases/download/latest/nhako-beam-nightly-linux-amd64.deb) | Ubuntu, Debian, Zorin, Mint |
+| [`nhako-beam-nightly-android-arm64-v8a.apk`](https://github.com/kimzam30/Nhako-beam/releases/download/latest/nhako-beam-nightly-android-arm64-v8a.apk) | almost every Android phone |
+| [`nhako-beam-nightly-android-armeabi-v7a.apk`](https://github.com/kimzam30/Nhako-beam/releases/download/latest/nhako-beam-nightly-android-armeabi-v7a.apk) | older or cheaper phones |
+| [`nhako-beam-nightly-android-x86_64.apk`](https://github.com/kimzam30/Nhako-beam/releases/download/latest/nhako-beam-nightly-android-x86_64.apk) | emulators, some Chromebooks |
+| `SHA256SUMS.txt` | a checksum for each file |
+
+- **Only the newest run counts.** A push while one is running stops the older run.
+- **The same Android key** signs nightly and release APKs (the secrets above), so either installs
+  over the other without losing your devices.
+- **No update prompts:** the apps' update check skips the `latest` tag (`core/src/update.rs`), and
+  `--latest=false` keeps GitHub's "Latest" badge on the newest real release.
+- **The version number** inside a nightly is whatever `dev` says; it's not bumped.
+- **If it fails**, nothing is replaced: the previous nightly stays until a run succeeds. A
+  failure in the last step (after the old one is deleted) leaves no nightly until the next run;
+  press "Re-run failed jobs".
+- **A Build run by hand on `dev`** at the same time shares its cancel group with the nightly's
+  build, so one of them stops. Run the nightly by hand instead.
+- **Not in it:** the F-Droid variant (F-Droid signs it, so the build here is unsigned and won't
+  install) and AppImage (not built yet, see "Not done yet").
+
 ## When something goes wrong
 
 - **"These files don't say 0.2.0"**: the version wasn't bumped, or the bump isn't on `main` yet.
