@@ -66,3 +66,9 @@ export function splitAlpha(hex: string): { color: string; alpha: number } {
   if (!m) return { color: hex, alpha: 1 };
   return { color: `#${m[1]}`, alpha: m[2] ? parseInt(m[2], 16) / 255 : 1 };
 }
+
+/** Whether a WebGL renderer name is software drawing (no GPU): Chrome's SwiftShader, Mesa's
+ *  llvmpipe and softpipe, Windows' Basic Render Driver. The stage draws lighter there. */
+export function isSoftwareRenderer(name: string): boolean {
+  return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+}

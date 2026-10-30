@@ -195,6 +195,7 @@
   data-discovery={app.discovery}
   data-mood={mood}
   data-arcs={arcs}
+  data-quality={stage?.quality}
   role="presentation"
   onpointermove={track}
   onpointerleave={() => (pointer = null)}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeCamera, project, slotOnFloor, splitAlpha, STAGE } from './view';
+import { homeCamera, isSoftwareRenderer, project, slotOnFloor, splitAlpha, STAGE } from './view';
 import { mascotMood, nextChange, type MoodInput } from './mood';
 import { MascotMotion } from './pose';
 import { mascot as timing } from '../tokens';
@@ -118,5 +118,19 @@ describe('theme colors for the 3D scene', () => {
     expect(splitAlpha('#1214181A')).toEqual({ color: '#121418', alpha: 26 / 255 });
     expect(splitAlpha('#FFFFFF14')).toEqual({ color: '#FFFFFF', alpha: 20 / 255 });
     expect(splitAlpha('#ECEEF2')).toEqual({ color: '#ECEEF2', alpha: 1 });
+  });
+});
+
+describe('software drawing', () => {
+  it('knows the renderers that draw without a GPU', () => {
+    for (const n of [
+      'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)',
+      'llvmpipe (LLVM 17.0.6, 256 bits)',
+      'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)',
+      'softpipe',
+    ])
+      expect(isSoftwareRenderer(n), n).toBe(true);
+    for (const n of ['ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)', 'Mali-G78', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)', ''])
+      expect(isSoftwareRenderer(n), n).toBe(false);
   });
 });

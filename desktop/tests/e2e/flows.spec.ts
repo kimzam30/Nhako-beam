@@ -175,9 +175,10 @@ test.describe('incoming', () => {
   test('trusted auto-accept device skips the card', async ({ page }) => {
     await ready(page);
     await sim(page, 'in-auto');
+    // The toast lasts 4 s: look for it before closing the panel, which can take a while on a slow machine.
+    await expect(page.getByTestId('toast').first()).toContainText('Receiving from Work phone');
     await closePanel(page);
     await expect(page.getByTestId('incoming-card')).toBeHidden();
-    await expect(page.getByTestId('toast').first()).toContainText('Receiving from Work phone');
   });
 });
 
@@ -780,8 +781,9 @@ test.describe('bolt motion (phase 13)', () => {
     const click = () => page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));
     expect(await throwsSparks(page, click)).toBe(true);
     await expect(page.getByTestId('spark')).toHaveCount(0, { timeout: 2000 });
-    // While bytes move a bolt rides the beam; when done the bolt turns into a check.
-    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0.3));
+    // While bytes move a bolt rides the beam; when done the bolt turns into a check. Slow enough
+    // (16 MB at about 2 MB/s) that the bolt rides for seconds, not the 0.6 s it would at 0.3.
+    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0.02));
     await sim(page, 'in-studio');
     await closePanel(page);
     await page.getByTestId('accept').click();
@@ -977,9 +979,9 @@ test.describe('folders, text and trust (phase 14)', () => {
     await page.getByTestId('paired-continue').click();
     await sim(page, 'trust-ask');
     await sim(page, 'trust-withdraw');
+    await expect(page.getByTestId('toast').filter({ hasText: 'Studio PC stopped asking.' })).toHaveCount(1);
     await closePanel(page);
     await expect(page.getByTestId('sheet-trust-ask')).toHaveCount(0);
-    await expect(page.getByText('Studio PC stopped asking.')).toBeVisible();
   });
 
   test('off Wi-Fi: a banner, and an empty radar says why and offers a code', async ({ page }) => {

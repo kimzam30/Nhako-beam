@@ -2,14 +2,15 @@
 // ripples while it searches, an arc to each device that turns up, and sparks while files move.
 // Loaded only when a stage is shown (`createStage` is imported lazily), so the first paint
 // doesn't wait for it. It draws while something moves and the window is in sight; with reduced
-// motion it draws still poses, only when something changes. motion-spec.md section 4.18.
+// motion it draws still poses, only when something changes. Where WebGL draws in software (no
+// GPU), it draws lighter: no smoothing or shadow map, fewer frames. motion-spec.md section 4.18.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import glbData from '../../../../design/mascot/build/mascot.glb?inline';
 import mascot from '../../../../design/mascot/build/mascot.json';
 import { ALL_FACE_PARTS, FACE_PARTS, MascotMotion, type Look, type MascotState, type Pose } from './pose';
-import { splitAlpha, type Camera, type Vec3 } from './view';
+import { isSoftwareRenderer, splitAlpha, type Camera, type Vec3 } from './view';
 
 export interface StageDevice {
   id: string;
@@ -36,6 +37,8 @@ export interface StageOptions {
 }
 
 export interface Stage {
+  /** 'light' where WebGL draws in software: see `drawsInSoftware`. */
+  readonly quality: 'full' | 'light';
   setMood(state: MascotState): void;
   setLook(look: Look): void;
   setDevices(list: StageDevice[]): void;
@@ -54,6 +57,44 @@ export interface Stage {
 
 const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 const VOXEL = 1 / 16;
+
+let software: boolean | null = null;
+/**
+ * Whether WebGL here draws in software (no GPU: virtual machines, remote desktops, Linux on
+ * llvmpipe, CI). Full quality there takes most of the CPU and slows the whole app. Asked once,
+ * with a throwaway context.
+ */
+function drawsInSoftware(): boolean {
+  if (software !== null) return software;
+  let name = '';
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    if (gl) {
+      const info = gl.getExtension('WEBGL_debug_renderer_info');
+      name = `${gl.getParameter(gl.RENDERER)} ${info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : ''}`;
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch {
+    // No answer: draw in full.
+  }
+  software = isSoftwareRenderer(name);
+  return software;
+}
+
+/** Three flat ovals, darker towards the middle, the soft spot Android draws under things. */
+const blobMats = [0.07, 0.07, 0.06].map((opacity) => new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity, depthWrite: false }));
+const blobGeo = new THREE.CircleGeometry(1, 32);
+function makeBlob(): THREE.Group {
+  const g = new THREE.Group();
+  [1, 0.7, 0.45].forEach((k, i) => {
+    const m = new THREE.Mesh(blobGeo, blobMats[i]);
+    m.scale.setScalar(k);
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = 0.003 + i * 0.0005;
+    g.add(m);
+  });
+  return g;
+}
 
 let modelPromise: Promise<THREE.Group> | null = null;
 /** The model, parsed once; each stage gets its own copy. */
@@ -104,10 +145,11 @@ class Spring {
 
 export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Promise<Stage> {
   const source = await loadModel();
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  const light = drawsInSoftware();
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !light, alpha: true });
+  renderer.setPixelRatio(light ? 1 : Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = !light;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
@@ -115,11 +157,11 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   camera.position.set(...opts.camera.eye);
   camera.lookAt(...opts.camera.target);
 
-  // One key light from the upper left, a soft sky fill, a shadow on the floor.
+  // One key light from the upper left, a soft sky fill, a shadow on the floor (blobs when light).
   const hemi = new THREE.HemisphereLight(0xffffff, 0xc9d3e3, 1.35);
   const key = new THREE.DirectionalLight(0xffffff, 1.9);
   key.position.set(-4, 8, 6);
-  key.castShadow = true;
+  key.castShadow = !light;
   key.shadow.mapSize.set(1024, 1024);
   key.shadow.radius = 6;
   Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
@@ -134,7 +176,8 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.002;
   shadow.receiveShadow = true;
-  scene.add(floor, shadow);
+  scene.add(floor);
+  if (!light) scene.add(shadow);
 
   // Home's guide rings (the radar's), and the ripples that run out while it searches.
   // The separator token carries its own alpha, as on Android.
@@ -160,7 +203,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   }
 
   // The bolt (two for pairing).
-  const rigs: { rig: THREE.Group; parts: Record<string, THREE.Object3D>; motion: MascotMotion; zzzBase: number; eyeBase: Record<string, number> }[] = [];
+  const rigs: { rig: THREE.Group; parts: Record<string, THREE.Object3D>; motion: MascotMotion; zzzBase: number; eyeBase: Record<string, number>; blob: THREE.Group | null }[] = [];
   for (let i = 0; i < (opts.pair ? 2 : 1); i++) {
     const model = source.clone(true);
     const parts: Record<string, THREE.Object3D> = {};
@@ -178,7 +221,13 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     rig.scale.setScalar(opts.mascotScale);
     if (opts.pair) rig.position.x = i === 0 ? -1.15 : 1.15;
     scene.add(rig);
+    const blob = light ? makeBlob() : null;
+    if (blob) {
+      blob.position.x = rig.position.x;
+      scene.add(blob);
+    }
     rigs.push({
+      blob,
       rig,
       parts,
       motion: new MascotMotion(),
@@ -189,7 +238,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   const levels = { hemi: hemi.intensity, key: key.intensity };
 
   // Devices.
-  type Shown = { d: StageDevice; group: THREE.Group; screens: THREE.MeshStandardMaterial[]; mats: THREE.MeshStandardMaterial[]; pop: Spring; lift: Spring; leaving: boolean };
+  type Shown = { d: StageDevice; group: THREE.Group; screens: THREE.MeshStandardMaterial[]; mats: THREE.MeshStandardMaterial[]; pop: Spring; lift: Spring; leaving: boolean; blob: THREE.Group | null };
   const devices = new Map<string, Shown>();
   const screenAway = new THREE.Color(mascot.deviceColors.screenAway);
   const screenOn = new THREE.Color(mascot.deviceColors.screen);
@@ -297,11 +346,20 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   }
 
   // Calm states (a breath, a blink) look the same at 30 frames a second, for half the work.
+  // Drawing in software, 20 while things move and 10 when calm.
   const CALM = new Set<MascotState>(['idle', 'asleep', 'offline']);
+
+  /** Under the bolt, smaller as it jumps (as Android). */
+  function placeBlob(r: (typeof rigs)[number]) {
+    if (!r.blob) return;
+    r.blob.scale.setScalar(0.95 * opts.mascotScale * (1 - Math.min(0.5, r.rig.position.y / 4)));
+  }
 
   function frame(now: number) {
     raf = 0;
-    if (!reduced && CALM.has(mood) && !sparks.some((s) => s.m.visible) && !arcs.length && now - lastDrawn < 31) {
+    const calm = CALM.has(mood) && !sparks.some((s) => s.m.visible) && !arcs.length;
+    const gap = light ? (calm ? 99 : 49) : calm ? 31 : 0;
+    if (!reduced && gap && now - lastDrawn < gap) {
       wake();
       return;
     }
@@ -311,12 +369,15 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     let moving = !reduced;
 
     rigs.forEach((r, i) => {
-      if (reduced) applyPose(r, r.motion.still(look), 0);
-      else {
+      if (reduced) {
+        applyPose(r, r.motion.still(look), 0);
+        placeBlob(r);
+      } else {
         const p = r.motion.step(now, dt, opts.pair ? { x: i === 0 ? 0.8 : -0.8, y: 0 } : look);
         applyPose(r, p, 0);
         const lift = introLift(now, r);
         r.rig.position.y += lift;
+        placeBlob(r);
         if (opts.pair) {
           // The two bolts lean in towards each other.
           r.rig.rotation.z += (i === 0 ? -1 : 1) * 0.08;
@@ -344,8 +405,10 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
       if (a || b) moving = true;
       s.group.scale.setScalar(Math.max(0.001, s.pop.x) * mascot.stage.deviceScale);
       s.group.position.y = s.lift.x;
+      s.blob?.scale.setScalar(0.55 * Math.max(0.001, s.pop.x));
       if (s.leaving && s.pop.x < 0.02) {
         scene.remove(s.group);
+        if (s.blob) scene.remove(s.blob);
         devices.delete(id);
       }
     }
@@ -417,15 +480,24 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     for (const d of list) {
       let s = devices.get(d.id);
       if (!s || s.leaving) {
-        if (s) scene.remove(s.group);
+        if (s) {
+          scene.remove(s.group);
+          if (s.blob) scene.remove(s.blob);
+        }
         const built = buildDevice(d.kind);
         // Devices already there when the stage first shows stand there; later ones pop in.
-        s = { d, ...built, pop: new Spring(reduced || !lastDrawn ? 1 : 0, 1, 500, 13), lift: new Spring(0, 0), leaving: false };
+        const pop = new Spring(reduced || !lastDrawn ? 1 : 0, 1, 500, 13);
+        s = { d, ...built, pop, lift: new Spring(0, 0), leaving: false, blob: light ? makeBlob() : null };
         devices.set(d.id, s);
         scene.add(s.group);
+        if (s.blob) {
+          s.blob.scale.setScalar(0.55 * Math.max(0.001, pop.x));
+          scene.add(s.blob);
+        }
       }
       s.d = d;
       s.group.position.set(d.at[0], s.lift.x, d.at[2]);
+      s.blob?.position.set(d.at[0], 0, d.at[2]);
       // Each device faces you (the camera), so its screen shows.
       s.group.rotation.y = Math.atan2(opts.camera.eye[0] - d.at[0], opts.camera.eye[2] - d.at[2]);
       for (const m of s.screens) {
@@ -469,6 +541,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   }
 
   const stage: Stage = {
+    quality: light ? 'light' : 'full',
     setMood(state) {
       if (state === mood) return;
       mood = state;
