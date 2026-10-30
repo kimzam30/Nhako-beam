@@ -657,6 +657,32 @@ test.describe('phase 8', () => {
   });
 });
 
+test.describe('always ready (phase 20)', () => {
+  test('desktop setup offers start at login, on by default', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'the phone has always ready to receive instead');
+    await page.goto('/');
+    await page.getByTestId('onboarding-next').click();
+    await page.getByTestId('name-input').fill('Login test');
+    await page.getByTestId('onboarding-next').click();
+    await expect(page.getByTestId('onboarding')).toHaveAttribute('data-step', 'save');
+    const login = page.getByTestId('onboarding-login');
+    await expect(login).toBeVisible();
+    await expect(login).toBeChecked();
+    await page.getByTestId('onboarding-next').click();
+    await expect(page.getByTestId('home')).toBeVisible();
+  });
+
+  test('the phone settings have always ready to receive, on by default', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'a phone setting');
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    const always = page.getByTestId('always-ready');
+    await expect(always).toBeChecked();
+    await always.click();
+    await expect(always).not.toBeChecked();
+  });
+});
+
 test.describe('found on real devices after phase 8', () => {
   test('a removed trusted device that is away leaves the radar at once', async ({ page }) => {
     await ready(page);
@@ -745,9 +771,10 @@ test.describe('bolt motion (phase 13)', () => {
 
   test('arcs, sparks, the riding bolt and the done check', async ({ page }) => {
     await ready(page, { speed: 4 });
-    // A device turning up gets an arc from you to it.
+    // A device turning up gets an arc from you to it (drawn by the 3D stage, which counts them).
+    const arcs = Number((await page.getByTestId('radar').getAttribute('data-arcs')) ?? 0);
     await sim(page, 'disc-add');
-    await expect(page.getByTestId('radar-arc').first()).toBeAttached();
+    await expect.poll(async () => Number(await page.getByTestId('radar').getAttribute('data-arcs'))).toBeGreaterThan(arcs);
     await closePanel(page);
     // A primary button throws sparks; they clear themselves.
     await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="send-files"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 200, clientY: 200 })));

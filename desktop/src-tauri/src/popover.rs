@@ -2,7 +2,8 @@
 //! moving, and "Open Nhako Beam". docs/design/screens-and-states.md, section 9.1.
 //!
 //! Windows opens it with a left click on the tray icon. Linux panels don't report tray clicks, so
-//! it's the first item in the tray menu there, and it opens next to the pointer. It's the same
+//! it's the first item in the tray menu there, and it opens next to the pointer. "Send with Nhako
+//! Beam" in the file manager opens it too while the main window is closed, to pick a device. It's the same
 //! Svelte app (`index.html?view=popover`), on the same engine events as the main window.
 
 use std::path::PathBuf;
@@ -26,6 +27,11 @@ pub fn toggle<R: Runtime>(app: &AppHandle<R>, at: PhysicalPosition<f64>) {
         let _ = w.hide();
         return;
     }
+    show(app, at);
+}
+
+/// Opens the popover next to `at`, or moves it there if it's open already.
+pub fn show<R: Runtime>(app: &AppHandle<R>, at: PhysicalPosition<f64>) {
     let window = match app.get_webview_window(LABEL) {
         Some(w) => w,
         None => match WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=popover".into()))
@@ -89,7 +95,7 @@ pub fn open_main(app: AppHandle) {
 #[tauri::command]
 pub fn hand_to_main(app: AppHandle, paths: Vec<PathBuf>) {
     hide(&app);
-    app.state::<shell::Shell>().queue_send(&app, paths);
+    app.state::<shell::Shell>().queue_send(&app, paths, shell::MAIN);
     shell::show_window(&app);
 }
 

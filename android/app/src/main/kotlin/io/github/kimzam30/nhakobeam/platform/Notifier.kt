@@ -51,6 +51,9 @@ class Notifier(private val context: Context) {
                     .setName(t("notify.channel.received")).setSound(soundUri(NhakoSound.Done), SOUND_ATTRIBUTES).build(),
                 NotificationChannelCompat.Builder(CHANNEL_TRANSFERS, NotificationManagerCompat.IMPORTANCE_LOW)
                     .setName(t("notify.channel.transfers")).setShowBadge(false).build(),
+                // Always ready: no sound, no status bar icon, folded away at the bottom of the shade.
+                NotificationChannelCompat.Builder(CHANNEL_READY, NotificationManagerCompat.IMPORTANCE_MIN)
+                    .setName(t("notify.channel.ready")).setShowBadge(false).build(),
             ),
         )
     }
@@ -216,6 +219,22 @@ class Notifier(private val context: Context) {
             .addAction(action(ActionReceiver.STOP_READY, "ready", t("notify.ready.stop")))
             .build()
 
+    /** The quiet notification [ReceiverService] keeps while the phone is always ready to receive. */
+    fun always(): Notification =
+        NotificationCompat.Builder(context, CHANNEL_READY)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(ACCENT)
+            .setContentTitle(t("notify.always.title"))
+            .setContentText(t("notify.always.body"))
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setContentIntent(openApp())
+            .addAction(action(ActionReceiver.PAUSE_ALWAYS, "always", t("notify.always.pause")))
+            .build()
+
     // ---------- Done ----------
 
     fun showReceived(tr: Transfer, deviceName: String) {
@@ -241,7 +260,9 @@ class Notifier(private val context: Context) {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
         const val CHANNEL_TRANSFERS = "transfers"
+        const val CHANNEL_READY = "ready"
         const val PROGRESS_ID = 1
+        const val ALWAYS_ID = 3
         private const val ACCENT = 0xFF1A6FE0.toInt()
 
         fun requestId(id: String) = 1000 + (id.hashCode() and 0xFFFFF)

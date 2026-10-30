@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (end of Phase 19)
+# Handoff: where Nhako Beam stands (end of Phase 22)
 
-Last updated 2026-10-30, at the end of Phase 19. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-30, at the end of Phase 22. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -13,7 +13,8 @@ Last updated 2026-10-30, at the end of Phase 19. Read [CLAUDE.md](../CLAUDE.md) 
 - **Branch `dev`:** the same up to `2139efc`, then `484b4ba` ("fdroid/flatpak"): Phase 15, and `c2c6145`, the same logo change as `95a16b4` made again on top.
 - **`78db661`** (2026-10-28): `dev` merged into `main`, so `main` has Phase 15 too and both branches hold the same files.
 - **`9c40fb8`, Phases 16 and 17:** one commit on top of the merge. `main` and `dev` both point at it, pushed to GitHub on 2026-10-28.
-- **`7f6ebe7` ("windowsnearby/fix"), Phases 18 and 19:** on `dev`, pushed by the owner on 2026-10-30. Two small fixes after it are not committed yet: the accessibility test race and the firewall check needing the rule switched on (below).
+- **`7f6ebe7` ("windowsnearby/fix"), Phases 18 and 19:** on `dev`, pushed by the owner on 2026-10-30, then **`95cf83d` ("buildfix")** with the accessibility test race and the firewall check needing the rule switched on.
+- **Phases 20, 21 and 22 are not committed yet** (the owner's call).
 - The plan for Phases 18 to 23 (cleanup, Windows discovery, always on, the voxel mascot and 3D UI, the nightly build) is in `~/.claude/plans/check-the-code-repo-frolicking-storm.md` on the owner's machine.
 - The audit of 2026-10-27 that set Phases 16 and 17 is in `~/.claude/plans/scan-whole-repo-and-clever-lighthouse.md` on the owner's machine.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
@@ -39,8 +40,75 @@ Last updated 2026-10-30, at the end of Phase 19. Read [CLAUDE.md](../CLAUDE.md) 
 | 16 | The fix pass from the 2026-10-27 audit: stuck request cards, offer limits that held under a burst, memory and connection caps, the code host listening for Stop mid-handshake, events never dropped on Android, listeners that doubled on desktop, Pause and Cancel sounds on Android, and the protocol, copy and building docs brought in line with the code |
 | 17 | Cleanup: unused copy keys, functions, dependencies and the `select` sound removed; the prototype's dev panel out of the desktop bundle |
 | 19 | Windows nearby discovery: a firewall rule at install (one admin prompt), devices answer beacons from devices they can't reach, a relayed first contact gets 3 s to go same-network, Tailscale and link-local left out of the beacon, the Fix it banner, diagnostics for the firewall; the Android .aab build fixed |
+| 22 | The 3D UI in both apps: Home is a 3D stage (the voxel bolt as you, your devices as voxel devices on a floor, ripples, arcs, sparks, the bolt's mood for every state), the 3D splash, the sleeping bolt in empty History, two bolts meeting when pairing, sheets that lean towards the pointer. Desktop on three.js; Android on its own small renderer |
+| 21 | The voxel mascot, as a mockup for approval: `design/mascot/build.mjs` turns the logo's 48 x 48 pixels into one `.glb` (216 KB, 4,544 voxels, a node per moving part) and the ten states; a published page shows each in full and reduced motion. Nothing in the apps yet |
+| 20 | Always on, like Blip: Android always ready to receive from boot (a "connected device" service with a quiet notification and Pause), the battery prompt, the Send sheet over other apps and Direct Share; desktop start at login offered in setup, the engine starting before any window, and "Send with Nhako Beam" opening the tray popover |
 | 18 | Cleanup: dead code, a finished plan doc and an unused icon copy removed; README, CLAUDE.md, `core/README.md` and `cli/README.md` brought in line with the code |
 | 13 | The bolt motion pass on both apps: the logo bolt as a living icon (strike, check, crack, sleep), sparks, arcs to found devices, a bolt riding the beam and the progress ring, rolling percent, rim flash, icon nudges, field charge line, swipe charge meter, QR draw-in, toast time bar, and a Motion lab in the prototype |
+
+### Phase 22 in detail
+
+The owner's choices: Android draws the 3D itself (no Filament), and Home is fully 3D (devices are voxel devices in the scene). The app's font (Inter) stays.
+
+- **Shared** (`design/mascot/build.mjs`, `mascot.json`): the voxel devices as boxes (laptop, desktop, phone, tablet; blue screen when reachable, grey and faded when not) and the stage's camera (42 degrees down, the floor, slot reach, sizes). New tokens: `motion.mascot` (blink, breathe, how long found, done and failed show) and `depth` (sheet tilt). Both apps record `moments` (found, done, failed) where those sounds play.
+- **Twins, tested with the same cases:** the camera (`view.ts` / `StageView.kt`), the per-frame pose (`pose.ts` / `MascotMotion.kt`) and which state the bolt is in (`mood.ts` / `MascotMood.kt`). motion-spec section 4.18 lists the states and when each shows.
+- **Desktop** (`lib/stage/scene.ts`, three.js 0.160, loaded after the first paint; the model is bundled inline, so no fetch and no CSP change): `Radar.svelte` is the 3D stage. Each device keeps its `DeviceOrb` button on top, see-through (`ghost`), placed with the same camera, so clicks, drops, the keyboard, screen readers and the e2e test ids work as before. Until the 3D is ready, or without WebGL, it's the flat radar. `Mascot3D.svelte` for the splash (drops in and lands), empty History (asleep) and pairing (two bolts). Dialog sheets lean up to 2.5 degrees towards the mouse. It draws calm states at 30 frames a second, holds still under a sheet, and stops when hidden. A `engineReady` flag (Android had `started`).
+- **Android** (`stage/`): `MascotModel` reads the same `.glb` and `mascot.json` from the assets (`design/mascot/build` is an assets folder). `StageScene` places, lights (sky fill and one key light, like desktop), culls and sorts about 3,000 triangles a frame and draws them with one `drawVertices` (into a bitmap on Android 9 and older, where the GPU canvas can't); soft blob shadows instead of desktop's shadow map. `Radar.kt` draws the stage with see-through `DeviceOrb`s on top (the flat radar stays as a fallback). `Mascot3D` in the splash, History and pairing. The frame loop is an "infinite animation", so Compose tests draw one frame and go on.
+- **Performance:** found under the e2e tests (software WebGL): two stages drawing every frame doubled the run. Hence the 30 fps calm states, the pause under sheets and a 1.5x pixel cap.
+
+### Phase 22: verified, and not
+
+**Verified:**
+- `npm run check`; vitest 149 (22 new stage tests); Android unit tests 78 (new `MascotTest`: the model loads with every part, the camera, the same 13 mood cases as desktop, still poses and the done burst).
+- In the prototype: Home's stage with the devices, their buttons on them and the names under them; the splash with the 3D bolt; empty History asleep; the pairing sheet's two bolts. Light and dark.
+- Robolectric screenshots of Android's Home drawn by its own renderer (a seam on device screens, from sorting half-faces apart, fixed).
+- Playwright e2e: 145 of 146 in one run; the one miss (the Motion lab on the phone layout, unchanged this phase) passed 3 of 3 alone, so it was the load of software WebGL. The production build puts the 3D in its own chunk (850 KB, 175 KB gzipped) loaded after the first paint.
+
+**Not verified:**
+- On a real phone or the emulator (frame rate, battery), on the Windows PC, and on a desktop with a real GPU (the tests use software WebGL).
+- The `.glb` in Khronos' validator.
+
+### Phase 21 in detail
+
+- **`design/mascot/build.mjs`** (`npm run mascot` in `desktop/`) reads `docs/brand/logo/svg/nhako-beam-bolt.svg` and writes `design/mascot/build/mascot.glb` and `mascot.json`. 1,216 colored pixels become 4,544 voxels: the yellow face 4 deep, the orange side the logo draws one step back, eyes, mouth and cheeks a little proud. Each moving part is its own node (eyes, mouth, cheeks, three sparkles, plus hidden x eyes, happy eyes, open smile, crack and Zs). Same-colored faces merge, colors are bytes, so the file is 216 KB. The build gives the same bytes each run. How it works and the state table: [design/mascot/README.md](../design/mascot/README.md).
+- **The states** (`mascot.json`): idle, looking, happy, sending, receiving, done, failed, asleep, offline, loading, each with when it shows in the app, its motion timings and a still pose for reduced motion.
+- **The mockup** is a published Artifact (private to the owner): https://claude.ai/artifact/7R87PzbgzrRbutrnWPTFJV. three.js 0.160 loads the same `.glb`, on a floor with one key light and a soft shadow, a small laptop for the device states, a Full motion / Reduced switch, light and dark. Drag turns it; in idle it follows the pointer.
+- **Nothing in the apps yet.** Phase 22 builds it in after the owner approves (or asks for changes).
+
+### Phase 21: verified, and not
+
+- **Verified:** the `.glb` loads in three.js (GLTFLoader) with every part; in the browser, idle, failed (x eyes, crack) and asleep in reduced motion (closed eyes, Zs, tilt) look right in dark and light, wide and narrow. No page errors.
+- **Not verified:** the `.glb` against Khronos' glTF validator (fetching it with npx was blocked here); loading it in Filament on Android (Phase 22). Every state was not looked at frame by frame, only the ones above.
+
+### Phase 20 in detail
+
+**Android:**
+- **Always ready to receive** (`platform/ReceiverService.kt`, Settings > Receiving, on by default): a foreground service of type `connectedDevice`, which Android lets start at boot and doesn't stop after 6 hours a day (unlike `dataSync`, kept for transfers in `TransferService`). It holds the quiet "Ready to receive" notification (its own channel at minimum importance: no sound, no status bar icon) with **Pause**, which lasts until the app is opened, the tile is tapped or the phone restarts. `Background` starts and stops it (`syncAlways`): after onboarding, at app start, from `BootReceiver` (boot and app updates), and from the switch. The multicast lock is held while it runs.
+- **The Receive tile** says "Always on" while it runs; a tap pauses it, another brings it back. With the switch off it keeps its 5-minute mode.
+- **Keep running in the background:** under the switch while Android still limits the app, with Allow (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, one system prompt). Google Play limits that permission; F-Droid and GitHub builds are fine.
+- **Quick send** (`QuickSendActivity.kt`): Share from any app now opens the Send sheet over that app (a see-through activity), and picking a device sends and closes it. It waits for the engine to open the files first (`AppState.sending`), since Android only lets that screen read them while it's open. A code, a link or trust hands the share to `MainActivity`, which stages it again under its own permission. Before onboarding it goes straight to the app.
+- **Direct Share** (`platform/DirectShare.kt`, `res/xml/shortcuts.xml`): up to 4 trusted devices as share targets, updated with the device list; picking one sends at once ("Sending to {device}"). Found on the emulator: hiding them from the launcher (`setExcludedFromSurfaces`) hid them from the share sheet too, and androidx's `ShortcutManagerCompat.setDynamicShortcuts` never passed them on, so they go to Android's `ShortcutManager` directly and also show in the app icon's long-press menu, where a tap opens the app.
+
+**Desktop:**
+- **Setup's last step** has "Start when you log in", on by default (not in a Flatpak).
+- **The engine starts with the app** (`engine::start_early`) once setup is done (`desktop.json` `setUp`, set by `engine_start`, cleared by Reset onboarding), so at login it receives before any window has loaded.
+- **"Send with Nhako Beam"** while the main window is closed opens the tray popover next to the pointer (`shell::send_from_file_manager`). The files wait at the top ("Send 3 photos", with a close button) and a click on a device sends them; with none of your devices around, Open Nhako Beam takes them to the window. The send queue now belongs to one window (`take_send_paths` only hands it to that one), and each window listens for its own send event.
+
+Copy: ux-copy.md section 19. Specs: screens-and-states 9.1, 9.2, 9.4, 10.1, 10.3, 10.7.
+
+### Phase 20: verified, and not
+
+**Verified:**
+- `cargo fmt`, `clippy -D warnings`, `cargo test --workspace`; `npm run check`, `npm test` (127), Playwright e2e 146 passed (new: setup offers start at login, on; the phone's Always ready switch).
+- Android: all unit tests (74), including the new `AlwaysReadyTest` (7: boot start only once set up, the switch, Pause until the app opens, the notification and its channel, the manifest).
+- **The emulator** (Android 15, debug build): finishing setup started the receiver (`connectedDevice`, notification on the `ready` channel with Pause). Paired with the CLI by code, turned on auto-accept, Allowed the battery prompt (the row went away). **After a reboot, with the app never opened,** the receiver was running and a 3 MB file from the CLI arrived with the same SHA-256. Pause from the notification stopped it. The trusted CLI showed in Android's share sheet; picking it sent a file from the Files app straight to the CLI (same hash). Share > Nhako Beam showed the Send sheet over Files; picking the CLI sent it and the sheet closed back to Files. A device from the launcher long-press menu opens the app.
+
+- **The real desktop app on Linux** (`npm run test:app`, release build, real engine, the CLI as the other device): all 8 steps passed, including onboarding, pairing, receiving 24 MiB, sending a dropped file, start at login writing the autostart entry with `--hidden`, and "Send with Nhako Beam" handing a file to the running app with its window open.
+
+**Not verified:**
+- The desktop popover path (window closed) and start at login on a real desktop (Windows: whether the popover gets focus when Explorer launches it; Linux Wayland may not report the pointer, so it would open in the corner). Rust and the UI compile and pass their tests.
+- A real phone: Samsung and other makers that close apps on their own, and the boot start there.
+- The tile on the emulator (covered by the tests only).
 
 ### Phase 19 in detail
 
@@ -369,8 +437,9 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
-- **Git (the owner's):** commit and push the two small fixes after `7f6ebe7` (`a11y.spec.ts`, `core/src/firewall.rs`), then the Build workflow should pass on all three.
-- **Phase 20, always on like Blip:** next, on the owner's "ready boss".
+- **Git (the owner's):** commit and push Phase 20.
+- **The owner's try of Phase 20:** on the phone, restart it and send from the laptop without opening the app; share a photo to a trusted device from the share sheet. On Windows, right-click a file with the window closed (the popover should open next to the pointer).
+- **The owner's look at the 3D UI** on the laptop, the phone and the PC. Then Phase 23, the nightly build workflow, on "ready boss".
 - **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
 - **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
 - **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.

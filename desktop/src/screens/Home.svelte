@@ -6,7 +6,6 @@
   import { beginDrag, endDrag, moveDrag } from '../lib/drag';
   import { springIn, quickOut, springFlip } from '../lib/motion/transitions';
   import Banner from '../components/Banner.svelte';
-  import Bolt from '../components/Bolt.svelte';
   import Button from '../components/Button.svelte';
   import FileStack from '../components/FileStack.svelte';
   import Icon from '../components/Icon.svelte';
@@ -240,7 +239,6 @@
     {#if nothingNearby && !app.onLan && app.discovery !== 'offline'}
       <!-- On mobile data: nearby can't work, so say why and offer the way that does. -->
       <div class="empty" in:springIn={{ delay: 120 }} data-testid="empty-no-lan">
-        <span class="empty-bolt"><Bolt size={26} mode="asleep" /></span>
         <h2>{t('home.empty.noLan.title')}</h2>
         <p class="muted">{t('home.empty.noLan.body')}</p>
         <div class="empty-action">
@@ -249,7 +247,6 @@
       </div>
     {:else if nothingNearby}
       <div class="empty" in:springIn={{ delay: 120 }} data-testid="empty-state">
-        <span class="empty-bolt"><Bolt size={26} mode="asleep" /></span>
         <h2>{t('home.empty.title')}</h2>
         <p class="muted">{t('home.empty.body')}</p>
       </div>
@@ -403,10 +400,6 @@
     gap: var(--space-2);
     max-width: 40ch;
     margin: 0 auto;
-  }
-  .empty-bolt {
-    display: grid;
-    justify-items: center;
   }
   .empty h2 {
     font-size: var(--type-headline-size);

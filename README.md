@@ -72,13 +72,17 @@ It's an open alternative to apps like Blip.
 
 #### Desktop (Windows and Linux)
 - Tray icon with a quick view of your devices and transfers.
-- Can start at login, and keeps running in the tray when the window is closed.
-- Explorer and Files integration for sending from the file manager.
+- Starts at login (offered during setup), and keeps running in the tray when the window is closed.
+- Explorer and Files integration for sending from the file manager: with the window closed, the
+  tray popover opens to pick a device.
 
 </td>
 <td valign="top">
 
 #### Android
+- **Always ready to receive**, from the moment the phone starts, with a quiet notification.
+- Share from any app: the Send sheet opens over it, and your trusted devices are in the share
+  sheet itself.
 - A **Receive** tile in Quick Settings.
 - Shrunk release builds, one APK per phone type (17 MB on arm64).
 - Optional push wake-up, so your other devices can reach the phone while the app is closed
@@ -258,6 +262,8 @@ on a Galaxy S24+).
 | 14 | Folders, text, links and the clipboard, Trust this device from Nearby |
 | 15 | Accessibility, Share via link, the update check, Flathub, F-Droid and winget builds |
 | 16 and 17 | Fixes from a full audit, and cleanup |
+| 18 and 19 | Cleanup, and Windows finding nearby devices on its own (a firewall rule at install) |
+| 20 | Always ready to receive: the phone from the moment it starts, the desktop from login; send from the share sheet or the file manager without opening the app |
 
 **Next:** more real-device testing (especially across the internet), signed Windows builds, and a
 Play Store release.

@@ -413,16 +413,33 @@ pub async fn engine_start(app: AppHandle, host: State<'_, Host>, name: Option<St
         Some(e) => e,
         None => host.start(&app).await?,
     };
+    app.state::<shell::Shell>().mark_set_up(true);
     Ok(Started {
         snapshot: engine.snapshot(),
         me: self_info(&app, &engine),
     })
 }
 
+/// Reset onboarding: the engine stops, and doesn't start with the app until setup is done again.
 #[tauri::command]
-pub async fn engine_stop(host: State<'_, Host>) -> Result<(), String> {
+pub async fn engine_stop(app: AppHandle, host: State<'_, Host>) -> Result<(), String> {
     host.stop().await;
+    app.state::<shell::Shell>().mark_set_up(false);
     Ok(())
+}
+
+/// Starts the engine as the app starts, without waiting for a window to ask (`engine_start` then
+/// finds it running). Only once set up: before that, onboarding names the device first.
+pub fn start_early(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let host = app.state::<Host>();
+        let _g = host.lifecycle.lock().await;
+        if host.running().is_none()
+            && let Err(e) = host.start(&app).await
+        {
+            warn!("couldn't start the engine: {e}");
+        }
+    });
 }
 
 fn self_info(app: &AppHandle, engine: &Engine) -> SelfInfo {

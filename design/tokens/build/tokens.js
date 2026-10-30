@@ -392,6 +392,24 @@ export const bolt = {
   "morphMs": 360
 };
 
+export const mascot = {
+  "blinkMinMs": 2600,
+  "blinkMaxMs": 5200,
+  "blinkMs": 140,
+  "breatheMs": 3200,
+  "followDeg": 26,
+  "foundMs": 1400,
+  "doneMs": 2600,
+  "failedMs": 3200
+};
+
+export const depth = {
+  "tiltMaxDeg": 2.5,
+  "perspective": 1100,
+  "liftPx": 4,
+  "liftHoverPx": 8
+};
+
 export const gesture = {
   "dragSlopPointer": 4,
   "dragSlopTouch": 8,

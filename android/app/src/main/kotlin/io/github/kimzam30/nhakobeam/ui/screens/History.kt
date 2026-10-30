@@ -110,10 +110,8 @@ fun HistoryScreen(app: AppState, now: Long = System.currentTimeMillis()) {
         if (app.history.isEmpty()) {
             Rise(0, Modifier.fillMaxWidth().padding(top = NhakoSpace.s9)) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = NhakoSpace.s7), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
-                    Box(Modifier.size(64.dp).clip(CircleShape).background(c.fill), contentAlignment = Alignment.Center) {
-                        // A sleeping bolt: it breathes once when you arrive, then rests.
-                        Bolt(34.dp, mode = BoltMode.Asleep)
-                    }
+                    // The bolt asleep: nothing sent or received yet.
+                    io.github.kimzam30.nhakobeam.stage.Mascot3D(io.github.kimzam30.nhakobeam.stage.MascotState.Asleep, 150.dp, t("history.empty"), width = 170.dp)
                     BasicText(t("history.empty"), style = NhakoType.callout.style(c.textSecondary).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
                 }
             }

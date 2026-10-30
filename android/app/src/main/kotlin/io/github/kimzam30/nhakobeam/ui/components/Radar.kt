@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,6 +57,14 @@ import io.github.kimzam30.nhakobeam.model.DeviceKind
 import io.github.kimzam30.nhakobeam.model.DiscoveryState
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.state.AppState
+import io.github.kimzam30.nhakobeam.stage.MascotAssets
+import io.github.kimzam30.nhakobeam.stage.MascotModel
+import io.github.kimzam30.nhakobeam.stage.MoodInput
+import io.github.kimzam30.nhakobeam.stage.StageCamera
+import io.github.kimzam30.nhakobeam.stage.StageCanvas
+import io.github.kimzam30.nhakobeam.stage.StageScene
+import io.github.kimzam30.nhakobeam.stage.mascotMood
+import io.github.kimzam30.nhakobeam.stage.nextChange
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.percent
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
@@ -113,6 +122,8 @@ fun DeviceOrb(
     onClick: (() -> Unit)? = null,
     /** A long press: the device's own sheet. */
     onLongClick: (() -> Unit)? = null,
+    /** The 3D stage draws this device under it: the circle and its icon go clear. */
+    ghost: Boolean = false,
 ) {
     val c = Nhako.colors
     val reduced = Nhako.reducedMotion
@@ -180,13 +191,15 @@ fun DeviceOrb(
                     }
                 }
             }
-            Box(
-                Modifier.size(size).shadow(if (self) 10.dp else 4.dp, CircleShape, ambientColor = c.accent, spotColor = if (self) c.accent else c.textPrimary)
-                    .clip(CircleShape).background(if (self) c.accent else c.surface),
-                contentAlignment = Alignment.Center,
-            ) {
-                PhIcon(icon, size = size * 0.42f, tint = if (self) c.onAccent else c.accent, weight = if (self) IconWeight.Fill else IconWeight.Duotone)
-            }
+            if (!ghost) {
+                Box(
+                    Modifier.size(size).shadow(if (self) 10.dp else 4.dp, CircleShape, ambientColor = c.accent, spotColor = if (self) c.accent else c.textPrimary)
+                        .clip(CircleShape).background(if (self) c.accent else c.surface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PhIcon(icon, size = size * 0.42f, tint = if (self) c.onAccent else c.accent, weight = if (self) IconWeight.Fill else IconWeight.Duotone)
+                }
+            } else Box(Modifier.size(size))
             if (device?.trusted == true && !self) {
                 Box(
                     Modifier.align(Alignment.Center).offset(x = size * 0.36f, y = size * 0.36f).size(18.dp).clip(CircleShape).background(c.surface),
@@ -214,6 +227,10 @@ fun DeviceOrb(
 /** The radar: guide rings, a sonar while searching, this device in the middle, the rest around it. */
 @Composable
 fun Radar(app: AppState, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit, modifier: Modifier = Modifier) {
+    // The 3D stage when the mascot's model is there (it always is, unless the assets are broken).
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val model = remember { MascotAssets.get(context) }
+    if (model != null) return StageRadar(app, model, size, onPick, onMore, modifier)
     val c = Nhako.colors
     val reduced = Nhako.reducedMotion
     val shown = app.radarDevices.take(8)
@@ -337,5 +354,122 @@ private fun ArcStrike(arc: RadarArc, size: Dp, selfSize: Dp, orbSize: Dp, onDone
         val stroke = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
         translate(1.5.dp.toPx(), 2.dp.toPx()) { drawPath(part, NhakoBrand.navy, alpha = alpha, style = stroke) }
         drawPath(part, NhakoBrand.yellow, alpha = alpha, style = stroke)
+    }
+}
+
+/**
+ * Home's stage: you (the voxel bolt) in the middle of a 3D floor, your devices standing around
+ * you as small voxel devices, ripples while it searches, an arc to each device that turns up,
+ * and sparks while files move (stage/StageScene.kt). Each device keeps a real button on top of
+ * its drawing (DeviceOrb, see-through), placed with the same camera, so taps, long presses and
+ * TalkBack work as before. The twin of desktop/src/components/Radar.svelte.
+ */
+@Composable
+private fun StageRadar(app: AppState, model: MascotModel, size: Dp, onPick: (String) -> Unit, onMore: () -> Unit, modifier: Modifier) {
+    val c = Nhako.colors
+    val reduced = Nhako.reducedMotion
+    val spec = model.data.stage
+    val height = size * spec.heightRatio
+    val camera = remember(model) { StageCamera.home(spec) }
+    val scene = remember(model) { StageScene(model, camera, home = true, mascotScale = spec.mascotScale) }
+    val shown = app.radarDevices.take(8)
+    val extra = max(0, app.radarDevices.size - 8)
+    val searching = app.discovery == DiscoveryState.Searching
+    val orbSize = if (size < 380.dp) 52.dp else 64.dp
+    val slots = radarSlots(shown.size, size.value)
+    /** Where each device stands on the floor, and where its button goes (from the middle, in dp). */
+    val places = shown.mapIndexed { i, d ->
+        val (sx, sy) = slots.getOrElse(i) { 0f to 0f }
+        val at = StageCamera.slotOnFloor(sx, sy, size.value, spec)
+        val p = camera.project(at[0], 0.55f, at[2], size.value, height.value)
+        Triple(d, at, androidx.compose.ui.geometry.Offset(p.x - size.value / 2, p.y - height.value / 2))
+    }
+
+    // The bolt's mood. Moments (found, done, failed) run out by themselves, so check again then.
+    var now by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    val moving = app.activeTransfers.firstOrNull { it.status == TransferStatus.Transferring || it.status == TransferStatus.Connecting || it.status == TransferStatus.Reconnecting }
+    val input = MoodInput(
+        now, app.started, app.discovery == DiscoveryState.Offline, searching, shown.size,
+        moving?.direction == io.github.kimzam30.nhakobeam.model.TransferDirection.Send,
+        moving?.direction == io.github.kimzam30.nhakobeam.model.TransferDirection.Receive,
+        false, app.moments,
+    )
+    val mood = mascotMood(input)
+    LaunchedEffect(app.moments) { now = System.currentTimeMillis() }
+    LaunchedEffect(app.moments, now) {
+        val at = nextChange(input) ?: return@LaunchedEffect
+        delay(at - System.currentTimeMillis() + 20)
+        now = System.currentTimeMillis()
+    }
+    androidx.compose.runtime.SideEffect {
+        scene.setDevices(places.map { (d, at, _) -> StageScene.Device(d.id, d.kind.name.lowercase(), at, d.reachable || d.wakeable, false) })
+        scene.mood = mood
+        scene.transferDevice = moving?.deviceId
+    }
+
+    // A device that turns up while you watch gets a lightning arc from you to it (not the ones
+    // already there when Home opens).
+    val known = remember { mutableSetOf<String>() }
+    val first = remember { booleanArrayOf(true) }
+    LaunchedEffect(shown.map { it.id to (it.reachable || it.wakeable) }) {
+        val opening = first[0]
+        first[0] = false
+        for (d in shown) {
+            if (d.id in known) continue
+            known += d.id
+            if (!opening && !reduced && (d.reachable || d.wakeable)) {
+                delay(120)
+                scene.arc(d.id)
+            }
+        }
+        known.retainAll(shown.map { it.id }.toSet())
+    }
+
+    Box(modifier.size(size, height), contentAlignment = Alignment.Center) {
+        StageCanvas(scene, Modifier.size(size, height), paused = app.sheet != null)
+        // Where the bolt stands, for TalkBack.
+        val me = camera.project(0f, 3 * spec.mascotScale * 0.45f, 0f, size.value, height.value)
+        Box(
+            Modifier.offset(x = (me.x - size.value / 2).dp, y = (me.y - height.value / 2).dp).size(size * 0.3f, height * 0.4f)
+                .semantics { contentDescription = "${app.selfName.ifBlank { t("home.orb.you") }}, ${t("home.orb.you")}" },
+        )
+        places.forEachIndexed { i, (d, _, at) ->
+            val tr = app.transferFor(d.id)
+            androidx.compose.runtime.key(d.id) {
+                val appear = remember { Animatable(if (reduced) 1f else 0f) }
+                LaunchedEffect(Unit) {
+                    if (!reduced) {
+                        delay((min(i, 5) * NhakoMotion.staggerStepMs).toLong())
+                        appear.animateTo(1f, NhakoMotion.bouncy.spec())
+                    }
+                }
+                Box(
+                    Modifier.offset(x = at.x.dp, y = at.y.dp + 12.dp).graphicsLayer {
+                        alpha = 0.4f + 0.6f * appear.value.coerceIn(0f, 1f)
+                    },
+                ) {
+                    DeviceOrb(
+                        d, orbSize,
+                        waiting = tr?.status == TransferStatus.Waiting,
+                        progress = tr?.takeIf { it.status != TransferStatus.Waiting }?.let { percent(it.doneBytes, it.totalBytes) / 100f },
+                        pulse = app.pulse[d.id] ?: 0,
+                        onClick = { onPick(d.id) },
+                        onLongClick = { app.sheet = io.github.kimzam30.nhakobeam.state.Sheet.DeviceSheet(d.id) },
+                        ghost = true,
+                    )
+                }
+            }
+        }
+        if (extra > 0) {
+            BasicText(
+                t("home.moreDevices", "count" to extra),
+                Modifier.align(Alignment.BottomCenter).clip(RoundedCornerShape(NhakoRadius.full)).background(c.fill)
+                    .clickable(role = Role.Button, onClick = withTap(onMore)).padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s2),
+                style = NhakoType.footnote.style(c.textPrimary),
+            )
+        }
+        if (searching) {
+            BasicText(t("home.searching"), Modifier.align(Alignment.BottomCenter), style = NhakoType.footnote.style(c.textSecondary))
+        }
     }
 }

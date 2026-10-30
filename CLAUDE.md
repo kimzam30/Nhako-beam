@@ -25,6 +25,7 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 | `relay/` | Docker setup for your own relay and lookup server |
 | `wake/` | The wake service for phones (Cloudflare Worker, Firebase push), optional ([wake/README.md](wake/README.md)) |
 | `design/tokens/` | Colors, type, spacing, motion: one source, built into CSS, TS and Kotlin |
+| `design/mascot/` | The voxel mascot, made from the logo's pixels by `build.mjs` into one `.glb` and its states ([design/mascot/README.md](design/mascot/README.md)) |
 | `design/sounds/` | Every sound, made from scratch by `build.mjs` into WAVs both apps use ([design/sounds/README.md](design/sounds/README.md)) |
 | `docs/design/` | Design system, motion spec, every screen and state, all UI copy |
 | `docs/brand/` | The brand kit: logo (SVG, PNG), posters, launch videos |

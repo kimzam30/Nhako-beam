@@ -98,6 +98,18 @@
   --distance-enter-offset: 12px;
   --distance-toast-offset: 24px;
   --stagger-step: 30ms;
+  --mascot-blink-min-ms: 2600ms;
+  --mascot-blink-max-ms: 5200ms;
+  --mascot-blink-ms: 140ms;
+  --mascot-breathe-ms: 3200ms;
+  --mascot-follow-deg: 26deg;
+  --mascot-found-ms: 1400ms;
+  --mascot-done-ms: 2600ms;
+  --mascot-failed-ms: 3200ms;
+  --depth-tilt-max-deg: 2.5deg;
+  --depth-perspective: 1100px;
+  --depth-lift-px: 4px;
+  --depth-lift-hover-px: 8px;
   --bolt-spark-count: 5;
   --bolt-spark-reach: 32px;
   --bolt-spark-size: 14px;

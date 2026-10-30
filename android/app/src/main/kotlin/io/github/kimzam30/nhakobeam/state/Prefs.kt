@@ -9,7 +9,7 @@ enum class ThemePref { System, Light, Dark }
 enum class MotionPref { System, Full, Reduced }
 enum class SoundPref { Loud, Soft, Off }
 
-/** Settings that only the app needs (the engine keeps its own): onboarding done, theme, motion, sounds. */
+/** Settings that only the app needs (the engine keeps its own): onboarding done, theme, motion, sounds, always ready. */
 interface Prefs {
     var onboarded: Boolean
     var theme: ThemePref
@@ -18,6 +18,8 @@ interface Prefs {
     var sounds: SoundPref
     /** The version whose Home banner was closed with Not now. */
     var updateSeen: String?
+    /** Keep receiving with no screen open, from the moment the phone starts (on by default). */
+    var alwaysReady: Boolean
 }
 
 /** Saved in SharedPreferences; the Compose state makes theme and motion switch live. */
@@ -55,6 +57,13 @@ class SharedPrefs(context: Context) : Prefs {
     override var updateSeen: String?
         get() = sp.getString("updateSeen", null)
         set(v) = sp.edit().putString("updateSeen", v).apply()
+    private var alwaysState by mutableStateOf(sp.getBoolean("alwaysReady", true))
+    override var alwaysReady: Boolean
+        get() = alwaysState
+        set(v) {
+            alwaysState = v
+            sp.edit().putBoolean("alwaysReady", v).apply()
+        }
 }
 
 /** For previews and tests. */
@@ -64,4 +73,5 @@ class MemoryPrefs(onboarded: Boolean = true) : Prefs {
     override var motion by mutableStateOf(MotionPref.System)
     override var sounds by mutableStateOf(SoundPref.Soft)
     override var updateSeen: String? = null
+    override var alwaysReady by mutableStateOf(true)
 }

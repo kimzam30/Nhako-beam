@@ -220,6 +220,8 @@ androidComponents {
         // The sounds (design/sounds/build.mjs): the WAVs as res/raw, and their names in Kotlin.
         variant.sources.res?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/res").path)
         variant.sources.kotlin?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/kotlin").path)
+        // The voxel mascot (design/mascot/build.mjs): the model and its states, as assets.
+        variant.sources.assets?.addStaticSourceDirectory(repoRoot.resolve("design/mascot/build").path)
         // Wake-up by push, or (F-Droid) without it.
         variant.sources.kotlin?.addStaticSourceDirectory(file(if (fdroid) "src/nopush/kotlin" else "src/push/kotlin").path)
         if (!fdroid) variant.sources.manifests.addStaticManifestFile(file("src/push/AndroidManifest.xml").path)

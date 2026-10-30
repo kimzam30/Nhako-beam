@@ -112,6 +112,10 @@ Elevation changes are animated with the `smooth` spring together with a `lifted`
 
 ---
 
+### Depth (Phase 22)
+
+Home is a real 3D stage (the voxel mascot and your devices on a floor, `design/mascot/`), lit by one key light from the upper left and a soft sky fill, with a soft shadow under everything that stands on the floor. Colors stay flat: no gradients, no textures. Around it the flat UI gets a little depth from the `depth` tokens: dialog sheets lean up to 2.5 degrees towards the pointer (`tiltMaxDeg`, `perspective` 1100). Reduced motion keeps them flat.
+
 ## 6. Layout and breakpoints
 
 | Class | Width | Layout |

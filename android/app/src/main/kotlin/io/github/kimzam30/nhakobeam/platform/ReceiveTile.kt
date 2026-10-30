@@ -14,7 +14,8 @@ import io.github.kimzam30.nhakobeam.ui.Copy.t
 /**
  * The "Receive" Quick Settings tile: one tap keeps this phone ready to receive for 5 minutes
  * without opening the app (nearby devices can find it, requests come as notifications). Tap again
- * to stop. docs/design/screens-and-states.md, section 10.3.
+ * to stop. With Always ready to receive on, it shows "Always on" and pauses or resumes that
+ * instead. docs/design/screens-and-states.md, section 10.3.
  */
 class ReceiveTile : TileService() {
     private val nhako get() = application as NhakoApplication
@@ -34,7 +35,10 @@ class ReceiveTile : TileService() {
         when {
             // Not set up yet: the app has to be opened once first.
             !nhako.app.onboarded -> openApp()
+            // Always ready to receive: the tile pauses it, and a second tap brings it back.
+            background.alwaysOn -> background.pauseAlways()
             background.ready -> background.stopReceiving()
+            nhako.app.alwaysReady -> background.resumeAlways()
             else -> background.receiveFor(READY_MS, woken = false)
         }
         refresh()
@@ -42,10 +46,16 @@ class ReceiveTile : TileService() {
 
     private fun refresh() {
         val tile = qsTile ?: return
-        val on = nhako.background.ready
-        tile.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        val background = nhako.background
+        tile.state = if (background.alwaysOn || background.ready) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = t("tile.receive")
-        if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (on) t("tile.receive.on") else null
+        if (Build.VERSION.SDK_INT >= 29) {
+            tile.subtitle = when {
+                background.alwaysOn -> t("tile.receive.always")
+                background.ready -> t("tile.receive.on")
+                else -> null
+            }
+        }
         tile.updateTile()
     }
 

@@ -157,7 +157,6 @@ fun HomeScreen(app: AppState) {
             // On mobile data nearby can't work, so say why and offer the way that does.
             val noLan = !app.onLan && app.discovery != DiscoveryState.Offline
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Bolt(26.dp, mode = BoltMode.Asleep)
                 BasicText(t(if (noLan) "home.empty.noLan.title" else "home.empty.title"), style = NhakoType.headline.style(c.textPrimary))
                 BasicText(t(if (noLan) "home.empty.noLan.body" else "home.empty.body"), Modifier.padding(horizontal = NhakoSpace.s5), style = NhakoType.callout.style(c.textSecondary).copy(textAlign = TextAlign.Center))
                 if (noLan) {

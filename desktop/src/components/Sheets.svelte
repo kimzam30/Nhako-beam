@@ -9,15 +9,13 @@
   import { formatBytes, formatDuration, formatSpeed, isLink, middleTruncate, percent, summarizeFiles, textPreview, timeOfDay, dayLabel, utf8Bytes } from '../lib/format';
   import { playHaptic } from '../lib/haptics.svelte';
   import { playSound } from '../lib/sounds.svelte';
-  import { SpringValue, wait } from '../lib/motion/springs';
   import { springIn, stagger } from '../lib/motion/transitions';
-  import { spark } from '../lib/motion/bolt';
-  import Bolt from './Bolt.svelte';
   import Button from './Button.svelte';
   import CodeDisplay from './CodeDisplay.svelte';
   import CodeInput from './CodeInput.svelte';
   import ConnectionBadge from './ConnectionBadge.svelte';
   import DeviceOrb from './DeviceOrb.svelte';
+  import Mascot3D from './Mascot3D.svelte';
   import FileStack from './FileStack.svelte';
   import Icon from './Icon.svelte';
   import QrCode from './QrCode.svelte';
@@ -166,41 +164,16 @@
 
   // ---------- Paired ----------
   let trustNew = $state(true);
-  let leftOrb: HTMLElement | undefined = $state();
-  let rightOrb: HTMLElement | undefined = $state();
-  let met = $state(false);
   const pairedDevice = $derived(app.sheet?.kind === 'paired' ? app.device(app.sheet.deviceId) : undefined);
 
+  // Each pairing starts with "save as trusted" on, and the new device's orb gives its pulse.
   $effect(() => {
-    if (app.sheet?.kind !== 'paired' || !leftOrb || !rightOrb) return;
+    if (app.sheet?.kind !== 'paired') return;
     trustNew = true;
-    met = false;
-    const l = leftOrb, r = rightOrb;
-    const gap = new SpringValue(70, (v) => {
-      l.style.transform = `translateX(${-v}px)`;
-      r.style.transform = `translateX(${v}px)`;
-    });
-    gap.set(70);
-    let alive = true;
-    (async () => {
-      await wait(120);
-      if (!alive) return;
-      await gap.to(6, 'smooth');
-      if (!alive) return;
-      met = true;
-      if (pairedDevice) app.bump(pairedDevice.id);
-    })();
-    return () => {
-      alive = false;
-      gap.stop();
-    };
+    const id = pairedDevice?.id;
+    const timer = setTimeout(() => id && app.bump(id), 400);
+    return () => clearTimeout(timer);
   });
-
-  /** Throws sparks from an element once it has landed in place. */
-  function zapHere(node: HTMLElement) {
-    const id = setTimeout(() => spark(node, { count: 6, reach: 34 }), 60);
-    return { destroy: () => clearTimeout(id) };
-  }
 
   function finishPairing(send: boolean) {
     const s = app.sheet;
@@ -359,12 +332,8 @@
 {:else if app.sheet?.kind === 'paired' && pairedDevice}
   <Sheet title={t(app.sheet.via === 'nearby' ? 'code.matched.nearby' : 'code.matched', { device: pairedDevice.name })} onclose={() => finishPairing(false)} testid="sheet-paired">
     <div class="meet">
-      <span bind:this={leftOrb}><DeviceOrb self selfName={app.selfName} size={72} showName={false} /></span>
-      <span bind:this={rightOrb}><DeviceOrb device={pairedDevice} size={72} showName={false} /></span>
-      {#if met}
-        <!-- Where they meet, a bolt joins them. -->
-        <span class="meet-bolt" in:springIn={{ preset: 'bouncy', scale: 0.3, y: 0 }} use:zapHere><Bolt size={30} testid="paired-bolt" /></span>
-      {/if}
+      <!-- Two bolts, yours and theirs, lean in and hop: they've met. -->
+      <Mascot3D mood="happy" pair height={150} width={300} label={t('code.matched', { device: pairedDevice.name })} testid="paired-bolt" />
     </div>
     <div class="verify">
       <span class="muted">{t('code.matched.verify')}</span>
@@ -1063,16 +1032,6 @@
   }
   .meet {
     position: relative;
-  }
-  .meet > span {
-    display: inline-block;
-    will-change: transform;
-  }
-  .meet > .meet-bolt {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    margin: -15px 0 0 -15px;
   }
   /* The check code is read off left to right by a thin line, once. */
   .scan {

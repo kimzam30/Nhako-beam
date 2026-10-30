@@ -1,5 +1,6 @@
 package io.github.kimzam30.nhakobeam.platform
 
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -7,7 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.DocumentsContract
+import android.provider.Settings
 import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,6 +53,21 @@ class ActivityPlatform(private val activity: ComponentActivity, private val app:
         runCatching { clipboard.setPrimaryClip(ClipData.newPlainText("Nhako Beam", text)) }.isSuccess
 
     override fun openLink(url: String) = start(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+
+    override fun backgroundAllowed(): Boolean =
+        (activity.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isIgnoringBatteryOptimizations(activity.packageName) ?: true
+
+    // Phones that close apps to save battery (Samsung, Xiaomi and others) leave alone the ones
+    // the owner allowed here. If the prompt is missing, the list of apps opens instead.
+    @SuppressLint("BatteryLife")
+    override fun allowBackground() {
+        val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}"))
+        try {
+            activity.startActivity(ask)
+        } catch (e: ActivityNotFoundException) {
+            start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
 
     override fun pickFiles() {
         try {

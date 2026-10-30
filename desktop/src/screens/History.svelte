@@ -7,7 +7,7 @@
   import { dayLabel, dayStart, formatBytes, isLink, summarize, timeOfDay } from '../lib/format';
   import { springIn, quickOut, springFlip, stagger } from '../lib/motion/transitions';
   import Button from '../components/Button.svelte';
-  import Bolt from '../components/Bolt.svelte';
+  import Mascot3D from '../components/Mascot3D.svelte';
   import Icon from '../components/Icon.svelte';
   import IconButton from '../components/IconButton.svelte';
 
@@ -87,8 +87,8 @@
     </section>
   {:else}
     <div class="empty" in:springIn={{ delay: 80 }} data-testid="history-empty">
-      <!-- A sleeping bolt: it breathes once when you arrive, then rests. -->
-      <span class="empty-icon"><Bolt size={34} mode="asleep" testid="sleeping-bolt" /></span>
+      <!-- The bolt asleep: nothing sent or received yet. -->
+      <Mascot3D mood="asleep" height={150} width={170} label={t('history.empty')} testid="sleeping-bolt" />
       <p>{t('history.empty')}</p>
     </div>
   {/each}
@@ -219,14 +219,5 @@
     padding: var(--space-9) var(--space-5);
     text-align: center;
     color: var(--color-text-secondary);
-  }
-  .empty-icon {
-    display: grid;
-    place-items: center;
-    width: 64px;
-    height: 64px;
-    border-radius: var(--radius-full);
-    background: var(--color-fill);
-    color: var(--color-text-tertiary);
   }
 </style>

@@ -18,9 +18,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * What happens around the screen: the transfer service and its notification, request and "got
- * files" notifications while the app is out of sight, the Wi-Fi multicast lock that lets nearby
- * devices find each other, and the media scan that puts received photos in the Gallery.
+ * What happens around the screen: always ready to receive ([ReceiverService]), the transfer
+ * service and its notification, request and "got files" notifications while the app is out of
+ * sight, the Wi-Fi multicast lock that lets nearby devices find each other, and the media scan
+ * that puts received photos in the Gallery.
  */
 class Background(private val context: Context, private val app: AppState, private val notifier: Notifier, private val scope: CoroutineScope) {
     /** True while one of our screens is showing. */
@@ -31,9 +32,66 @@ class Background(private val context: Context, private val app: AppState, privat
                 // The incoming card shows the requests now.
                 postedRequests.forEach { notifier.cancel(Notifier.requestId(it)) }
                 postedRequests.clear()
+                // A pause lasts until the app is opened again.
+                if (alwaysPaused) {
+                    alwaysPaused = false
+                    syncAlways()
+                }
             }
             updateMulticast()
         }
+
+    /** Paused from the notification: until the app is opened, the tile is tapped or the phone restarts. */
+    private var alwaysPaused = false
+    private var alwaysRunning = false
+
+    /** Always ready to receive should be running: set up, switched on in Settings, not paused. */
+    val alwaysWanted: Boolean get() = app.onboarded && app.alwaysReady && !alwaysPaused
+
+    /** Always ready to receive is running (its service is up). */
+    val alwaysOn: Boolean get() = alwaysRunning
+
+    /** Starts or stops [ReceiverService] to match [alwaysWanted]. */
+    fun syncAlways() {
+        val want = alwaysWanted
+        if (want && !alwaysRunning) {
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
+                alwaysRunning = true
+            } catch (e: RuntimeException) {
+                // Android doesn't allow it from here (the app was started in the background for
+                // something else). Boot, an update, the tile or opening the app start it.
+                Log.w("nhako", "Couldn't start always ready to receive: ${e.message}")
+            }
+        } else if (!want && alwaysRunning) {
+            context.stopService(Intent(context, ReceiverService::class.java))
+            alwaysRunning = false
+        }
+        updateMulticast()
+        onReadyChanged()
+    }
+
+    /** Android restarted the service by itself after stopping the app. */
+    fun alwaysStarted() {
+        alwaysRunning = true
+        updateMulticast()
+    }
+
+    fun alwaysStopped() {
+        alwaysRunning = false
+        updateMulticast()
+        onReadyChanged()
+    }
+
+    fun pauseAlways() {
+        alwaysPaused = true
+        syncAlways()
+    }
+
+    fun resumeAlways() {
+        alwaysPaused = false
+        syncAlways()
+    }
 
     private var serviceRunning = false
     /** Ready to receive until this moment (elapsed realtime), with no screen open. 0: not. */
@@ -118,6 +176,9 @@ class Background(private val context: Context, private val app: AppState, privat
             is EngineEvent.LinkShareChanged -> onLinkShare(e)
             else -> {}
         }
+        if (e is EngineEvent.DeviceChanged || e is EngineEvent.DeviceLost || e is EngineEvent.Paired || e is EngineEvent.SnapshotEvent) {
+            DirectShare.update(context, app.devices)
+        }
         // Requests that were answered, withdrawn or timed out lose their notification.
         val open = app.requests.map { it.id }.toSet()
         postedRequests.filter { it !in open }.forEach {
@@ -198,10 +259,10 @@ class Background(private val context: Context, private val app: AppState, privat
 
     /**
      * Phones drop multicast packets to save power unless an app holds this lock. Hold it while the
-     * app is on screen or files are moving, so nearby devices show up and stay connected.
+     * app is on screen, ready to receive or moving files, so nearby devices show up and stay connected.
      */
     private fun updateMulticast() {
-        val want = foreground || ready || app.activeTransfers.isNotEmpty()
+        val want = foreground || ready || alwaysRunning || app.activeTransfers.isNotEmpty()
         val lock = multicast ?: return
         runCatching {
             if (want && !lock.isHeld) lock.acquire() else if (!want && lock.isHeld) lock.release()

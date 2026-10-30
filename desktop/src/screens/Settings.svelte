@@ -78,6 +78,11 @@
 
     <section class="group" in:springIn={{ delay: stagger(1) }}>
       <h2>{t('settings.section.receiving')}</h2>
+      {#if app.isAndroid}
+        <div class="card always">
+          <Toggle bind:checked={app.alwaysReady} label={t('settings.receive.always')} hint={t('settings.receive.always.hint')} testid="always-ready" />
+        </div>
+      {/if}
       <div class="card stack">
         <div class="field col">
           <span>{t('settings.receive.who')}</span>
@@ -331,7 +336,8 @@
     background: var(--color-surface);
     box-shadow: var(--elevation-1);
   }
-  .card.lan {
+  .card.lan,
+  .card.always {
     margin-bottom: var(--space-4);
   }
   .update {

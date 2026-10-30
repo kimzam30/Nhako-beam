@@ -8,6 +8,8 @@
   import Button from '../components/Button.svelte';
   import DeviceOrb from '../components/DeviceOrb.svelte';
   import Icon from '../components/Icon.svelte';
+  import Toggle from '../components/Toggle.svelte';
+  import { fileMenu, startAtLogin } from '../lib/shell';
 
   type Step = 'welcome' | 'name' | 'nearby' | 'notify' | 'save';
   const steps = $derived<Step[]>(app.isAndroid ? ['welcome', 'name', 'nearby', 'notify', 'save'] : ['welcome', 'name', 'save']);
@@ -17,9 +19,18 @@
 
   if (!app.selfName) app.selfName = app.isAndroid ? 'My phone' : 'My laptop';
 
+  // Desktop: start at login, on unless they turn it off here (ready to receive, like the phone's
+  // always ready). Not offered in a Flatpak, which can't reach outside its sandbox.
+  let loginOn = $state(true);
+  let canStartAtLogin = $state(!app.isAndroid);
+  $effect(() => {
+    if (app.native) fileMenu.get().then((m) => (canStartAtLogin = !m.sandboxed), () => {});
+  });
+
   function go(d: 1 | -1) {
     dir = d;
     if (index + d >= steps.length) {
+      if (app.native && canStartAtLogin && loginOn) startAtLogin.set(true).catch((e) => console.warn('Could not turn on start at login:', e));
       app.finishOnboarding();
       return;
     }
@@ -87,6 +98,11 @@
             <span class="tabular path" title={app.saveLocation}>{prettyPath(app.saveLocation)}</span>
             <Button variant="ghost" size="sm" testid="onboarding-save-change" onclick={() => app.changeSaveLocation()}>{t('onboarding.save.change')}</Button>
           </div>
+          {#if canStartAtLogin}
+            <div class="login" in:springIn={{ delay: stagger(1) }}>
+              <Toggle bind:checked={loginOn} label={t('settings.desktop.startAtLogin')} hint={t('settings.desktop.startAtLogin.hint')} testid="onboarding-login" />
+            </div>
+          {/if}
         {/if}
       </div>
     {/key}
@@ -262,6 +278,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .login {
+    width: 100%;
+    max-width: 420px;
+    margin-top: var(--space-3);
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: var(--elevation-1);
+    text-align: start;
   }
   .actions {
     display: flex;

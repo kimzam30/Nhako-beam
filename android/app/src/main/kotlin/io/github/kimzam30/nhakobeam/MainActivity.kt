@@ -72,8 +72,9 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    /** Files shared from another app ("Share" then Nhako Beam): stage them and pick a device.
-     *  A link or text shared from the browser or a notes app goes as text. */
+    /** Files shared from another app, handed over by [QuickSendActivity] (before setup is done, or
+     *  for a code, a link or trust): stage them and pick a device. A link or text shared from the
+     *  browser or a notes app goes as text. */
     private fun receiveShared(intent: Intent?) {
         val text = intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
         if (text != null && IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) == null) {

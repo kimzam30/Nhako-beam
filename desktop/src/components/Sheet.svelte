@@ -2,8 +2,9 @@
   // Bottom sheet on compact layouts, centered dialog on wider ones.
   // Drag the handle (or the header) down to dismiss; dragging up rubber bands.
   import type { Snippet } from 'svelte';
-  import { gesture } from '../lib/tokens';
+  import { depth, gesture } from '../lib/tokens';
   import { app } from '../lib/state/app.svelte';
+  import { prefs } from '../lib/state/prefs.svelte';
   import { rubberBand, VelocityTracker } from '../lib/motion/physics';
   import { SpringValue } from '../lib/motion/springs';
   import { fadeT, sheetIn, sheetOut } from '../lib/motion/transitions';
@@ -27,6 +28,15 @@
   let startY = 0;
   let dragging = false;
   const titleId = `sheet-${Math.random().toString(36).slice(2, 8)}`;
+
+  // A dialog leans a little towards the pointer, as if lifted off the page (tokens: depth).
+  // Not with touch, and not with reduced motion.
+  let tilt = $state({ x: 0, y: 0 });
+  function lean(e: PointerEvent) {
+    if (!dialog || prefs.reducedMotion || e.pointerType !== 'mouse' || !panel) return;
+    const r = panel.getBoundingClientRect();
+    tilt = { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: ((e.clientY - r.top) / r.height) * 2 - 1 };
+  }
 
   function down(e: PointerEvent) {
     if (dialog || (e.target as HTMLElement).closest('button:not([data-handle])')) return;
@@ -100,10 +110,15 @@
     class:wide
     bind:this={panel}
     role="dialog"
+    tabindex="-1"
     aria-modal="true"
     aria-labelledby={titleId}
     in:sheetIn={{ dialog }}
     out:sheetOut={{ dialog }}
+    style:--tilt-x="{-tilt.y * depth.tiltMaxDeg}deg"
+    style:--tilt-y="{tilt.x * depth.tiltMaxDeg}deg"
+    onpointermove={lean}
+    onpointerleave={() => (tilt = { x: 0, y: 0 })}
   >
     <header role="presentation" onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up}>
       {#if !dialog}<span class="handle" data-handle aria-hidden="true"></span>{/if}
@@ -149,6 +164,8 @@
     will-change: transform;
   }
   .dialog .panel {
+    transform: perspective(var(--depth-perspective)) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+    transition: transform var(--duration-slow) var(--ease-standard);
     width: min(100%, 460px);
     border-radius: var(--radius-xl);
     padding-bottom: 0;

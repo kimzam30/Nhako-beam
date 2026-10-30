@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Direct Share: trusted devices as share targets (platform/DirectShare.kt pushes them). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <share-target android:targetClass="io.github.kimzam30.nhakobeam.QuickSendActivity">
+        <data android:mimeType="*/*" />
+        <category android:name="io.github.kimzam30.nhakobeam.category.SEND_TO_DEVICE" />
+    </share-target>
+</shortcuts>

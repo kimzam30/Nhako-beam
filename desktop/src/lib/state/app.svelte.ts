@@ -121,6 +121,8 @@ class AppState {
 
   devices = $state<Device[]>([]);
   discovery = $state<DiscoveryState>('idle');
+  /** Reached the engine at least once (the mascot shows loading before). Android: `started`. */
+  engineReady = $state(false);
   transfers = $state<Transfer[]>([]);
   requests = $state<IncomingRequest[]>([]);
   freeSpace = $state(0);
@@ -145,6 +147,12 @@ class AppState {
   history = $state<HistoryEntry[]>([]);
   /** Announce this device and look for others on the local network (saved by the engine). */
   lanDiscovery = $state(true);
+  /** Android: always ready to receive with no screen open (the phone app's ReceiverService). The
+   *  prototype's phone layout shows the switch; nothing runs behind it here. */
+  alwaysReady = $state(true);
+  /** When something worth a reaction last happened (ms): the mascot shows it for a moment
+   *  (lib/stage/mood.ts). Set where the matching sounds play. */
+  moments = $state({ found: 0, done: 0, failed: 0 });
   /** Who can send to me (saved by the engine). */
   whoCanSend = $state<WhoCanSend>('yourDevices');
   /** Text waiting to be sent, instead of files (the tray shows it; a device takes it). */
@@ -274,6 +282,7 @@ class AppState {
           this.sheet = { kind: 'paired', deviceId: e.device.id, via: e.via, check: e.check };
           playHaptic('pairMatched');
           playSound('matched');
+          this.moments.found = Date.now();
           break;
         case 'trustAsk':
           this.trustAsks = [...this.trustAsks.filter((r) => r.deviceId !== e.request.deviceId), e.request];
@@ -328,12 +337,16 @@ class AppState {
 
   /** Starts the engine; when it can't start, says why (as Android does). */
   private startEngine(): void {
-    this.engine.start().catch((e) => this.toast(message(e), 'danger'));
+    this.engine.start().then(
+      () => (this.engineReady = true),
+      (e) => this.toast(message(e), 'danger'),
+    );
   }
 
   /** Redraws from what the engine has (window loaded, or engine restarted). Finished transfers the
    *  app already shows stay as history. */
   private applySnapshot(s: Snapshot): void {
+    this.engineReady = true;
     this.discovery = s.discovery;
     this.devices = s.devices;
     this.requests = s.requests;
@@ -372,6 +385,7 @@ class AppState {
     if (now < this.foundQuietUntil) return;
     this.foundQuietUntil = now + 2000;
     playSound('found');
+    this.moments.found = now;
   }
 
   private onTransfer(next: Transfer): void {
@@ -393,10 +407,12 @@ class AppState {
     if (next.status === 'done') {
       playHaptic('transferDone');
       playSound('done');
+      this.moments.done = Date.now();
       this.bump(next.deviceId);
     } else if (next.status === 'failed') {
       playHaptic('transferFailed');
       playSound('failed');
+      this.moments.failed = Date.now();
     } else if (next.status === 'declined') {
       playHaptic('decline');
       playSound('decline');
@@ -426,6 +442,7 @@ class AppState {
     this.engine.stop();
     this.engine = newEngine();
     this.started = false;
+    this.engineReady = false;
     this.devices = [];
     this.transfers = [];
     this.requests = [];

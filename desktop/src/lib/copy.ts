@@ -265,6 +265,11 @@ export const copy = {
   'settings.receive.who.yours.hint': "Devices you trust, and devices you connect with a code. Anyone else is told no, and you won't see their requests.",
   'settings.receive.who.everyone.hint': 'Anyone on the same network can ask to send. You still decide each time.',
   'settings.receive.who.failed': "Couldn't save that. Try again.",
+  'settings.receive.always': 'Always ready to receive',
+  'settings.receive.always.hint': "Your devices can send to this phone without opening the app. A quiet notification shows while it's on.",
+  'settings.receive.battery': 'Keep running in the background',
+  'settings.receive.battery.hint': 'Some phones close apps to save battery. Allow Nhako Beam so files still arrive.',
+  'settings.receive.battery.allow': 'Allow',
   'settings.trusted.title': 'Trusted devices',
   'settings.trusted.empty': 'No trusted devices yet. Trust one that is nearby, or save one after connecting with a code.',
   'settings.trusted.nearby': 'Nearby, not yours yet',
@@ -371,6 +376,9 @@ export const copy = {
   'popover.quiet': 'Nothing moving right now.',
   'popover.open': 'Open Nhako Beam',
   'popover.finishSetup': 'Open Nhako Beam to finish setting up.',
+  'popover.send.title': 'Send {what}',
+  'popover.send.hint': 'Click a device to send.',
+  'popover.send.none': 'None of your devices are around. Open Nhako Beam to use a code.',
 
   'licenses.title': 'Open source licenses',
   'licenses.intro': 'Nhako Beam is built on these open source projects. Thank you to everyone who made them.',
@@ -403,6 +411,12 @@ export const copy = {
   'notify.woken.body': 'One of your devices woke Nhako Beam to send you something.',
   'tile.receive': 'Receive',
   'tile.receive.on': 'For 5 minutes',
+  'tile.receive.always': 'Always on',
+  'notify.channel.ready': 'Ready to receive',
+  'notify.always.title': 'Ready to receive',
+  'notify.always.body': 'Your devices can send to this phone.',
+  'notify.always.pause': 'Pause',
+  'quick.sending': 'Sending to {device}',
 } as const;
 
 export type CopyKey = keyof typeof copy;

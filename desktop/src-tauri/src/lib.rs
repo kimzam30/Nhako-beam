@@ -36,11 +36,15 @@ fn init_logging(config_dir: &Path) {
 
 pub fn run() {
     tauri::Builder::default()
-        // A second launch (from the menu, the .desktop file, or "Send with Nhako Beam") shows the
-        // window that is already running, and hands over any files to send.
+        // A second launch (from the menu or the .desktop file) shows the window that is already
+        // running; "Send with Nhako Beam" hands over its files (shell::send_from_file_manager).
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            app.state::<shell::Shell>().queue_send(app, filemenu::send_paths(&args, Path::new(&cwd)));
-            shell::show_window(app);
+            let paths = filemenu::send_paths(&args, Path::new(&cwd));
+            if paths.is_empty() {
+                shell::show_window(app);
+            } else {
+                app.state::<shell::Shell>().send_from_file_manager(app, paths);
+            }
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -60,10 +64,18 @@ pub fn run() {
             shell.setup_file_menu(&app.path().data_dir()?);
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
-            shell.queue_send(app.handle(), filemenu::send_paths(&args, &cwd));
+            let send = filemenu::send_paths(&args, &cwd);
+            let set_up = shell.set_up();
             app.manage(shell);
             shell::build_tray(app.handle())?;
-            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+            // Set up already: receiving starts now, not when the window's page has loaded (at
+            // login there's only the tray).
+            if set_up {
+                engine::start_early(app.handle().clone());
+            }
+            if !send.is_empty() {
+                app.state::<shell::Shell>().send_from_file_manager(app.handle(), send);
+            } else if !args.iter().any(|a| a == HIDDEN_ARG) {
                 shell::show_window(app.handle());
             }
             Ok(())

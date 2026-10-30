@@ -12,7 +12,7 @@ Version 0.4 (Phase 13 added the bolt, section 4.15; Phase 14 folders, text and t
 4. **1:1 tracking while dragging.** During a drag, the element sits exactly under the pointer (or follows with the `magnet` spring when the design says "lag"). It never animates toward the finger with a delay.
 5. **Exits are quicker than entrances.** Entering uses a spring; leaving uses `fast` fade plus a short move. Users already know what is leaving.
 6. **Only animate transform and opacity** (and Compose `graphicsLayer`). Never animate width, height, top or left in the real apps, so the GPU does the work and we hold 60fps (120fps on capable phones). Layout changes use FLIP (measure, then animate a transform).
-7. **Nothing loops unless something is happening.** The radar sweep runs only while searching; the beam pulse runs only while bytes are moving. Idle screens are still.
+7. **Nothing loops unless something is happening, except the mascot's calm idle.** The ripples run only while searching or with nobody around; the beam pulse runs only while bytes are moving. The one exception (Phase 22) is the voxel mascot at rest: a slow breath and a blink every few seconds, never faster, drawn at 30 frames a second, held still under a sheet, and stopped in the background. With reduced motion it's a still pose (section 4.18).
 8. **Bounce is earned.** `bouncy` is reserved for arrival and success: a device appears, a request is accepted, a transfer finishes. Everything else settles with no or tiny overshoot.
 
 ---
@@ -189,8 +189,10 @@ Reduced motion: check fades in, no collapse animation.
 | Pull to refresh (Android device list) | Rubber banded pull, radar ring spins with pull distance, release triggers a new scan |
 | Focus ring | Appears instantly (no animation), so keyboard users are never kept waiting |
 
-### 4.14 Launch intro (Phase 8)
+### 4.14 Launch intro (Phase 8, the voxel bolt since Phase 22)
 Plays once on a fresh launch: from the launcher on Android, on every start of the desktop app. Not after a rotation, not when files are shared into the app (they go straight to the device picker), and never twice in one run.
+
+**Since Phase 22** the bolt is the voxel mascot (section 4.18): on the same brand blue it falls from above (420 ms, gravity), lands with a squash (220 ms) and the intro click, blinks, and at 900 ms the blue fades out over 240 ms. Desktop waits up to 450 ms for the 3D bolt to be ready and shows the flat bolt meanwhile (and keeps it without WebGL). Reduced motion: unchanged, a 200 ms fade. The steps below are the Phase 8 flat bolt, still used as that fallback.
 
 - **Frame 0** is the system splash on Android (brand blue, the bolt from `splash_bolt.xml`) and the window's background color on desktop. The intro draws the same picture in the same place, so the hand-over doesn't move.
 - **Press, 0 to 180 ms:** the bolt scales to 0.94 and its dark blue shadow tucks under it (`standard` easing).
@@ -254,6 +256,23 @@ Reduced motion: the charge line is a still half-strength yellow, the scan is a f
 
 Reduced motion: rows and views fade without moving, the waiting orb is still, and the bar steps without easing.
 
+### 4.18 The voxel mascot (Phase 22)
+The bolt from the logo, built in 3D from its own pixels (design/mascot/), is the app's personality. Its states, timings and still poses are in `design/mascot/build/mascot.json`; the per-frame motion is one function with a twin on each app (`desktop/src/lib/stage/pose.ts`, `android/.../stage/MascotMotion.kt`), and which state it's in is another (`mood.ts`, `MascotMood.kt`), tested with the same cases.
+
+- **Where:** Home's stage (in the middle of a 3D floor, as you), the launch intro, empty History (asleep), and pairing (two bolts lean in and hop).
+- **Which state, first match wins:** loading until the engine starts; offline; failed (3.2 s after a transfer fails); done (2.6 s after one finishes); sending; receiving; happy (1.4 s after a device turns up or pairing works); looking (the pointer on a device, or files dragged near one); asleep with nobody around, looking around while it searches; otherwise idle. Tokens: `motion.mascot`.
+- **Idle:** breathes (3.2 s, 1.6% taller at the top of the breath), blinks for 140 ms every 2.6 to 5.2 s, sways a little and turns up to 26 degrees towards the pointer.
+- **Looking:** turns 28 degrees to the device and its eyes shift towards it; the device lifts.
+- **Happy:** two hops with a squash on each landing, sparkles twinkle, happy eyes and an open smile.
+- **Sending / receiving:** leans in (-12 degrees) or back (8), bobs, and yellow voxel sparks fly along an arc to or from the device, 14 a second.
+- **Done:** one jump and full spin in 900 ms, a burst of 18 sparks at the top, a landing squash, happy face.
+- **Failed:** x eyes, a crack down the bolt, a wobble that dies away in 1.1 s, then a slight tilt.
+- **Asleep:** eyes closed, a slow breath (4.6 s), a droop, and Zs that rise and fade every 2.4 s.
+- **Offline:** dimmer light, half-closed eyes, a droop.
+- **Loading:** spins on its own axis every 1.4 s.
+- **Home's stage:** your devices stand around the bolt as voxel devices (blue screen when they can be reached, grey and faded when not), pop in on a spring, lift when the pointer is on them or files are dragged near, and get a lightning arc from the bolt when they turn up. Ripples run out across the floor while it searches. Each device keeps its real button on top (see-through), so nothing about tapping, dropping, the keyboard or screen readers changes.
+- **Reduced motion:** each state is a still pose (the face, a held lean or tilt, the sparkles or the Zs), nothing moves, and the stage draws only when something changes.
+
 ---
 
 ## 5. Haptics map (Android)
@@ -294,6 +313,8 @@ Triggered by: Android "Remove animations" (animator duration scale 0), desktop `
 | Stagger | Kept but halved (15 ms), since it is a fade |
 | Sparks, arcs, bolt strike, icon nudges, digit roll | Off (section 4.15) |
 | Rim flash, field charge line, check code scan | A fade |
+| The voxel mascot's motion, ripples, sparks, arcs | A still pose for each state (section 4.18) |
+| Sheets leaning towards the pointer | Flat |
 
 Information is never carried by motion alone, so nothing is lost in reduced mode.
 
@@ -303,5 +324,6 @@ Information is never carried by motion alone, so nothing is lost in reduced mode
 
 - 60fps minimum everywhere; 120fps on Android devices that support it. No frame over 16ms during any animation on a mid-range phone (target: a 2021 Snapdragon 7-series class device).
 - Animations start within 1 frame of input (no waiting on the network or disk to animate).
+- The 3D stage (Phase 22) loads after the first paint, draws calm states at 30 frames a second, holds still under a sheet and stops when the window or app is out of sight. Android draws it itself (no 3D library): about 3,000 triangles a frame, one `drawVertices` call.
 - Progress updates from the Rust core are throttled to about 10 per second for UI. The spring smooths between them.
 - Phase 2 verification: Playwright records each flow at 60fps and captures a performance trace. Any long task over 50ms during an animation is a bug.

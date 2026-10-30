@@ -257,8 +257,28 @@ object NhakoMotion {
         const val morphMs = 360
     }
 
+    /** The voxel mascot (design/mascot/). Idle is calm: a breath and a blink every few seconds, never anything faster. Moments (found, done, failed) show for a while, then it goes back to idle. Reduced motion holds a still pose instead. */
+    object Mascot {
+        const val blinkMinMs = 2600
+        const val blinkMaxMs = 5200
+        const val blinkMs = 140
+        const val breatheMs = 3200
+        const val followDeg = 26f // degrees
+        const val foundMs = 1400
+        const val doneMs = 2600
+        const val failedMs = 3200
+    }
+
     const val staggerStepMs = 30
     const val staggerMaxItems = 6
+}
+
+/** How deep the 3D UI goes. The Home stage is a real 3D scene (design/mascot/build/mascot.json, stage); these are for the flat UI around it: sheets and cards lift and tilt a little toward the pointer, never more than tiltMaxDeg. Reduced motion keeps them flat and still. */
+object NhakoDepth {
+    const val tiltMaxDeg = 2.5f // degrees
+    const val perspective = 1100f // dp, camera distance
+    val lift = 4.dp
+    val liftHover = 8.dp
 }
 
 object NhakoGesture {

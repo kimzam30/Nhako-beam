@@ -7,14 +7,15 @@ Kotlin and Jetpack Compose, running the same Rust engine as the desktop app (`co
 ## What it does
 
 - **Every screen from the design:** onboarding, the radar, sending, incoming requests (swipe right to accept, left to decline), transfers, codes with a QR to scan, pairing and Settings with your own server. Light and dark, with full or reduced motion.
-- **Share from any app:** Share, then Nhako Beam, with one file or many. The app opens with them ready to send.
+- **Share from any app:** Share, then Nhako Beam, with one file or many. The Send sheet slides up over that app (Phase 20), and picking a device sends without opening Nhako Beam. Your trusted devices also show in the share sheet itself (Direct Share, Android 10 and newer).
+- **Always ready to receive** (Phase 20, on by default, Settings > Receiving): your devices can send to the phone with no screen open, from the moment it starts, with a quiet notification that has Pause. "Keep running in the background" there asks Android once to stop limiting the app (some phones close apps to save battery).
 - **Transfers carry on in the background:** a foreground service keeps files moving with the screen off, with a progress notification that has Pause or Resume and Cancel.
 - **Notifications** for file requests (with Accept and Decline) and for files received while the app is out of sight.
 - **Received files** go to `Download/Nhako Beam` and are added to the media index, so photos and videos show up in the Gallery. Open and Share hand them to other apps.
-- **Nearby devices:** a Wi-Fi multicast lock while the app is on screen or files are moving, so devices on the same Wi-Fi find each other.
+- **Nearby devices:** a Wi-Fi multicast lock while the app is on screen, ready to receive or moving files, so devices on the same Wi-Fi find each other.
 
 - **History** of everything sent and received (Phase 8), kept across restarts.
-- **"Receive" Quick Settings tile** (Phase 8): ready to receive for 5 minutes without opening the app.
+- **"Receive" Quick Settings tile** (Phase 8): ready to receive for 5 minutes without opening the app. With always ready on, it pauses and resumes that instead.
 - **Wake-up while closed** (Phase 8, optional): with push set up ([wake/README.md](../wake/README.md)), your trusted devices can wake the phone to send it files. It needs Google Play services; Settings > About says whether it's on.
 - **Launch intro** (Phase 8): the system splash, then a short animated intro, or a fade with reduced motion.
 - **One .apk per kind of phone** (Phase 8), so each only carries its own copy of the engine.
@@ -30,6 +31,9 @@ Not yet: a Play Store release.
 | Nearby devices (Android 13+) | Finding devices on the local network. Never used for location. Asked during onboarding |
 | Notifications (Android 13+) | Requests and progress. Asked during onboarding |
 | Foreground service (data sync) | Keeping a transfer going with the screen off |
+| Foreground service (connected device) | Always ready to receive: staying reachable for your devices with no screen open. Android lets this one start at boot and doesn't stop it after 6 hours a day |
+| Run at startup | Starting always ready to receive when the phone starts or the app is updated |
+| Ignore battery optimizations | Only when you tap Allow under Settings > Receiving: one system prompt. Google Play limits this permission, so a Play build may need to open the battery settings list instead |
 | Camera | Scanning a pairing code's QR. Asked only when you tap Scan |
 | Storage (Android 10 and older) | Saving into Download. Asked at the end of onboarding |
 
@@ -40,11 +44,12 @@ Nothing is backed up or copied to a new phone (`res/xml/data_extraction_rules.xm
 ```
 app/src/main/kotlin/io/github/kimzam30/nhakobeam/
   NhakoApplication.kt     one engine and one app state for the whole process
-  MainActivity.kt         the window; takes files shared from other apps
+  MainActivity.kt         the window
+  QuickSendActivity.kt    the Send sheet over another app, for files shared from it
   engine/                 Engine (the contract), RealEngine (Rust), FakeEngine (screenshots and previews)
   model/Contract.kt       the JSON contract, the Kotlin twin of core/src/types.rs
   state/AppState.kt       everything the app shows, the twin of desktop/src/lib/state/app.svelte.ts
-  platform/               notifications, the transfer service, open and share, haptics
+  platform/               notifications, the transfer and always-ready services, Direct Share, open and share, haptics
   ui/                     theme, components and screens
 ```
 
@@ -60,5 +65,6 @@ app/src/main/kotlin/io/github/kimzam30/nhakobeam/
 - **RealEngineTest:** the real Rust engine through the generated bindings, checking that everything it sends decodes into the Kotlin contract.
 - **SharedCopyTest:** `Copy.kt` matches `copy.ts`, and every string key the code uses exists.
 - **ServerFormTest** and **FormatTest:** the same cases as the desktop app's tests.
+- **AlwaysReadyTest:** when always ready to receive starts and stops (boot, setup, the switch, Pause, opening the app), and its notification.
 
 Add `-Pnhako.abis=arm64-v8a` to any Gradle command to build the engine for arm64 only, which is much faster.

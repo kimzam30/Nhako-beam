@@ -354,6 +354,24 @@ export declare const bolt: {
   readonly morphMs: 360;
 };
 
+export declare const mascot: {
+  readonly blinkMinMs: 2600;
+  readonly blinkMaxMs: 5200;
+  readonly blinkMs: 140;
+  readonly breatheMs: 3200;
+  readonly followDeg: 26;
+  readonly foundMs: 1400;
+  readonly doneMs: 2600;
+  readonly failedMs: 3200;
+};
+
+export declare const depth: {
+  readonly tiltMaxDeg: 2.5;
+  readonly perspective: 1100;
+  readonly liftPx: 4;
+  readonly liftHoverPx: 8;
+};
+
 export declare const gesture: {
   readonly dragSlopPointer: 4;
   readonly dragSlopTouch: 8;

@@ -88,6 +88,7 @@ import io.github.kimzam30.nhakobeam.ui.components.SectionTitle
 import io.github.kimzam30.nhakobeam.ui.components.SegmentOption
 import io.github.kimzam30.nhakobeam.ui.components.pressScale
 import io.github.kimzam30.nhakobeam.ui.components.Separator
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.kimzam30.nhakobeam.ui.hostOf
 import io.github.kimzam30.nhakobeam.ui.readOwnForm
 import io.github.kimzam30.nhakobeam.ui.theme.IconWeight
@@ -150,7 +151,10 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
             }
 
             Section(1, t("settings.section.receiving")) {
-                NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) { WhoCanSendSetting(app) }
+                Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s4)) {
+                    NCard { AlwaysReadySetting(app) }
+                    NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) { WhoCanSendSetting(app) }
+                }
             }
 
             Section(2, t("settings.trusted.title")) {
@@ -353,6 +357,37 @@ private fun DiagnosticsRow(app: AppState) {
             label = "diagnostics icon",
         ) { done ->
             PhIcon(if (done) "check" else "copy", size = 18.dp, tint = if (done) c.success else c.textTertiary)
+        }
+    }
+}
+
+/**
+ * Settings > Receiving > Always ready to receive (platform/ReceiverService.kt), and under it, while
+ * Android still limits the app in the background, a way to allow it. Checked again each time the
+ * screen comes back (from Android's prompt).
+ */
+@Composable
+private fun AlwaysReadySetting(app: AppState) {
+    val c = Nhako.colors
+    var allowed by remember { mutableStateOf(app.platform.backgroundAllowed()) }
+    LifecycleResumeEffect(Unit) {
+        allowed = app.platform.backgroundAllowed()
+        onPauseOrDispose {}
+    }
+    Column {
+        NToggle(app.alwaysReady, t("settings.receive.always"), { app.changeAlwaysReady(it) }, hint = t("settings.receive.always.hint"))
+        AnimatedVisibility(app.alwaysReady && !allowed, enter = expandVertically(NhakoMotion.smooth.spec()) + fadeIn(), exit = shrinkVertically(tween(NhakoMotion.Duration.fast)) + fadeOut()) {
+            Column {
+                Separator()
+                Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s1)) {
+                        BasicText(t("settings.receive.battery"), style = NhakoType.body.style(c.textPrimary))
+                        BasicText(t("settings.receive.battery.hint"), style = NhakoType.footnote.style(c.textSecondary))
+                    }
+                    Spacer(Modifier.width(NhakoSpace.s3))
+                    NButton(t("settings.receive.battery.allow"), { app.platform.allowBackground() }, variant = ButtonVariant.Secondary, size = ButtonSize.Sm, icon = "battery-charging")
+                }
+            }
         }
     }
 }

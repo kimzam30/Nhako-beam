@@ -574,6 +574,29 @@ Desktop app on Windows only, when Nhako Beam's firewall rule is missing (`core/s
 | `firewall.fixed` | Nearby devices can reach this PC now |
 | `firewall.notFixed` | Windows didn't allow it. Try Fix it again and choose Yes. |
 
+## 19. Added in Phase 20 (always ready, quick send)
+
+Android: always ready to receive with no screen open (`platform/ReceiverService.kt`), the quick send sheet over another app (`QuickSendActivity.kt`) and Direct Share. Desktop: start at login offered during setup, and "Send with Nhako Beam" opening the tray popover while the window is closed.
+
+| Key | Text |
+|---|---|
+| `settings.receive.always` | Always ready to receive |
+| `settings.receive.always.hint` | Your devices can send to this phone without opening the app. A quiet notification shows while it's on. |
+| `settings.receive.battery` | Keep running in the background |
+| `settings.receive.battery.hint` | Some phones close apps to save battery. Allow Nhako Beam so files still arrive. |
+| `settings.receive.battery.allow` | Allow |
+| `notify.channel.ready` | Ready to receive |
+| `notify.always.title` | Ready to receive |
+| `notify.always.body` | Your devices can send to this phone. |
+| `notify.always.pause` | Pause (until the app is opened, the tile is tapped or the phone restarts) |
+| `tile.receive.always` | Always on |
+| `quick.sending` | Sending to {device} |
+| `popover.send.title` | Send {what} |
+| `popover.send.hint` | Click a device to send. |
+| `popover.send.none` | None of your devices are around. Open Nhako Beam to use a code. |
+
+Setup on the desktop reuses `settings.desktop.startAtLogin` and its hint for the switch on the last step.
+
 ## Written in Phase 1, never built
 
 These were drafted before the apps existed and aren't in `copy.ts`, so neither app shows them. They stay here as ideas. If one gets built, move it into its section above and add it to `copy.ts`. (`a11y.codeWords` still has the old three-word codes.)

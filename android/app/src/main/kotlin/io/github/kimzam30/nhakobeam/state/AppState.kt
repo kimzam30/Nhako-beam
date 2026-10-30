@@ -73,6 +73,8 @@ sealed interface Sheet {
 enum class ToastTone { Neutral, Success, Warning, Danger }
 
 /** [ms] is how long it stays; its time-left bar drains over it. */
+data class Moments(val found: Long = 0, val done: Long = 0, val failed: Long = 0)
+
 data class Toast(val id: Long, val text: String, val tone: ToastTone, val actionLabel: String? = null, val action: (() -> Unit)? = null, val ms: Long = 4000)
 
 /** What the Android platform does for the app (open files, share, permissions). Tests use the defaults. */
@@ -90,6 +92,10 @@ interface PlatformHooks {
     /** Puts text on the clipboard. False if it couldn't. */
     fun writeClipboard(text: String): Boolean = false
     fun openLink(url: String) {}
+    /** Android lets the app run in the background as it likes (no battery limits on it). */
+    fun backgroundAllowed(): Boolean = true
+    /** Asks Android to stop limiting the app in the background (one system prompt). */
+    fun allowBackground() {}
 }
 
 /**
@@ -166,6 +172,16 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var updateCheck by mutableStateOf<Boolean?>(null)
     /** The version whose Home banner was closed with Not now. */
     var updateSeen by mutableStateOf(prefs.updateSeen)
+    /** Always ready to receive, with no screen open (Android: platform/ReceiverService.kt). */
+    var alwaysReady by mutableStateOf(prefs.alwaysReady)
+    /** Starts or stops always ready to receive to match [onboarded] and [alwaysReady]. */
+    var syncAlways: () -> Unit = {}
+    /** Sends being handed to the engine. Files shared from another app can only be opened until
+     *  the quick send sheet closes, so it waits for this to reach 0. */
+    var sending by mutableIntStateOf(0)
+    /** When something worth a reaction last happened (ms): the mascot shows it for a moment
+     *  (stage/MascotMood.kt). Set where the matching sounds play. */
+    var moments by mutableStateOf(Moments())
 
     val reachable by derivedStateOf { devices.filter { it.reachable } }
     /** Radar order: reachable first, trusted first, then by name. */
@@ -248,6 +264,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
                 sheet = Sheet.Paired(e.device.id, e.via, e.check)
                 platform.haptic(NhakoHaptic.PairMatched)
                 sound(NhakoSound.Matched)
+                moments = moments.copy(found = System.currentTimeMillis())
             }
             is EngineEvent.Code -> code = e.code
             is EngineEvent.FreeSpace -> freeSpace = e.bytes
@@ -306,11 +323,13 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
             next.status == TransferStatus.Done -> {
                 platform.haptic(NhakoHaptic.TransferDone)
                 sound(NhakoSound.Done)
+                moments = moments.copy(done = System.currentTimeMillis())
                 bump(next.deviceId)
             }
             next.status == TransferStatus.Failed -> {
                 platform.haptic(NhakoHaptic.TransferFailed)
                 sound(NhakoSound.Failed)
+                moments = moments.copy(failed = System.currentTimeMillis())
             }
             next.status == TransferStatus.Declined -> {
                 platform.haptic(NhakoHaptic.Decline)
@@ -337,6 +356,7 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         if (now < foundQuietUntil) return
         foundQuietUntil = now + 2000
         sound(NhakoSound.Found)
+        moments = moments.copy(found = now)
     }
 
     fun finishOnboarding() {
@@ -344,6 +364,13 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         prefs.onboarded = true
         navigate(Screen.Home)
         scope.launch { startEngine(selfName.trim().ifEmpty { null }) }
+        syncAlways()
+    }
+
+    fun changeAlwaysReady(on: Boolean) {
+        alwaysReady = on
+        prefs.alwaysReady = on
+        syncAlways()
     }
 
     fun deviceName(id: String) = device(id)?.name ?: "The other device"
@@ -426,12 +453,15 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         bump(deviceId)
         if (sheet == Sheet.Send || sheet is Sheet.Compose) sheet = null
         sound(NhakoSound.Send)
+        sending++
         scope.launch {
             try {
                 engine.sendText(deviceId, text)
             } catch (e: Exception) {
                 if (stagedText == null && staged.isEmpty()) stagedText = text
                 toast(e.message ?: t("send.failed"), ToastTone.Danger)
+            } finally {
+                sending--
             }
         }
     }
@@ -624,12 +654,15 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
         bump(deviceId)
         if (sheet == Sheet.Send) sheet = null
         sound(NhakoSound.Send)
+        this.sending++
         scope.launch {
             try {
                 engine.send(deviceId, sending)
             } catch (e: Exception) {
                 if (staged.isEmpty()) staged = sending
                 toast(e.message ?: t("send.failed"), ToastTone.Danger)
+            } finally {
+                this@AppState.sending--
             }
         }
     }

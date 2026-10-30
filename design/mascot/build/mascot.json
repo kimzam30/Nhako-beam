@@ -1,0 +1,470 @@
+{
+  "source": "docs/brand/logo/svg/nhako-beam-bolt.svg",
+  "model": "mascot.glb",
+  "pixels": 1216,
+  "voxels": 4544,
+  "parts": [
+    {
+      "name": "body",
+      "pixels": 1007,
+      "hidden": false
+    },
+    {
+      "name": "side",
+      "pixels": 140,
+      "hidden": false
+    },
+    {
+      "name": "eyeL",
+      "pixels": 16,
+      "hidden": false
+    },
+    {
+      "name": "eyeR",
+      "pixels": 16,
+      "hidden": false
+    },
+    {
+      "name": "mouth",
+      "pixels": 4,
+      "hidden": false
+    },
+    {
+      "name": "cheeks",
+      "pixels": 6,
+      "hidden": false
+    },
+    {
+      "name": "sparkle1",
+      "pixels": 9,
+      "hidden": false
+    },
+    {
+      "name": "sparkle2",
+      "pixels": 9,
+      "hidden": false
+    },
+    {
+      "name": "sparkle3",
+      "pixels": 9,
+      "hidden": false
+    },
+    {
+      "name": "eyeXL",
+      "pixels": 9,
+      "hidden": true
+    },
+    {
+      "name": "eyeXR",
+      "pixels": 9,
+      "hidden": true
+    },
+    {
+      "name": "eyeHappyL",
+      "pixels": 6,
+      "hidden": true
+    },
+    {
+      "name": "eyeHappyR",
+      "pixels": 6,
+      "hidden": true
+    },
+    {
+      "name": "mouthOpen",
+      "pixels": 12,
+      "hidden": true
+    },
+    {
+      "name": "crack",
+      "pixels": 18,
+      "hidden": true
+    },
+    {
+      "name": "zzz",
+      "pixels": 30,
+      "hidden": true
+    }
+  ],
+  "faces": {
+    "eyes": [
+      "eyeL",
+      "eyeR",
+      "mouth"
+    ],
+    "happy": [
+      "eyeHappyL",
+      "eyeHappyR",
+      "mouthOpen"
+    ],
+    "x": [
+      "eyeXL",
+      "eyeXR",
+      "mouth"
+    ],
+    "closed": [
+      "eyeL",
+      "eyeR",
+      "mouth"
+    ],
+    "half": [
+      "eyeL",
+      "eyeR",
+      "mouth"
+    ]
+  },
+  "states": [
+    {
+      "id": "idle",
+      "when": "Home with nothing going on",
+      "face": "eyes",
+      "motion": {
+        "breatheMs": 3200,
+        "blinkEveryMs": [
+          2600,
+          5200
+        ],
+        "blinkMs": 140,
+        "swayDeg": 6,
+        "followPointer": true
+      },
+      "pose": {}
+    },
+    {
+      "id": "looking",
+      "when": "The pointer is over a device, or a device was just tapped",
+      "face": "eyes",
+      "motion": {
+        "followPointer": true,
+        "turnDeg": 28,
+        "eyeShift": 0.7
+      },
+      "pose": {
+        "turnDeg": 18
+      }
+    },
+    {
+      "id": "happy",
+      "when": "A device was found, or pairing worked",
+      "face": "happy",
+      "motion": {
+        "hopMs": 520,
+        "hops": 2,
+        "squash": 0.12,
+        "twinkleMs": 900
+      },
+      "pose": {
+        "sparkles": true
+      }
+    },
+    {
+      "id": "sending",
+      "when": "Files are going out",
+      "face": "eyes",
+      "motion": {
+        "leanDeg": -12,
+        "sparksPerSecond": 14,
+        "bobMs": 700
+      },
+      "pose": {
+        "leanDeg": -10
+      }
+    },
+    {
+      "id": "receiving",
+      "when": "Files are coming in",
+      "face": "eyes",
+      "motion": {
+        "leanDeg": 8,
+        "sparksPerSecond": 14,
+        "bobMs": 700
+      },
+      "pose": {
+        "leanDeg": 6
+      }
+    },
+    {
+      "id": "done",
+      "when": "A transfer finished",
+      "face": "happy",
+      "motion": {
+        "jumpMs": 900,
+        "spinDeg": 360,
+        "burst": 18
+      },
+      "pose": {
+        "sparkles": true
+      }
+    },
+    {
+      "id": "failed",
+      "when": "A transfer failed, or a device was lost mid-transfer",
+      "face": "x",
+      "motion": {
+        "wobbleMs": 1100,
+        "wobbleDeg": 9
+      },
+      "pose": {
+        "crack": true,
+        "tiltDeg": -6
+      }
+    },
+    {
+      "id": "asleep",
+      "when": "Nothing nearby, or history is empty",
+      "face": "closed",
+      "motion": {
+        "breatheMs": 4600,
+        "zzzMs": 2400,
+        "droopDeg": 7
+      },
+      "pose": {
+        "zzz": true,
+        "tiltDeg": 7
+      }
+    },
+    {
+      "id": "offline",
+      "when": "No network",
+      "face": "half",
+      "motion": {
+        "breatheMs": 5200,
+        "dim": 0.55,
+        "droopDeg": 4
+      },
+      "pose": {
+        "dim": 0.55
+      }
+    },
+    {
+      "id": "loading",
+      "when": "Starting up, or connecting",
+      "face": "eyes",
+      "motion": {
+        "spinMs": 1400
+      },
+      "pose": {}
+    }
+  ],
+  "devices": {
+    "laptop": [
+      {
+        "size": [
+          15,
+          1,
+          10
+        ],
+        "at": [
+          0,
+          0.5,
+          1
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          13,
+          0.2,
+          6
+        ],
+        "at": [
+          0,
+          1.1,
+          1.5
+        ],
+        "role": "key"
+      },
+      {
+        "size": [
+          15,
+          10,
+          1
+        ],
+        "at": [
+          0,
+          5.6,
+          -4.2
+        ],
+        "tilt": 12,
+        "role": "case"
+      },
+      {
+        "size": [
+          13,
+          8,
+          0.2
+        ],
+        "at": [
+          0,
+          5.7,
+          -3.6
+        ],
+        "tilt": 12,
+        "role": "screen"
+      }
+    ],
+    "desktop": [
+      {
+        "size": [
+          9,
+          1,
+          6
+        ],
+        "at": [
+          0,
+          0.5,
+          0
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          2,
+          4,
+          2
+        ],
+        "at": [
+          0,
+          3,
+          -1
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          17,
+          11,
+          1.5
+        ],
+        "at": [
+          0,
+          10,
+          -1
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          15,
+          9,
+          0.2
+        ],
+        "at": [
+          0,
+          10.2,
+          -0.15
+        ],
+        "role": "screen"
+      }
+    ],
+    "phone": [
+      {
+        "size": [
+          4,
+          1,
+          4
+        ],
+        "at": [
+          0,
+          0.5,
+          -0.5
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          7,
+          13,
+          1
+        ],
+        "at": [
+          0,
+          7,
+          0
+        ],
+        "tilt": 14,
+        "role": "case"
+      },
+      {
+        "size": [
+          6,
+          11,
+          0.2
+        ],
+        "at": [
+          0,
+          7.1,
+          0.6
+        ],
+        "tilt": 14,
+        "role": "screen"
+      }
+    ],
+    "tablet": [
+      {
+        "size": [
+          6,
+          1,
+          5
+        ],
+        "at": [
+          0,
+          0.5,
+          -0.5
+        ],
+        "role": "case"
+      },
+      {
+        "size": [
+          13,
+          10,
+          1
+        ],
+        "at": [
+          0,
+          6,
+          0
+        ],
+        "tilt": 16,
+        "role": "case"
+      },
+      {
+        "size": [
+          11,
+          8,
+          0.2
+        ],
+        "at": [
+          0,
+          6.1,
+          0.6
+        ],
+        "tilt": 16,
+        "role": "screen"
+      }
+    ]
+  },
+  "deviceColors": {
+    "case": "#3a4250",
+    "key": "#4b5463",
+    "screen": "#2f8fff",
+    "screenAway": "#5f6877"
+  },
+  "stage": {
+    "fovDeg": 30,
+    "eye": [
+      0,
+      10.7,
+      11.9
+    ],
+    "target": [
+      0,
+      1,
+      0
+    ],
+    "heightRatio": 0.85,
+    "floorRadius": 4.5,
+    "slotReach": 3.9,
+    "mascotScale": 0.7,
+    "deviceScale": 1.3
+  }
+}

@@ -661,26 +661,16 @@ private fun ScanContent(app: AppState) {
     }
 }
 
-/** The two devices slide together and the check value both screens show appears. */
+/** Two bolts meet and the check value both screens show appears. */
 @Composable
 private fun PairedSheet(app: AppState, sheet: Sheet.Paired, visible: Boolean) {
     val c = Nhako.colors
     val device = app.device(sheet.deviceId) ?: return
     var trust by remember(sheet) { mutableStateOf(true) }
-    val gap = remember(sheet) { Animatable(70f) }
-    var met by remember(sheet) { mutableStateOf(false) }
-    val meetBolt = remember(sheet) { Animatable(0.3f) }
-    var zap by remember(sheet) { mutableIntStateOf(0) }
     val reduced = Nhako.reducedMotion
     LaunchedEffect(sheet) {
-        delay(120)
-        gap.animateTo(6f, NhakoMotion.smooth.spec())
+        delay(400)
         app.bump(device.id)
-        // Where they meet, a bolt joins them.
-        met = true
-        delay(60)
-        zap++
-        if (reduced) meetBolt.snapTo(1f) else meetBolt.animateTo(1f, NhakoMotion.bouncy.spec())
     }
     // The check code is read off left to right by a thin line, once.
     val scan = remember(sheet) { Animatable(0f) }
@@ -700,11 +690,8 @@ private fun PairedSheet(app: AppState, sheet: Sheet.Paired, visible: Boolean) {
         else NButton(t("code.matched.continue"), { finish(false) }, size = ButtonSize.Lg, full = true)
     }) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                Box(Modifier.graphicsLayer { translationX = -gap.value * density }) { DeviceOrb(null, 72.dp, self = true, selfName = app.selfName, showName = false) }
-                Box(Modifier.graphicsLayer { translationX = gap.value * density }) { DeviceOrb(device, 72.dp, showName = false, pulse = app.pulse[device.id] ?: 0) }
-            }
-            if (met) Bolt(30.dp, Modifier.offset(y = (-8).dp).sparks(zap, count = 6, reach = 34f).graphicsLayer { scaleX = meetBolt.value; scaleY = meetBolt.value; alpha = meetBolt.value.coerceIn(0f, 1f) })
+            // Two bolts, yours and theirs, lean in and hop: they've met.
+            io.github.kimzam30.nhakobeam.stage.Mascot3D(io.github.kimzam30.nhakobeam.stage.MascotState.Happy, 150.dp, t("code.matched", "device" to device.name), width = 300.dp, pair = true)
         }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             BasicText(t("code.matched.verify"), style = NhakoType.footnote.style(c.textSecondary))

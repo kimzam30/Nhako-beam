@@ -12,6 +12,7 @@ class ActionReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra(EXTRA_ID) ?: return
         val app = nhako.app
         if (intent.action == STOP_READY) return nhako.background.stopReceiving()
+        if (intent.action == PAUSE_ALWAYS) return nhako.background.pauseAlways()
         when (intent.action) {
             ACCEPT -> {
                 app.accept(id)
@@ -39,6 +40,7 @@ class ActionReceiver : BroadcastReceiver() {
         const val RESUME = "io.github.kimzam30.nhakobeam.RESUME"
         const val CANCEL = "io.github.kimzam30.nhakobeam.CANCEL"
         const val STOP_READY = "io.github.kimzam30.nhakobeam.STOP_READY"
+        const val PAUSE_ALWAYS = "io.github.kimzam30.nhakobeam.PAUSE_ALWAYS"
         const val ALLOW_VISITOR = "io.github.kimzam30.nhakobeam.ALLOW_VISITOR"
         const val DENY_VISITOR = "io.github.kimzam30.nhakobeam.DENY_VISITOR"
     }

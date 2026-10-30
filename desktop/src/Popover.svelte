@@ -1,18 +1,22 @@
 <script lang="ts">
   // The tray popover (desktop app only, 360 x 520): your devices, what's moving, requests waiting,
   // and "Open Nhako Beam". Click a device to pick files for it, or drop files on it. Files dropped
-  // anywhere else go to the main window, which asks where to send them. src-tauri/src/popover.rs.
+  // anywhere else go to the main window, which asks where to send them. "Send with Nhako Beam" in
+  // the file manager opens it while the window is closed: the files wait at the top, and a click
+  // on a device sends them. src-tauri/src/popover.rs.
   import { invoke } from '@tauri-apps/api/core';
   import { message } from './lib/engine/tauri';
   import { app } from './lib/state/app.svelte';
   import { prefs } from './lib/state/prefs.svelte';
   import { listenForTaps } from './lib/sounds.svelte';
-  import { onFileDrop } from './lib/shell';
+  import { onFileDrop, onSendRequest } from './lib/shell';
   import { t } from './lib/copy';
   import { formatBytes, summarize } from './lib/format';
   import { springIn, quickOut, springFlip, stagger } from './lib/motion/transitions';
   import Button from './components/Button.svelte';
   import DeviceOrb from './components/DeviceOrb.svelte';
+  import FileStack from './components/FileStack.svelte';
+  import IconButton from './components/IconButton.svelte';
   import Icon from './components/Icon.svelte';
   import Toasts from './components/Toasts.svelte';
   import TransferCard from './components/TransferCard.svelte';
@@ -76,9 +80,47 @@
     pop.animate(keys, { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
   }
 
+  // Files from the file manager, waiting for a device. Their paths go to the main window if none
+  // is around ("Open Nhako Beam").
+  let fromFileManager = $state<string[]>([]);
+  const waiting = $derived(fromFileManager.length > 0 && app.staged.length > 0);
+  $effect(() => {
+    if (!app.native) return;
+    let off: (() => void) | undefined;
+    let gone = false;
+    void onSendRequest(async (paths) => {
+      app.clearStaged();
+      const files = await app.stagePaths(paths);
+      fromFileManager = files.length ? paths : [];
+    }).then((u) => (gone ? u() : (off = u)), (e) => console.warn('"Send with Nhako Beam" is not connected:', message(e)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  });
+
+  function cancelWaiting() {
+    app.clearStaged();
+    fromFileManager = [];
+  }
+
   async function sendTo(deviceId: string) {
+    if (waiting) {
+      app.sendTo(deviceId);
+      fromFileManager = [];
+      return;
+    }
     const files = await app.pickFiles();
     if (files.length) app.sendTo(deviceId, files);
+  }
+
+  function openMain() {
+    if (waiting) {
+      const paths = fromFileManager;
+      cancelWaiting();
+      return void invoke('hand_to_main', { paths }).catch((e) => app.toast(message(e), 'danger'));
+    }
+    invoke('open_main').catch((e) => console.warn('Could not open the main window:', message(e)));
   }
 </script>
 
@@ -100,6 +142,17 @@
   {#if !app.onboarded}
     <p class="note" in:springIn>{t('popover.finishSetup')}</p>
   {:else}
+    {#if waiting}
+      <section class="waiting" data-testid="pop-waiting" in:springIn={{ preset: 'bouncy', y: -12 }} out:quickOut={{ y: -8 }}>
+        <FileStack files={app.staged} size={40} />
+        <p>
+          <strong>{t('popover.send.title', { what: app.stagedSummary })}</strong>
+          <span class="muted">{devices.length ? t('popover.send.hint') : t('popover.send.none')}</span>
+        </p>
+        <IconButton icon="x" label={t('common.cancel')} size={18} testid="pop-waiting-cancel" onclick={cancelWaiting} />
+      </section>
+    {/if}
+
     {#each app.requests.slice(0, 2) as r (r.id)}
       <section class="request" animate:springFlip in:springIn={{ preset: 'bouncy', y: -12 }} out:quickOut={{ x: 24, y: 0 }}>
         <p>
@@ -123,7 +176,7 @@
             </li>
           {/each}
         </ul>
-        <p class="hint muted">{t('popover.devices.hint')}</p>
+        {#if !waiting}<p class="hint muted">{t('popover.devices.hint')}</p>{/if}
       {:else}
         <p class="note muted" in:springIn>{t('home.empty.title')}</p>
       {/if}
@@ -142,7 +195,7 @@
   {/if}
 
   <footer>
-    <Button full icon="arrow-square-out" testid="pop-open" onclick={() => invoke('open_main').catch((e) => console.warn('Could not open the main window:', message(e)))}>{t('popover.open')}</Button>
+    <Button full icon="arrow-square-out" testid="pop-open" onclick={openMain}>{t('popover.open')}</Button>
   </footer>
 </main>
 
@@ -237,6 +290,28 @@
     margin: 0;
   }
   .request span {
+    font-size: var(--type-footnote-size);
+  }
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    background: var(--color-accent-subtle);
+  }
+  .waiting p {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+  }
+  .waiting strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .waiting span {
     font-size: var(--type-footnote-size);
   }
   .request-actions {

@@ -3,8 +3,8 @@
 // staying in the tray. Only used inside the desktop app (see `isTauri`); the browser prototype
 // keeps its <input type="file"> and pretend folders.
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import type { FileItem } from './engine/types';
 
@@ -81,14 +81,16 @@ export const fileMenu = {
 
 /**
  * Files from "Send with Nhako Beam" (the app started with `--send`, or a later launch handed them
- * over). Calls `handle` with whatever is waiting now, and again each time more arrive.
+ * over), for this window: the main window, or the tray popover while the window is closed
+ * (src-tauri/src/shell.rs `send_from_file_manager`). Calls `handle` with whatever is waiting now,
+ * and again each time more arrive.
  */
 export async function onSendRequest(handle: (paths: string[]) => void): Promise<() => void> {
   const take = async () => {
     const paths = await invoke<string[]>('take_send_paths');
     if (paths.length) handle(paths);
   };
-  const off = await listen('nhako://send', () => void take());
+  const off = await getCurrentWebviewWindow().listen('nhako://send', () => void take());
   await take();
   return off;
 }

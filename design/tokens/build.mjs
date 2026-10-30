@@ -117,6 +117,10 @@ function css() {
   for (const [k, v] of Object.entries(t.motion.scale)) root.push(`  --scale-${kebab(k)}: ${v};`);
   for (const [k, v] of Object.entries(t.motion.distance)) root.push(`  --distance-${kebab(k)}: ${px(v)};`);
   root.push(`  --stagger-step: ${t.motion.stagger.step}ms;`);
+  for (const [k, v] of Object.entries(t.motion.mascot)) if (k !== 'note') root.push(`  --mascot-${kebab(k)}: ${k.endsWith('Ms') ? `${v}ms` : `${v}deg`};`);
+  for (const [k, v] of Object.entries(t.depth)) {
+    if (k !== 'note') root.push(`  --depth-${kebab(k)}: ${k.endsWith('Deg') ? `${v}deg` : px(v)};`);
+  }
   for (const [k, v] of Object.entries(t.motion.bolt)) {
     if (k !== 'note') root.push(`  --bolt-${kebab(k)}: ${k.endsWith('Ms') ? `${v}ms` : k === 'sparkCount' ? v : px(v)};`);
   }
@@ -217,6 +221,8 @@ function jsData() {
     scale: t.motion.scale,
     distance: t.motion.distance,
     bolt: strip(t.motion.bolt),
+    mascot: strip(t.motion.mascot),
+    depth: strip(t.depth),
     gesture: t.gesture,
     haptic,
   };
@@ -284,6 +290,14 @@ function kotlin() {
   const bolts = Object.entries(t.motion.bolt)
     .filter(([k]) => k !== 'note')
     .map(([k, v]) => `        const val ${k} = ${k.endsWith('Ms') || k === 'sparkCount' ? v : `${kf(v)} // dp`}`)
+    .join('\n');
+  const mascots = Object.entries(t.motion.mascot)
+    .filter(([k]) => k !== 'note')
+    .map(([k, v]) => `        const val ${k} = ${k.endsWith('Ms') ? v : `${kf(v)} // degrees`}`)
+    .join('\n');
+  const depths = Object.entries(t.depth)
+    .filter(([k]) => k !== 'note')
+    .map(([k, v]) => `    ${k.endsWith('Px') ? `val ${k.replace(/Px$/, '')} = ${v}.dp` : k === 'perspective' ? `const val perspective = ${kf(v)} // dp, camera distance` : `const val ${k} = ${kf(v)} // degrees`}`)
     .join('\n');
   const gestureUnits = { dragSlopPointer: 'dp', dragSlopTouch: 'dp', swipeCommitVelocity: 'dp/s', swipeFlyOutVelocityMin: 'dp/s', magnetRadius: 'dp', magnetSnapRadius: 'dp', longPressMs: 'ms', sheetDismissVelocity: 'dp/s', swipeMaxRotationDeg: 'degrees' };
   const gestures = Object.entries(t.gesture)
@@ -392,8 +406,18 @@ ${distances}
 ${bolts}
     }
 
+    /** ${t.motion.mascot.note} */
+    object Mascot {
+${mascots}
+    }
+
     const val staggerStepMs = ${t.motion.stagger.step}
     const val staggerMaxItems = ${t.motion.stagger.maxItems}
+}
+
+/** ${t.depth.note} */
+object NhakoDepth {
+${depths}
 }
 
 object NhakoGesture {

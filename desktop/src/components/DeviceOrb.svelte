@@ -21,13 +21,15 @@
     waiting?: boolean;
     progress?: number | null;
     register?: boolean;
+    /** The 3D stage draws this device under the button: the circle and its icon go clear. */
+    ghost?: boolean;
     onclick?: () => void;
     /** Right-click, or a long press on touch: the device's own sheet. */
     onmenu?: () => void;
     testid?: string;
   }
 
-  let { device, self = false, selfName = '', size = 64, showName = true, target = false, snapped = false, waiting = false, progress = null, register = false, onclick, onmenu, testid }: Props = $props();
+  let { device, self = false, selfName = '', size = 64, showName = true, target = false, snapped = false, waiting = false, progress = null, register = false, ghost = false, onclick, onmenu, testid }: Props = $props();
 
   // A long press opens the menu, and the click that follows it doesn't also send.
   const LONG_PRESS_MS = 500;
@@ -117,6 +119,7 @@
   class:offline
   class:asleep
   class:self
+  class:ghost
   style:--size="{size}px"
   disabled={self || offline || !onclick}
   aria-label="{name}, {status}"
@@ -167,6 +170,16 @@
 </button>
 
 <style>
+  .ghost .circle {
+    background: transparent;
+    box-shadow: none;
+  }
+  .ghost .circle > :global(:not(.trusted)) {
+    opacity: 0;
+  }
+  .ghost .name {
+    text-shadow: 0 1px 2px var(--color-canvas);
+  }
   .orb {
     display: grid;
     justify-items: center;

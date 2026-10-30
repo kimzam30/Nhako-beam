@@ -17,6 +17,12 @@
     <!-- Keeps a transfer going with the screen off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Always ready to receive: stays reachable for your devices with no screen open. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- ...from the moment the phone starts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Settings > Receiving > Keep running in the background: one system prompt, never asked unasked. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Scanning a pairing code's QR. The app works without a camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
@@ -47,7 +53,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- "Share" from any app: one file or many, of any kind. -->
+            <!-- Your trusted devices in the share sheet (platform/DirectShare.kt). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!-- "Share" from any app, one file or many of any kind: the Send sheet over that app. -->
+        <activity
+            android:name=".QuickSendActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Nhako.QuickSend"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -65,9 +84,24 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Always ready to receive (Settings > Receiving), started at boot by BootReceiver. -->
+        <service
+            android:name=".platform.ReceiverService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <receiver
             android:name=".platform.ActionReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".platform.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- "Receive" in Quick Settings: ready to receive for 5 minutes without opening the app. -->
         <service

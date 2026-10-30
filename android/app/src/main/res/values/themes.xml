@@ -9,6 +9,13 @@
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_bolt</item>
         <item name="postSplashScreenTheme">@style/Theme.Nhako</item>
     </style>
+    <!-- Quick send: no window of its own, the Send sheet slides up over the app that shared. -->
+    <style name="Theme.Nhako.QuickSend" parent="Theme.Nhako">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
     <color name="canvas">#F4F5F7</color>
     <color name="icon_background">#3F86F0</color>
 </resources>

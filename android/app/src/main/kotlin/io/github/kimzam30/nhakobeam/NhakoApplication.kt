@@ -46,6 +46,7 @@ class NhakoApplication : Application() {
         sounds = Sounds(this, prefs) { background.foreground }
         app.sound = sounds::play
         app.afterEvent = background::onEvent
+        app.syncAlways = background::syncAlways
         registerActivityLifecycleCallbacks(Visibility())
         // Text from your own devices is copied even with no screen open; Android lets an app write
         // the clipboard then (only reading needs the app on screen).
@@ -55,6 +56,9 @@ class NhakoApplication : Application() {
         watchNetwork()
         app.init()
         Push.start(this)
+        // Always ready to receive, if it's on. Android only allows it from some starts (the
+        // launcher, boot, the tile); BootReceiver and opening the app cover the rest.
+        background.syncAlways()
     }
 
     /** On Wi-Fi or a cable, nearby devices can be found; on mobile data only your own ones. With no

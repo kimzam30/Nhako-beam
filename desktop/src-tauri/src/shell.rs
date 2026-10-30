@@ -29,6 +29,9 @@ pub const SEND_EVENT: &str = "nhako://send";
 
 const SETTINGS_FILE: &str = "desktop.json";
 
+/// The main window's label (tauri.conf.json).
+pub const MAIN: &str = "main";
+
 /// Desktop-only settings, saved next to the engine's `state.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -39,6 +42,8 @@ struct Saved {
     told_about_tray: bool,
     /// The file manager menu was added on first run (Windows), so a later "off" stays off.
     file_menu_offered: bool,
+    /// Onboarding is done and the engine has run: it starts with the app, before any window.
+    set_up: bool,
 }
 
 impl Default for Saved {
@@ -47,6 +52,7 @@ impl Default for Saved {
             keep_running: true,
             told_about_tray: false,
             file_menu_offered: false,
+            set_up: false,
         }
     }
 }
@@ -56,8 +62,9 @@ pub struct Shell {
     keep_running: AtomicBool,
     told_about_tray: AtomicBool,
     file_menu_offered: AtomicBool,
-    /// Files from `--send` the window hasn't picked up yet.
-    send_queue: Mutex<Vec<PathBuf>>,
+    set_up: AtomicBool,
+    /// Files from `--send` the window hasn't picked up yet, and which window they're for.
+    send_queue: Mutex<(Vec<PathBuf>, &'static str)>,
 }
 
 impl Shell {
@@ -69,7 +76,19 @@ impl Shell {
             keep_running: AtomicBool::new(saved.keep_running),
             told_about_tray: AtomicBool::new(saved.told_about_tray),
             file_menu_offered: AtomicBool::new(saved.file_menu_offered),
-            send_queue: Mutex::new(Vec::new()),
+            set_up: AtomicBool::new(saved.set_up),
+            send_queue: Mutex::new((Vec::new(), MAIN)),
+        }
+    }
+
+    /// Onboarding is done (the engine started once since). Nothing is shown before that but the window.
+    pub fn set_up(&self) -> bool {
+        self.set_up.load(Ordering::Relaxed)
+    }
+
+    pub fn mark_set_up(&self, on: bool) {
+        if self.set_up.swap(on, Ordering::Relaxed) != on {
+            self.save();
         }
     }
 
@@ -82,6 +101,7 @@ impl Shell {
             keep_running: self.keep_running(),
             told_about_tray: self.told_about_tray.load(Ordering::Relaxed),
             file_menu_offered: self.file_menu_offered.load(Ordering::Relaxed),
+            set_up: self.set_up(),
         };
         let write = || -> std::io::Result<()> {
             if let Some(dir) = self.path.parent() {
@@ -96,7 +116,7 @@ impl Shell {
 }
 
 pub fn show_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
@@ -269,13 +289,41 @@ fn notify<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
 }
 
 impl Shell {
-    /// Queues files from `--send` (first launch, or a later launch handed over to us).
-    pub fn queue_send<R: Runtime>(&self, app: &AppHandle<R>, paths: Vec<PathBuf>) {
+    /// Queues files from `--send` (first launch, or a later launch handed over to us) for the
+    /// window `label`, and tells it.
+    pub fn queue_send<R: Runtime>(&self, app: &AppHandle<R>, paths: Vec<PathBuf>, label: &'static str) {
         if paths.is_empty() {
             return;
         }
-        self.send_queue.lock().expect("send queue lock").extend(paths);
-        let _ = app.emit(SEND_EVENT, ());
+        {
+            let mut q = self.send_queue.lock().expect("send queue lock");
+            if q.1 != label {
+                q.0.clear();
+            }
+            q.0.extend(paths);
+            q.1 = label;
+        }
+        let _ = app.emit_to(label, SEND_EVENT, ());
+    }
+
+    /// "Send with Nhako Beam" in the file manager. With the window open, it asks there where to
+    /// send them. Otherwise the tray popover opens next to the pointer with your devices, so the
+    /// files go without the whole window (before setup is done, the window shows the setup).
+    pub fn send_from_file_manager<R: Runtime>(&self, app: &AppHandle<R>, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        let window_open = app
+            .get_webview_window(MAIN)
+            .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false));
+        if window_open || !self.set_up() {
+            self.queue_send(app, paths, MAIN);
+            show_window(app);
+        } else {
+            let at = app.cursor_position().unwrap_or_default();
+            popover::show(app, at);
+            self.queue_send(app, paths, popover::LABEL);
+        }
     }
 
     /// First run on Windows: add "Send with Nhako Beam" to Explorer, as an installed app would.
@@ -292,10 +340,17 @@ impl Shell {
     }
 }
 
-/// Files from `--send` the window hasn't shown yet. Each file is handed out once.
+/// Files from `--send` the window hasn't shown yet, for the window asking (the main window or the
+/// popover, whichever they were sent to). Each file is handed out once.
 #[tauri::command]
-pub fn take_send_paths(shell: State<'_, Shell>, host: State<'_, Host>) -> Vec<PathBuf> {
-    let paths = std::mem::take(&mut *shell.send_queue.lock().expect("send queue lock"));
+pub fn take_send_paths(window: tauri::WebviewWindow, shell: State<'_, Shell>, host: State<'_, Host>) -> Vec<PathBuf> {
+    let paths = {
+        let mut q = shell.send_queue.lock().expect("send queue lock");
+        if q.1 != window.label() {
+            return Vec::new();
+        }
+        std::mem::take(&mut q.0)
+    };
     host.offer(paths.iter().cloned());
     paths
 }

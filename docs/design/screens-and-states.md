@@ -37,6 +37,8 @@ Skipping is allowed on 1.2 to 1.4; defaults are used.
 
 ## 2. Home (radar)
 
+**Since Phase 22 it's a 3D stage** (motion-spec.md section 4.18): you are the voxel bolt in the middle of a floor seen from above at an angle, your devices stand around you as voxel laptops, desktops, phones and tablets, and the bolt's mood shows each state below (asleep with nobody around, looking around while searching, happy when a device turns up, sending and receiving with sparks, done, failed, offline, loading). The radar's rings are drawn on the floor and its sweep is ripples across it. Each device keeps its button, name, progress ring and drop target on top. Until the 3D has loaded, or without WebGL on desktop, it's the flat radar described here.
+
 | # | State | D | A | P | Notes |
 |---|---|---|---|---|---|
 | 2.1 | Searching | ✓ | ✓ | P | Sweep ring, own orb in the center. |
@@ -73,6 +75,8 @@ Layouts: compact = radar full width with actions under it. Expanded = radar on t
 | 3.8 | File unreadable | ✓ | ✓ | | Permission or missing file. Lets you skip that file and send the rest. |
 
 ## 4. Pairing with a code
+
+Matched (Phase 22): two voxel bolts, yours and theirs, lean in and hop above the check code.
 
 | # | State | D | A | P | Notes |
 |---|---|---|---|---|---|
@@ -120,7 +124,7 @@ Can appear on top of any screen. On desktop also as a system notification with A
 
 ## 7. History
 
-Built in Phase 8. The engine keeps it in `history.json` (up to 500 entries), so it survives restarts and removed devices. Opened from the clock button next to Settings on Home.
+Built in Phase 8. Empty, it shows the voxel bolt asleep (Phase 22). The engine keeps it in `history.json` (up to 500 entries), so it survives restarts and removed devices. Opened from the clock button next to Settings on Home.
 
 | # | State | D | A | P |
 |---|---|---|---|---|
@@ -144,24 +148,26 @@ Built in Phase 8. The engine keeps it in `history.json` (up to 500 entries), so 
 
 | # | Surface | Notes |
 |---|---|---|
-| 9.1 | Tray popover (360 x 520) | Compact home: requests waiting (Accept, Decline), reachable devices (click to pick files, or drop files on one), what's moving, "Open Nhako Beam". Files dropped elsewhere on it go to the main window's "Send to". Phase 8: Windows opens it with a click on the tray icon (a double click opens the window); Linux panels don't report clicks, so it's "Quick view" in the tray menu and opens next to the pointer. It hides when it loses focus. |
-| 9.2 | File manager menu | "Send with Nhako Beam" opens the device chooser directly with the files loaded. Built in Phase 6: Explorer (Windows 11: under Show more options) and Files under Scripts (Linux). A running app takes the files over from the new launch. |
+| 9.1 | Tray popover (360 x 520) | Compact home: requests waiting (Accept, Decline), reachable devices (click to pick files, or drop files on one), what's moving, "Open Nhako Beam". Files dropped elsewhere on it go to the main window's "Send to". Phase 8: Windows opens it with a click on the tray icon (a double click opens the window); Linux panels don't report clicks, so it's "Quick view" in the tray menu and opens next to the pointer. It hides when it loses focus. Phase 20: "Send with Nhako Beam" opens it next to the pointer while the main window is closed; the files wait at the top ("Send 3 photos", with a close button) and a click on a device sends them. With none of your devices around, "Open Nhako Beam" takes the files to the window. |
+| 9.2 | File manager menu | "Send with Nhako Beam" opens the device chooser directly with the files loaded. Built in Phase 6: Explorer (Windows 11: under Show more options) and Files under Scripts (Linux). A running app takes the files over from the new launch. Phase 20: while the window is closed (and setup is done) they go to the tray popover (9.1) instead. |
+| 9.4 | Start at login | Phase 20: the last setup step has "Start when you log in", on by default (not in a Flatpak). The app then starts in the tray, and the engine starts with it, before any window loads, so devices can send at once. Settings > Desktop app turns it off. |
 | 9.3 | System notifications | Incoming request (with actions), transfer done, failed. Phase 5 shows incoming requests and finished transfers while the window is closed or in the background. Phase 8 adds buttons: Accept and Decline on a request, Open and Show in folder on files that arrived (Linux and Windows). A request answered elsewhere in the meantime opens the window instead. |
 
 ## 10. Android extras
 
 | # | Surface | Notes |
 |---|---|---|
-| 10.1 | Share sheet target | Opens straight into state 2.8. Built in Phase 7: one file or many, of any kind. |
+| 10.1 | Share sheet target | Opens straight into state 2.8. Built in Phase 7: one file or many, of any kind. Phase 20: the Send sheet slides up over the app that shared (QuickSendActivity), without opening Nhako Beam; picking a device sends and closes it. A code, a link or trust hands the share to the whole app. Your trusted devices also show in the share sheet itself (Direct Share, Android 10 and newer): picking one sends at once with a short "Sending to {device}". |
 | 10.2 | Progress notification | Ongoing, with Pause and Cancel. Collapses to "Sent 4 files to Aisyah's laptop" when done. Phase 7: shown by a foreground service while anything is moving (the newest transfer, with Pause or Resume and Cancel, and "+N" when more are going). It goes away when the last one ends; received files get their own "Got ... from ..." notification while the app is out of sight. |
-| 10.3 | Quick settings tile | "Receive" makes the device visible for 5 minutes (Phase 8): the engine runs with no screen open, nearby devices can find it, requests come as notifications. A "Ready to receive" notification counts the minutes down and has Stop; tapping the tile again stops it too. Before onboarding, the tile opens the app. |
+| 10.3 | Quick settings tile | "Receive" makes the device visible for 5 minutes (Phase 8): the engine runs with no screen open, nearby devices can find it, requests come as notifications. A "Ready to receive" notification counts the minutes down and has Stop; tapping the tile again stops it too. Before onboarding, the tile opens the app. Phase 20: with Always ready to receive on (10.7), the tile says "Always on"; a tap pauses it and another brings it back. |
+| 10.7 | Always ready to receive | Phase 20, Settings > Receiving, on by default. The phone stays reachable with no screen open, from the moment it starts: a quiet notification ("Ready to receive", no sound or status bar icon) with Pause, which lasts until the app is opened, the tile is tapped or the phone restarts. Below the switch, while Android still limits the app in the background, "Keep running in the background" with Allow (one system prompt). |
 | 10.6 | Woken up by another device | Phase 8, with push set up (wake/README.md). A trusted device that can't reach the phone asks the wake service to send it an empty push; the phone keeps itself ready for 90 s ("Ready to receive" notification) and the request arrives as usual. |
 | 10.4 | Request notification | Phase 7: "{device} wants to send you {what}" with Decline and Accept, while the app is out of sight. Removed once the request is answered or withdrawn. |
 | 10.5 | Received files | Phase 7: added to the media index after they arrive, so photos and videos show in the Gallery. "Open" opens one file, or the folder in the Files app for several; "Share" hands them to the system share sheet. |
 
 ## 11. Launch intro
 
-Phase 8, both platforms. motion-spec.md section 4.14.
+Phase 8, both platforms; the voxel bolt drops in and lands since Phase 22. motion-spec.md section 4.14.
 
 | # | State | D | A | Notes |
 |---|---|---|---|---|
