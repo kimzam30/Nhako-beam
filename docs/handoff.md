@@ -1,6 +1,6 @@
-# Handoff: where Nhako Beam stands (Phase 19)
+# Handoff: where Nhako Beam stands (end of Phase 19)
 
-Last updated 2026-10-30, during Phase 19 (waiting for the owner's push for the Windows test of the new build). Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
+Last updated 2026-10-30, at the end of Phase 19. Read [CLAUDE.md](../CLAUDE.md) first for the working rules. The short version: work in phases, stop after each one, and wait for "ready boss". Keep everything free. Git is the owner's.
 
 ## Where the code is
 
@@ -13,7 +13,7 @@ Last updated 2026-10-30, during Phase 19 (waiting for the owner's push for the W
 - **Branch `dev`:** the same up to `2139efc`, then `484b4ba` ("fdroid/flatpak"): Phase 15, and `c2c6145`, the same logo change as `95a16b4` made again on top.
 - **`78db661`** (2026-10-28): `dev` merged into `main`, so `main` has Phase 15 too and both branches hold the same files.
 - **`9c40fb8`, Phases 16 and 17:** one commit on top of the merge. `main` and `dev` both point at it, pushed to GitHub on 2026-10-28.
-- **Phases 18 and 19:** not committed yet (the owner's call).
+- **`7f6ebe7` ("windowsnearby/fix"), Phases 18 and 19:** on `dev`, pushed by the owner on 2026-10-30. Two small fixes after it are not committed yet: the accessibility test race and the firewall check needing the rule switched on (below).
 - The plan for Phases 18 to 23 (cleanup, Windows discovery, always on, the voxel mascot and 3D UI, the nightly build) is in `~/.claude/plans/check-the-code-repo-frolicking-storm.md` on the owner's machine.
 - The audit of 2026-10-27 that set Phases 16 and 17 is in `~/.claude/plans/scan-whole-repo-and-clever-lighthouse.md` on the owner's machine.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
@@ -66,8 +66,14 @@ Last updated 2026-10-30, during Phase 19 (waiting for the owner's push for the W
   - Android: 67 JVM tests; `bundleRelease` with two phone types builds a 46 MB `.aab` (the case that failed on GitHub).
   - On the owner's PC with the `dev` build: with an Allow rule on Public, Nearby works by itself.
 - **Not verified:**
-  - The Windows-only code (`firewall.rs`'s Windows parts, the NSIS hook, Fix it) isn't compiled here: no Windows target on this computer. GitHub's Windows job compiles it once the owner pushes.
-  - The new installer on the PC, and the fallback without a rule (answers to broadcasts, the 3 s wait): no automated test can fake a firewall, so it needs the PC with our rule turned off for a few minutes, with the owner's OK.
+  - **GitHub Build on `7f6ebe7`** (run 41028703520): Windows passed (the Windows-only code and the NSIS hook compile, the installer builds), Android passed (the `.aab` now builds there too). Linux failed only in `a11y.spec.ts` "every sheet" on the phone layout: the prototype's pretend camera "finds" a code and pairs about 2.5 s after the sheet opens, and on GitHub's slower runner the axe scan outlasted that, so a Paired sheet covered the next button. An old race (Phase 15), not Phase 19. The test now types the words on the phone layout; 72 of 72 accessibility runs pass here (3 repeats).
+  - **The new installer on the PC:** one admin prompt; afterwards a single rule "Nhako Beam (nearby devices)", Inbound, Allow, profiles Domain, Private and Public, and Windows' two old "Nhako Beam" prompt rules gone. The beacon goes out on Ethernet only (Tailscale left out). The laptop sees the PC (KIMA5) nearby.
+  - **The fallback, on the PC:** the owner switched our rule off by hand from 09:35 to 09:40 UTC without restarting the app. A device that had never met the PC ("Fallback test", the `nhako` CLI from `7f6ebe7` on the laptop with ufw off) showed under Nearby on the PC. So with no rule at all, nearby discovery still works between Phase 19 builds.
+- **Fixed after the test (not committed):** the firewall check (`firewall::rule_present`) asked only whether the rule exists, so a rule switched off wouldn't bring up Fix it. It now asks PowerShell for the rule with `Enabled` True (the same word in every language).
+- **Not verified:**
+  - The Fix it banner and its admin prompt on the real PC (the rule was there, so the banner never showed), and the new `rule_present` compiled on Windows (next push).
+  - Which of the two fallback pieces did it (the answer to the PC's broadcast, or the 3 s wait while the connection moves off the relay): the PC doesn't log untrusted devices it finds. Both are in.
+  - An older build on the other side of the fallback: the answering is new in Phase 19, so a Phase 18 or older laptop or phone may still not show up on a PC with no rule. The installer's rule covers that.
 
 ### Phase 18 in detail
 
@@ -363,8 +369,8 @@ The owner chose all three: folders, text and the clipboard, and nearby trust wit
 
 ## Next (ask the owner)
 
-- **Git (the owner's):** commit Phase 18 when it suits you.
-- **Phase 19, the Windows test of the new build:** the owner pushes, the Build workflow makes the installer, the PC installs it (one admin prompt; Windows' two "Nhako Beam" rules are replaced by "Nhako Beam (nearby devices)"), then a few minutes with that rule off to try the fallback. The "beam testing windows" Claude session on the PC can read the logs and diagnostics.
+- **Git (the owner's):** commit and push the two small fixes after `7f6ebe7` (`a11y.spec.ts`, `core/src/firewall.rs`), then the Build workflow should pass on all three.
+- **Phase 20, always on like Blip:** next, on the owner's "ready boss".
 - **The owner's try of Phase 15:** Share via link from the laptop and from the phone to a device without the app (a browser on the same Wi-Fi): letting it in, one file, Download everything, and the notification with the app hidden. Right-click a folder in Explorer, Files, Nemo or Dolphin. On a phone with TalkBack, and with the system font at its largest.
 - **The owner's store steps** ([releasing.md](releasing.md), "Stores and signing"): SignPath application (can take weeks), winget after the first published release, the Flathub and F-Droid submissions. Each is free; Play waits for the owner's decision on its fee.
 - **The Flatpak is installed on this computer** from the local build (`flatpak list --user`). It wasn't started, because the .deb was running and both use the same single-instance name. Remove it with `flatpak uninstall --user io.github.kimzam30.nhakobeam`, or try it with the .deb closed.

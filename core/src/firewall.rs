@@ -42,16 +42,23 @@ pub fn parse_profiles(out: &str) -> Vec<Profile> {
         .collect()
 }
 
-/// Whether our rule exists. `None` off Windows, or when `netsh` couldn't run.
+/// Whether our rule is there and switched on. `None` off Windows, or when PowerShell couldn't run.
 pub fn rule_present() -> Option<bool> {
     #[cfg(windows)]
     {
-        // The exit code alone: netsh's text is in the system's language.
-        let out = hidden("netsh")
-            .args(["advfirewall", "firewall", "show", "rule", &format!("name={RULE}")])
+        // PowerShell's `Enabled` is the same word in every language (netsh's text isn't).
+        let script = format!(
+            "if (Get-NetFirewallRule -DisplayName '{RULE}' -ErrorAction SilentlyContinue | Where-Object Enabled -eq 'True') {{ exit 0 }} else {{ exit 1 }}"
+        );
+        let out = hidden("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .output()
             .ok()?;
-        Some(out.status.success())
+        match out.status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        }
     }
     #[cfg(not(windows))]
     None

@@ -59,7 +59,16 @@ for (const scheme of ['light', 'dark'] as const) {
         await page.getByTestId('choose-device').click();
       }, 'send to');
       await sheet(page, () => page.getByTestId('send-code').click(), 'show a code');
-      await sheet(page, () => page.getByTestId('receive-code').click(), 'enter a code');
+      await sheet(page, async () => {
+        await page.getByTestId('receive-code').click();
+        // The phone layout opens the pretend camera, which "finds" a code and pairs after about
+        // 2.5 s: a slow scan could outlast that and leave a Paired sheet in the way. Type it instead.
+        const scanner = page.getByTestId('qr-scanner');
+        if (await scanner.isVisible()) {
+          await page.getByRole('button', { name: 'Type the words instead' }).click();
+          await expect(scanner).toHaveCount(0);
+        }
+      }, 'enter a code');
       await page.getByTestId('clear-staged').click();
       await sheet(page, () => page.getByTestId('send-text').click(), 'write text');
       await sim(page, 'stage-photos');
