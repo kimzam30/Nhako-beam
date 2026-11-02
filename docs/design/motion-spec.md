@@ -327,3 +327,11 @@ Information is never carried by motion alone, so nothing is lost in reduced mode
 - The 3D stage (Phase 22) loads after the first paint, draws calm states at 30 frames a second, holds still under a sheet and stops when the window or app is out of sight. Android draws it itself (no 3D library): about 3,000 triangles a frame, one `drawVertices` call. Where WebGL draws in software (no GPU: virtual machines, remote desktops, Linux on llvmpipe, CI runners), desktop draws it light: no edge smoothing, 1x pixels, Android's soft spots instead of the shadow map, at most 20 frames a second while things move and 10 when calm. Full quality there took most of the CPU and slowed the whole app (the e2e run on GitHub went from 6 to 13 minutes). The stage shows which with `data-quality` (`full` or `light`).
 - Progress updates from the Rust core are throttled to about 10 per second for UI. The spring smooths between them.
 - Phase 2 verification: Playwright records each flow at 60fps and captures a performance trace. Any long task over 50ms during an animation is a bug.
+
+## Home's panel and room (Phase 24)
+
+The panel is one continuous position driven by a spring (response 0.42 s, damping 0.84), the feel of an iOS sheet. It follows the pointer 1:1 from anywhere on it, including on buttons (a clear vertical move cancels their press). On release, position + velocity x 0.18 s says where it lands, and the velocity carries into the spring. Past its ends it rubber-bands. A touch catches it mid-flight and it stops under the finger. Buttons and bubbles have their own stretch of the travel, so they arrive one after another even when dragged slowly. Opening any sheet pushes the room back to 95.5%. Android adds a haptic tick when it changes state.
+
+In the room: the sleeper breathes on a 4.2 s loop; rain, dust in the lamp light, steam and z's loop by themselves; while files move the head and shoulders lift on a spring, the z's stop, the trophy lights and a dotted thread runs to the device. Devices spring in when put in the room and hop when pressed.
+
+Reduced motion: the panel jumps without a spring, the room holds still, only state changes (light on, head up) show.

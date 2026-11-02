@@ -54,6 +54,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
         }).also { engine ->
             // F-Droid gets its updates from F-Droid: no check against GitHub there.
             engine.setFromStore(BuildConfig.FROM_STORE)
+            // The engine can't tell a phone from a tablet: this is how other devices draw this one.
+            engine.setTablet(context.resources.configuration.smallestScreenWidthDp >= 600)
             // Files in a picked folder are opened one at a time as each is sent, never all at once.
             engine.setFileOpener(object : FileOpener {
                 override fun open(uri: String): Int {
@@ -119,6 +121,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
     override fun stop() = fire { stop() }
 
     override fun rescan() = fire { rescan() }
+
+    override fun networkChanged() = fire { networkChanged() }
 
     override fun setForeground(on: Boolean) = fire { setForeground(on) }
 

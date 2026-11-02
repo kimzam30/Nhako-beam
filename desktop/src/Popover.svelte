@@ -20,6 +20,7 @@
   import Icon from './components/Icon.svelte';
   import Toasts from './components/Toasts.svelte';
   import TransferCard from './components/TransferCard.svelte';
+  import { homeStatus } from './lib/state/status';
 
   prefs.init();
   app.init({ popover: true });
@@ -35,8 +36,15 @@
 
   const devices = $derived(app.radarDevices.filter((d) => d.reachable).slice(0, 8));
   const moving = $derived(app.activeTransfers.slice(0, 2));
+  // The same line as Home's heading.
   const status = $derived(
-    app.discovery === 'offline' ? t('home.banner.offline') : app.discovery === 'searching' ? t('home.searching') : t('home.title'),
+    homeStatus({
+      discovery: app.discovery,
+      active: app.activeTransfers,
+      reachable: app.reachable.length,
+      staging: app.staged.length > 0 || app.stagedText !== null,
+      deviceName: (id) => app.deviceName(id),
+    }).text,
   );
 
   let dropOn = $state<string | null>(null);

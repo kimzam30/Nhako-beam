@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Bundle
@@ -63,16 +64,30 @@ class NhakoApplication : Application() {
 
     /** On Wi-Fi or a cable, nearby devices can be found; on mobile data only your own ones. With no
      *  network at all nothing is claimed (the engine shows that as offline). */
+    /** Android doesn't let native code see network changes, so the engine is told here: a new
+     *  Wi-Fi or a new address means looking for devices again now, not at the next timer. */
     private fun watchNetwork() {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         runCatching {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                // The addresses last seen; null until the first report, which is the network the
+                // engine starts on anyway.
+                private var addresses: List<String>? = null
+
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
                     val lan = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                     scope.launch { app.onLan = lan }
                 }
 
+                override fun onLinkPropertiesChanged(network: Network, props: LinkProperties) {
+                    val now = props.linkAddresses.map { it.toString() }.sorted()
+                    if (addresses != null && addresses != now) app.engine.networkChanged()
+                    addresses = now
+                }
+
                 override fun onLost(network: Network) {
+                    addresses = emptyList()
+                    app.engine.networkChanged()
                     scope.launch { app.onLan = true }
                 }
             })

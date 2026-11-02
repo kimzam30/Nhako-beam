@@ -66,6 +66,7 @@ import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.ServerCheck
 import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import io.github.kimzam30.nhakobeam.state.AppState
+import io.github.kimzam30.nhakobeam.state.RoomPerson
 import io.github.kimzam30.nhakobeam.state.MotionPref
 import io.github.kimzam30.nhakobeam.state.Prefs
 import io.github.kimzam30.nhakobeam.state.Screen
@@ -100,22 +101,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(app: AppState, prefs: Prefs) {
+fun SettingsScreen(app: AppState, prefs: Prefs, scroll: androidx.compose.foundation.ScrollState = rememberScrollState()) {
     val c = Nhako.colors
     BackHandler { app.navigate(Screen.Home) }
     val trusted = app.devices.filter { it.trusted }.sortedBy { it.name }
-    val nearbyUntrusted = app.devices.filter { !it.trusted && it.reachable && it.route == io.github.kimzam30.nhakobeam.model.Route.Nearby }.sortedBy { it.name }
+    val nearbyUntrusted = app.devices.filter { io.github.kimzam30.nhakobeam.state.canTrust(it) }.sortedBy { it.name }
 
     Column(
-        Modifier.fillMaxSize().background(c.canvas).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.ime)
-            .verticalScroll(rememberScrollState()).windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = NhakoSpace.s5).padding(top = NhakoSpace.s3, bottom = NhakoSpace.s9),
+        Modifier.fillMaxSize().background(c.canvas).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.ime),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Stays put, so Back is always one tap away.
+        Row(Modifier.padding(horizontal = NhakoSpace.s5).padding(top = NhakoSpace.s3, bottom = NhakoSpace.s3), verticalAlignment = Alignment.CenterVertically) {
             NIconButton("caret-left", t("settings.back"), { app.navigate(Screen.Home) }, size = 24.dp, weight = IconWeight.Bold)
             BasicText(t("settings.title"), style = NhakoType.title1.style(c.textPrimary))
         }
-        Spacer(Modifier.height(NhakoSpace.s6))
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = NhakoSpace.s5).padding(top = NhakoSpace.s3, bottom = NhakoSpace.s9),
+        ) {
         Column(Modifier.widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s7)) {
             Section(0, t("settings.section.device")) {
                 NCard {
@@ -219,6 +222,13 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
             Section(4, t("settings.section.appearance")) {
                 NCard(padding = androidx.compose.foundation.layout.PaddingValues(NhakoSpace.s5)) {
                     Column(verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+                        BasicText(t("settings.room.title"), style = NhakoType.body.style(c.textPrimary))
+                        NSegmented(
+                            listOf(SegmentOption(RoomPerson.Boy, t("settings.room.boy")), SegmentOption(RoomPerson.Girl, t("settings.room.girl"))),
+                            prefs.roomPerson, { prefs.roomPerson = it },
+                        )
+                        BasicText(t("settings.room.note"), style = NhakoType.footnote.style(c.textSecondary))
+                        Spacer(Modifier.height(NhakoSpace.s3))
                         BasicText(t("settings.appearance.theme"), style = NhakoType.body.style(c.textPrimary))
                         NSegmented(
                             listOf(
@@ -310,6 +320,7 @@ fun SettingsScreen(app: AppState, prefs: Prefs) {
                     }
                 }
             }
+        }
         }
     }
 }

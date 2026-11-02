@@ -26,6 +26,7 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 | `wake/` | The wake service for phones (Cloudflare Worker, Firebase push), optional ([wake/README.md](wake/README.md)) |
 | `design/tokens/` | Colors, type, spacing, motion: one source, built into CSS, TS and Kotlin |
 | `design/mascot/` | The voxel mascot, made from the logo's pixels by `build.mjs` into one `.glb` and its states ([design/mascot/README.md](design/mascot/README.md)) |
+| `design/room/` | Home's room (a person asleep at a desk, your devices on the furniture, the bolt as a shelf trophy), drawn by `scene.js`, placed by `layout.mjs` and rendered by `build.mjs` into images and `room.json` that both apps use ([design/room/README.md](design/room/README.md)) |
 | `design/sounds/` | Every sound, made from scratch by `build.mjs` into WAVs both apps use ([design/sounds/README.md](design/sounds/README.md)) |
 | `docs/design/` | Design system, motion spec, every screen and state, all UI copy |
 | `docs/brand/` | The brand kit: logo (SVG, PNG), posters, launch videos |
@@ -39,6 +40,7 @@ Nhako Beam sends files straight between your own devices (Windows, Linux, Androi
 - **UI strings:** `desktop/src/lib/copy.ts` is the only source. After editing it, run `node android/tools/shared-assets.mjs` (regenerates `Copy.kt`, `Words.kt` and the icon drawables) and list new keys in `docs/design/ux-copy.md`. `SharedCopyTest` fails if Android is out of date.
 - **Design tokens:** edit `design/tokens/tokens.json`, then `npm run tokens` in `desktop/`. The build output in `design/tokens/build/` is committed.
 - **Sounds:** edit `design/sounds/build.mjs`, then `npm run sounds` in `desktop/`. `design/sounds/build/` is committed. Where each sound plays is twinned too: `desktop/src/lib/state/app.svelte.ts` and `AppState.kt` play the same ones on the same events.
+- **The room:** edit `design/room/scene.js`, `layout.mjs` or `build.mjs`, then `npm run room` in `desktop/`. `design/room/build/` is committed. Which device stands where is twinned: `desktop/src/lib/stage/room.ts` and `android/.../stage/RoomModel.kt`.
 - **Behavior:** `desktop/src/lib/state/app.svelte.ts` and `android/.../state/AppState.kt` are twins. A change in one usually belongs in the other.
 - **Version:** six files carry it (`Cargo.toml`, `Cargo.lock`, `desktop/package.json`, `desktop/package-lock.json`, `tauri.conf.json`, `build.gradle.kts`). Change it only with `node scripts/bump-version.mjs <version>`; the Release workflow fails if they differ from the tag.
 - **Licenses:** after changing dependencies (Cargo.lock, `desktop/package-lock.json`, `android/gradle/libs.versions.toml`), run `node scripts/licenses.mjs` and commit its two JSON files.

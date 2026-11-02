@@ -71,6 +71,7 @@ class AlwaysReadyTest {
     @Test fun notWhenSwitchedOffAndStopsWhenSwitchedOff() {
         boot()
         assertTrue(startedReceiver())
+        nhako.background.alwaysStarted()
         nhako.app.changeAlwaysReady(false)
         assertTrue(stoppedReceiver())
         assertFalse(nhako.background.alwaysOn)
@@ -83,12 +84,27 @@ class AlwaysReadyTest {
     @Test fun pauseLastsUntilTheAppIsOpened() {
         boot()
         startedReceiver()
+        nhako.background.alwaysStarted()
         nhako.background.pauseAlways()
         assertTrue(stoppedReceiver())
         // A restart of the receiver while paused doesn't bring it back...
         nhako.background.syncAlways()
         assertFalse(startedReceiver())
         // ...opening the app does.
+        nhako.background.foreground = true
+        assertTrue(startedReceiver())
+        nhako.background.foreground = false
+    }
+
+    // Android stops the whole app if a service it was asked to start is stopped before it's in the foreground.
+    @Test fun notStoppedWhileStillStartingItStopsItselfWhenItHas() {
+        boot()
+        assertTrue(startedReceiver())
+        nhako.background.pauseAlways()
+        assertFalse(stoppedReceiver())
+        val service = Robolectric.buildService(ReceiverService::class.java).create().get()
+        service.onStartCommand(null, 0, 1)
+        assertFalse(nhako.background.alwaysOn)
         nhako.background.foreground = true
         assertTrue(startedReceiver())
         nhako.background.foreground = false

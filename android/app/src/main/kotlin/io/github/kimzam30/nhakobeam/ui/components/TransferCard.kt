@@ -27,7 +27,9 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,6 +124,9 @@ fun Beam(progress: Float, intensity: Float, mode: BeamMode, modifier: Modifier =
         }
     }
 }
+
+/** Nothing confirmed for this long while a transfer should be moving. */
+private const val STALL_MS = 8000L
 
 @Composable
 fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onDetails: (() -> Unit)? = null) {
@@ -222,13 +227,23 @@ fun TransferCard(app: AppState, tr: Transfer, modifier: Modifier = Modifier, onD
                                 BasicText(formatSpeed(tr.speed), style = NhakoType.callout.style(c.textSecondary))
                             }
                         }
-                        if (moving) {
+                        // A connection can stay open with nothing moving (the Wi-Fi went): say so instead of a frozen estimate.
+                        var stalled by remember(tr.id) { mutableStateOf(false) }
+                        LaunchedEffect(tr.doneBytes, moving) {
+                            stalled = false
+                            if (moving && tr.doneBytes < tr.totalBytes) {
+                                kotlinx.coroutines.delay(STALL_MS)
+                                stalled = true
+                            }
+                        }
+                        if (stalled) BasicText(t("transfer.stalled"), style = NhakoType.footnote.style(c.textSecondary))
+                        else if (moving) {
                             val showEta = tr.movingSince != null && System.currentTimeMillis() - tr.movingSince > 3000
                             val eta = formatEta(tr.totalBytes - tr.doneBytes, tr.speed)
                             BasicText(if (showEta && eta != null) t("transfer.eta", "time" to eta) else t("transfer.eta.calculating"), style = NhakoType.footnote.style(c.textSecondary))
                         }
                         Spacer(Modifier.height(NhakoSpace.s2))
-                        RouteBadge(tr.route)
+                        if (!stalled) RouteBadge(tr.route)
                     }
                     if (tr.status == TransferStatus.Paused && tr.pausedBy != Side.Peer) {
                         NIconButton("play", t("transfer.resume"), { app.engine.resume(tr.id) }, tint = c.accent, weight = IconWeight.Fill, sound = NhakoSound.Resume)

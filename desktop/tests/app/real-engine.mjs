@@ -232,7 +232,7 @@ try {
     if (code !== 0) throw new Error(`nhako pair exited ${code}\n${pair.output()}`);
     if (!pair.output().includes(check)) throw new Error(`both sides should show ${check}\n${pair.output()}`);
     await click('paired-continue');
-    await waitFor('Test phone on the radar', () => exec(`return [...document.querySelectorAll('[data-testid^="orb-"]')].some((o) => o.textContent.includes('Test phone'));`));
+    await waitFor('Test phone on the radar', () => exec(`return [...document.querySelectorAll('[data-testid^="orb-"]')].some((o) => (o.getAttribute('aria-label') ?? '').includes('Test phone'));`));
   });
 
   const incoming = makeFile('holiday.mp4', 24 * 1024 * 1024);
@@ -256,7 +256,7 @@ try {
     await sleep(2000);
     // The same events Tauri sends when files are dragged in from the file manager.
     const target = await exec(`
-      const orb = [...document.querySelectorAll('[data-testid^="orb-"]')].find((o) => o.textContent.includes('Test phone'));
+      const orb = [...document.querySelectorAll('[data-testid^="orb-"]')].find((o) => (o.getAttribute('aria-label') ?? '').includes('Test phone'));
       const r = orb.getBoundingClientRect();
       return { x: (r.left + r.width / 2) * devicePixelRatio, y: (r.top + r.height / 2) * devicePixelRatio };`);
     const emit = (event, payload) =>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app, prettyPath } from '../lib/state/app.svelte';
+  import { canTrust } from '../lib/state/sendList';
   import { fileMenu as fileMenuSetting, keepRunning as keepRunningSetting, startAtLogin as startAtLoginSetting, type FileMenu } from '../lib/shell';
   import { prefs, type MotionPref, type SoundPref, type ThemePref } from '../lib/state/prefs.svelte';
   import { t } from '../lib/copy';
@@ -13,7 +14,7 @@
   import ConnectionSettings from '../components/ConnectionSettings.svelte';
   import type { WhoCanSend } from '../lib/engine/types';
 
-  const nearbyUntrusted = $derived(app.devices.filter((d) => !d.trusted && d.reachable && d.route === 'nearby'));
+  const nearbyUntrusted = $derived(app.devices.filter(canTrust));
   const trusted = $derived(app.devices.filter((d) => d.trusted));
 
   // Desktop app only: start at login and staying in the tray.
@@ -202,6 +203,20 @@
     <section class="group" in:springIn={{ delay: stagger(5) }}>
       <h2>{t('settings.section.appearance')}</h2>
       <div class="card stack">
+        <div class="field col">
+          <span>{t('settings.room.title')}</span>
+          <Segmented
+            label={t('settings.room.title')}
+            testid="room-person"
+            bind:value={prefs.roomPerson}
+            onchange={() => prefs.save()}
+            options={[
+              { value: 'boy', label: t('settings.room.boy') },
+              { value: 'girl', label: t('settings.room.girl') },
+            ]}
+          />
+          <span class="muted hint-small">{t('settings.room.note')}</span>
+        </div>
         <div class="field col">
           <span>{t('settings.appearance.theme')}</span>
           <Segmented

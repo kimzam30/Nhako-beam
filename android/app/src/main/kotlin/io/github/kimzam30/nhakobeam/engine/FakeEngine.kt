@@ -49,10 +49,10 @@ class FakeEngine : Engine {
     override val events: SharedFlow<EngineEvent> = _events
 
     var devices = listOf(
-        Device("d-aisyah", "Aisyah's laptop", DeviceKind.Laptop, OsPlatform.Windows, trusted = true, reachable = true, route = Route.Nearby, fingerprint = "4F2A 91C3"),
-        Device("d-phone", "Work phone", DeviceKind.Phone, OsPlatform.Android, trusted = true, autoAccept = true, reachable = true, route = Route.Nearby, fingerprint = "B7E0 22D9"),
-        Device("d-studio", "Studio PC", DeviceKind.Desktop, OsPlatform.Linux, reachable = true, route = Route.Nearby, fingerprint = "0C5D E81A"),
-        Device("d-tablet", "Mei Ling's tablet", DeviceKind.Tablet, OsPlatform.Android, reachable = true, route = Route.Nearby, fingerprint = "6A19 C4F0"),
+        Device("d-aisyah", "Aisyah's laptop", DeviceKind.Laptop, OsPlatform.Windows, trusted = true, reachable = true, route = Route.Nearby, nearby = true, fingerprint = "4F2A 91C3"),
+        Device("d-phone", "Work phone", DeviceKind.Phone, OsPlatform.Android, trusted = true, autoAccept = true, reachable = true, route = Route.Nearby, nearby = true, fingerprint = "B7E0 22D9"),
+        Device("d-studio", "Studio PC", DeviceKind.Desktop, OsPlatform.Linux, reachable = true, route = Route.Nearby, nearby = true, fingerprint = "0C5D E81A"),
+        Device("d-tablet", "Mei Ling's tablet", DeviceKind.Tablet, OsPlatform.Android, reachable = true, route = Route.Nearby, nearby = true, fingerprint = "6A19 C4F0"),
         Device("d-office", "Office laptop", DeviceKind.Laptop, OsPlatform.Windows, trusted = true, fingerprint = "D3B8 0E57"),
     )
     var discovery = DiscoveryState.Idle
@@ -82,6 +82,8 @@ class FakeEngine : Engine {
 
     override fun stop() {}
     override fun rescan() = emit(EngineEvent.Discovery(DiscoveryState.Searching))
+
+    override fun networkChanged() = rescan()
     override fun setForeground(on: Boolean) {}
 
     override suspend fun stage(uris: List<String>) = Staged(uris.map { file(it.substringAfterLast('/'), 2_400_000, "image/jpeg") }, 0)

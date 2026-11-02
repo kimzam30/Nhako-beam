@@ -2,13 +2,17 @@ import { expect, type Page } from '@playwright/test';
 
 /** Skips onboarding, opens home, speeds up the mock engine and waits for devices. */
 export async function ready(page: Page, opts: { speed?: number; name?: string } = {}) {
-  await page.addInitScript((name) => {
+  // A phone-shaped window's room holds 5 places: pick the pretend engine's devices, so tests know which.
+  const size = page.viewportSize();
+  const picks = size && size.height >= size.width ? ['d-aisyah', 'd-studio', 'd-phone', 'd-tablet'] : null;
+  await page.addInitScript(([name, roomPicked]) => {
     try {
+      if (!localStorage.getItem('nhako.prefs.v1')) localStorage.setItem('nhako.prefs.v1', JSON.stringify({ roomPicked }));
       localStorage.setItem('nhako.app.v1', JSON.stringify({ onboarded: true, selfName: name, saveLocation: 'Downloads/Nhako Beam' }));
     } catch {
       // ignore
     }
-  }, opts.name ?? 'Test device');
+  }, [opts.name ?? 'Test device', picks] as const);
   await page.goto('/');
   await expect(page.getByTestId('home')).toBeVisible();
   await page.evaluate((s) => ((window as any).__nhako.app.engine.speedScale = s), opts.speed ?? 1);

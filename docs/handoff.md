@@ -20,6 +20,64 @@ Last updated 2026-10-30, at the end of Phase 22. Read [CLAUDE.md](../CLAUDE.md) 
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
 - Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
 
+## Room fix and real-device testing (2026-11-02, in progress)
+
+The plan is in `~/.claude/plans/we-just-had-uiux-majestic-tiger.md` on the owner's machine: 1 room art, 2 clean install on the laptop, Flip, S24+ and Tab S9 FE, 3 test every feature, 4 fix what's found. Each phase waits for "ready boss".
+
+**Phase 1, the room art:**
+- **Why things floated:** the desk top was about 15 px deep on screen and devices stood on its front edge, while their keyboards and laptop decks were up to 28 px deep. The desk top is now 30 px and the nightstand 18 px. A device's origin is the front of its footprint, on a hard-edged contact shadow.
+- **Surfaces:** `room.json` has `foot` (what each kind stands on) and each surface a `top` (what the furniture holds). `room.test.ts` and `RoomTest.kt` fail if a device doesn't fit. The bed spots are gone, a cubby is cleared for a phone or tablet, and a wide room now holds 7, not 8.
+- **No fitting surface:** the device goes to the Devices list instead of the first free spot (`arrangeRoom`, both apps).
+- **The person and chair:** arms folded on the desk top, the back leaning in, a seat narrower than before, five spokes with a caster on each, the blanket outside the chair's back. Devices are drawn behind the person.
+- **Light:** it stops at the hutch and the desk. The person gets bands across the back, not diagonals.
+
+**Verified:** vitest 166, svelte-check 0 errors, Android unit tests 93 with the debug APK built. The art in the prototype (wide and tall, boy and girl, up to 7 devices, offline) and on the Z Flip5 over adb. The transfer pose in the prototype, by adding the `awake` class by hand.
+
+**Not verified:** a real transfer's pose, Android's own head lift, the S24+ and the tablet, a real finger, the Robolectric screenshots by eye, the desktop app window.
+
+**Seen:** Playwright 147 passed, 10 skipped, 1 failed: "arcs, sparks, the riding bolt and the done check" on the phone layout in the full run (passed 2 of 2 alone). The likely cause, not proved: the test's four picked devices fill the tall room, so `disc-add` only counts an arc if it reads the count before they've all appeared. For Phase 4.
+
+**Phase 2, clean installs:** the release build (`scripts/build-android.sh --fast`: 19 MB, arm64, signed with this computer's debug key, push wake-up off) replaced the `.debug` app on the Flip and S24+, and went on the Tab S9 FE, which had none. All three open at onboarding with no crash logged. The owner installed the new `.deb` on the laptop, which keeps its settings and identity; the app restarted and its engine started. Seen for Phase 3: on the tablet, onboarding's Get started button runs the full width of the screen.
+
+**Phase 3, testing on the real devices (2026-11-02):** no fixes in this phase. Fix these in Phase 4:
+
+- F1 HIGH Android send list reorders while open (row moved ~2 s after opening): my tap on the S24 row sent to Tab. Could send to the wrong device.
+- F2 MED Flip heading stuck on "Looking for devices" with 5 devices found (S24 and Tab say "5 devices ready"); heading also cut off "Looking for devi...".
+- F3 MED Tablet (16:10): kimmain's monitor cropped at the right edge. Table surfaces fall outside the visible part of the wide view.
+- F4 LOW Tablet onboarding: Get started button runs the full screen width.
+- F5 LOW Android: with a sheet open, Home's buttons stay in the accessibility tree (screen reader can reach behind the sheet). Not tested with TalkBack.
+- F6 MED Android trust question: tapping the sheet's title closes it and counts as "no" (reproduced twice on S24).
+- F7 MED Trust button depends on route = Nearby. Same-Wi-Fi devices flip between Nearby and Direct, so Trust comes and goes (and that shift drives F1).
+- F6 update: tapping any empty part of a sheet falls through to the backdrop and closes it: NSheet's column doesn't consume taps. Declined confirmed on Tab by log.
+- F8 MED Android: a request arriving while a sheet is open stays hidden behind the sheet (S24: card only showed after closing Send to). The sender sits on "Waiting".
+- F9 LOW Your code sheet says "choose Receive with a code", but the button is "Scan code" on Android and "Enter code" on desktop.
+- F10 MED No "Reconnecting" state when Wi-Fi drops mid-transfer: about 75 s frozen on "Working out time left", "Direct" badge stayed on while on mobile data. It did recover by itself at the end.
+- F11 LOW Heading cut off during a transfer on phones ("Sending to K... 4%", "Receiving from... 4%").
+- F12 MED (known, confirmed) Try again after a refusal stays refused even after the receiver allows everyone.
+- F13 MED (my install, not the app) `adb install` also put Beam in Samsung's Dual Messenger profile: a second icon on the tablet. Removed with pm uninstall --user 95 on all three. Docs should say `adb install --user 0`.
+- F14 LOW Back from Open source licenses returns to the top of Settings: scroll position lost.
+- F15 LOW Settings: the Back button scrolls off with the page.
+- F16 HIGH Crash on Flip (old debug build, 12:13, before the clean install, foreground): ForegroundServiceDidNotStartInTimeException. Not seen again on the release build today. Service start path needs reading.
+- F17 MED Idle Home in front uses 29% (Flip), 50% (S24), 61% (Tab) of one core; 2 to 5% in background. Memory 180 to 250 MB. Redraws 30 fps; S24 and Tab take 14 ms a frame, so 60 to 97% count as janky against 120 and 90 Hz deadlines even with no visible stutter measured.
+
+Passed on the Flip, S24+ and Tab S9 FE: onboarding, nearby discovery, Trust, code pairing, refused sends, text, file, folder, 1.2 GB with pause, resume and a Wi-Fi drop (hashes match), cancel from each side, Decline, Always accept, Quick send with text, History, Settings, Share via link in Chromium. `npm run test:app`: 8 of 8, one step 338 s, not looked into.
+
+Not tested: the installed laptop app's window, tray, Windows, QR with a real camera, a file through the share sheet, Direct Share, notification buttons, the tile, boot start, 200% font, sounds, real finger feel.
+
+**Room redesign, built after the owner approved it (2026-11-02).** The proposal page: https://claude.ai/artifact/6VFf8ZbkyYCrphZTcuuF18
+- **The cause of the floating on phones and tablets:** `Art` in `Room.kt` used `size()`, which squeezed the room picture to the screen when it ran past the edges, while devices stayed at their true positions. On the Flip the art was about 11% too short, on the tablet about 10% too narrow. It now measures at true size. Desktop never had this, which is why it looked fine there.
+- **One camera:** `design/room/layout.mjs` holds the camera (eye 146 cm, back wall 480 cm), furniture in centimetres and eight fixed places. Legs reach the floor because the floor line is calculated. `build.mjs` refuses to build if a footprint hangs off its surface or two overlap.
+- **Places, not sizes:** each device is drawn in place, turned toward the room, and never resized. `room.json` lists each place's kinds; `roomSlots` (both apps) offers only what lands on clear screen. A phone shows 5, an upright tablet 6, wide 8, the Flip's cover screen none. Three crops: tall, mid (new), wide.
+- **New art:** phones on a dock, tablets on a folio stand with a pen. The rain is behind a new `front-*` layer. Devices no longer lie on the floor on PC: the rest are bubbles under the buttons on every screen. Name tags go above devices on the hutch, and stack if they'd touch (`roomTags`).
+- **Android tablets report as tablets:** `set_tablet` in the ffi, from `smallestScreenWidthDp >= 600`. A foldable's large screen counts as a tablet if the app starts there.
+- **A drag bug the new layout exposed:** a quick flick that left the staged stack before the slop did nothing. The stack now captures the pointer on press.
+
+**Phase 4 status of the findings:** fixed and seen on the Flip and Tab: F1 (order same for 25 s), F2, F3, F7, F17 (front: Flip 18% of a core, was 29%; Tab 40%, was 61%). Fixed in code and covered by tests, not retried by hand: F4, F5, F6, F8, F9, F10 (stalled text after 8 s; the engine's 75 s recovery is unchanged), F11, F12, F13, F14, F15. F16: cause not proven, only hardened; no crash seen since.
+
+**Verified:** cargo fmt, clippy, cargo test (57, 28, 4, 10); `npm run check`; vitest 173; Playwright 152 passed, 10 skipped; Android unit tests pass, including every mix of 0 to 8 devices on 12 screen sizes; `npm run test:app` all 8 steps on a freshly built desktop app (it runs `target/release/nhako-beam` as it finds it, so rebuild first: its first pass here was on the old build). On the Flip and Tab sideways: art lines up, no crash. Flip to Tab: 64 MiB with matching hash, and text. Flip to laptop: 64 MiB with matching hash (sent by mistake, the owner's laptop accepted it; the copy was removed).
+
+**Not verified:** the S24+ (off, in use). Tab upright and a foldable on real hardware (only the calculated checks; rotating is a system setting). The girl on a device. Mid-transfer cancel and Wi-Fi drop on hardware. F8 and F12 on hardware, because Flip and Tab trust each other. TalkBack, a real finger, QR, tile, notification buttons, share sheet, boot start, 200% font, Windows. The laptop still runs the old `.deb`. The S24+ still has the Phase 3 test settings: Who can send, and Always accept.
+
 ## What's done
 
 | Phase | What |

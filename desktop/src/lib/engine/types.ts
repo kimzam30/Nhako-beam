@@ -23,6 +23,9 @@ export interface Device {
   reachable: boolean;
   /** Best known route right now, if reachable. */
   route: Route | null;
+  /** On this network right now, so it can be asked to trust this device. Unlike `route`, it
+   *  doesn't change with the path a connection happens to use. */
+  nearby: boolean;
   /** Short public key fingerprint shown when pairing, for example "4F2A 91C3". */
   fingerprint: string;
   /** Not reachable right now, but can be woken up to receive (a phone Android put to sleep). */

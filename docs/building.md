@@ -53,7 +53,7 @@ The first build takes a while (it compiles the engine once per phone type). Late
   cheaper phones may need `armeabi-v7a`; `x86_64` is for emulators and a few Chromebooks. If the
   wrong one is installed, Android says the app isn't compatible.
 - **Without a cable:** copy the .apk to the phone (Google Drive, Telegram to yourself, a USB stick) and tap it. Android asks once to allow installs from that app; allow it.
-- **With a cable:** turn on USB debugging (Settings > About phone > tap Build number 7 times, then Settings > System > Developer options), plug in, and run `$ANDROID_HOME/platform-tools/adb install -r out/nhako-beam-arm64-v8a.apk`.
+- **With a cable:** turn on USB debugging (Settings > About phone > tap Build number 7 times, then Settings > System > Developer options), plug in, and run `$ANDROID_HOME/platform-tools/adb install -r --user 0 out/nhako-beam-arm64-v8a.apk` (`--user 0` keeps it out of Samsung's Dual Messenger profile, which would add a second icon).
 
 Things to know:
 

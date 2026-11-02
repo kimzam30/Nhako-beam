@@ -26,6 +26,9 @@ interface Engine {
     fun stop()
     fun rescan()
 
+    /** The network changed, or local network access was just allowed: look again now. */
+    fun networkChanged()
+
     /** Whether the app is on screen. In the background the engine checks on devices less often. */
     fun setForeground(on: Boolean)
 

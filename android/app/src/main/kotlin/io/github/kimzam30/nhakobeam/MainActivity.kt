@@ -12,6 +12,7 @@ import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import io.github.kimzam30.nhakobeam.platform.ActivityPlatform
+import io.github.kimzam30.nhakobeam.platform.LocalNetwork
 import io.github.kimzam30.nhakobeam.state.PlatformHooks
 import io.github.kimzam30.nhakobeam.state.ThemePref
 import io.github.kimzam30.nhakobeam.ui.NhakoBeamApp
@@ -60,6 +61,8 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         nhako.app.engine.setForeground(true)
+        // Local network access can be turned on or off in system Settings while we're away.
+        nhako.app.localNetworkChanged(LocalNetwork.allowed(this))
     }
 
     override fun onStop() {

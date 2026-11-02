@@ -9,6 +9,7 @@
     "tokens": "node ../design/tokens/build.mjs",
     "sounds": "node ../design/sounds/build.mjs",
     "mascot": "node ../design/mascot/build.mjs",
+    "room": "node ../design/room/build.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use nhako_core::{Connection, Engine, EngineConfig, EngineEvent, Network, Outgoing, OwnServer, WhoCanSend, check_server, store};
+use nhako_core::{Connection, DeviceKind, Engine, EngineConfig, EngineEvent, Network, Outgoing, OwnServer, WhoCanSend, check_server, store};
 use serde::Serialize;
 use tokio::{runtime::Runtime, sync::broadcast::error::RecvError, task::JoinHandle};
 
@@ -84,6 +84,7 @@ pub struct NhakoEngine {
     foreground: AtomicBool,
     /// This build gets updates from a store (F-Droid): no update check.
     from_store: AtomicBool,
+    tablet: AtomicBool,
 }
 
 #[uniffi::export]
@@ -109,6 +110,7 @@ impl NhakoEngine {
             lifecycle: Mutex::new(()),
             foreground: AtomicBool::new(true),
             from_store: AtomicBool::new(false),
+            tablet: AtomicBool::new(false),
         }))
     }
 
@@ -122,6 +124,18 @@ impl NhakoEngine {
             let mut s = self.store()?;
             s.state.name = name;
             s.save().map_err(|e| failed(e.to_string()))?;
+        }
+        if self.running().is_none() {
+            let kind = if self.tablet.load(Ordering::Relaxed) {
+                DeviceKind::Tablet
+            } else {
+                DeviceKind::Phone
+            };
+            let mut s = self.store()?;
+            if s.state.kind != kind {
+                s.state.kind = kind;
+                s.save().map_err(|e| failed(e.to_string()))?;
+            }
         }
         let engine = match self.running() {
             Some(e) => e,
@@ -180,6 +194,13 @@ impl NhakoEngine {
         Ok(())
     }
 
+    /// Android saw the network change, or local network access was just allowed.
+    pub fn network_changed(&self) -> Result<(), NhakoError> {
+        let e = self.engine()?;
+        self.in_rt(|| e.network_changed());
+        Ok(())
+    }
+
     /// Returns the transfer id.
     pub fn send(&self, device_id: String, files: Vec<SendFile>) -> Result<String, NhakoError> {
         let e = self.engine()?;
@@ -223,6 +244,11 @@ impl NhakoEngine {
         let e = self.engine()?;
         self.in_rt(|| e.answer_visitor(&visitor_id, allow));
         Ok(())
+    }
+
+    /// Call before `start` on a tablet, so other devices draw this one as a tablet, not a phone.
+    pub fn set_tablet(&self, on: bool) {
+        self.tablet.store(on, Ordering::Relaxed);
     }
 
     /// Call before `start` in builds that get updates from a store: no update check, no setting.

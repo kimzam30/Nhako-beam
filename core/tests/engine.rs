@@ -352,6 +352,14 @@ async fn cancel_mid_transfer_cleans_up() {
     no_part_files(&b.save());
     assert!(!b.save().join("big.iso").exists());
 
+    // Try again on the sender asks afresh, and goes all the way through.
+    a.engine.retry(&id);
+    let req = b.wait_incoming().await;
+    assert_eq!(req, id);
+    b.engine.accept(&req, false, false);
+    a.wait_transfer("sent after all", |t| t.id == id && t.status == TransferStatus::Done).await;
+    b.wait_transfer("received after all", |t| t.id == id && t.status == TransferStatus::Done).await;
+
     a.stop().await;
     b.stop().await;
 }
@@ -963,6 +971,45 @@ async fn code_pairing_then_trusted_auto_accept() {
     a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
     b.wait_transfer("auto accepted and done", status(TransferStatus::Done)).await;
     same_bytes(&f, &b.save().join("auto.txt"));
+
+    a.stop().await;
+    b.stop().await;
+}
+
+/// Try again asks afresh when the other device has nothing of the transfer: refused, then allowed.
+#[tokio::test(flavor = "multi_thread")]
+async fn try_again_after_a_refusal_asks_again() {
+    let mem = MemoryLookup::new();
+    let mut a = Node::new(&mem, "Stranger's phone", None).await;
+    let mut b = Node::new(&mem, "Kim's laptop", None).await;
+    b.engine.set_who_can_send(WhoCanSend::YourDevices).unwrap();
+    let f = make_file(&a.dir.join("out"), "again.txt", 2000);
+
+    let id = a.engine.send(&b.id(), std::slice::from_ref(&f)).unwrap();
+    let t = a.wait_transfer("refused", |t| t.id == id && t.status.is_final()).await;
+    assert_eq!((t.status, t.error), (TransferStatus::Declined, Some(TransferError::NotAllowed)));
+
+    // Still not allowed: refused the same way, not stuck.
+    a.engine.retry(&id);
+    a.wait_transfer("asking again", |t| t.id == id && t.status == TransferStatus::Connecting).await;
+    let t = a.wait_transfer("refused again", |t| t.id == id && t.status.is_final()).await;
+    assert_eq!((t.status, t.error), (TransferStatus::Declined, Some(TransferError::NotAllowed)));
+
+    // Allowed now: the same card goes through.
+    b.engine.set_who_can_send(WhoCanSend::EveryoneNearby).unwrap();
+    a.engine.retry(&id);
+    let req = b.wait_incoming().await;
+    assert_eq!(req, id);
+    b.engine.decline(&req);
+    a.wait_transfer("declined", |t| t.id == id && t.status == TransferStatus::Declined).await;
+
+    // Declined once, accepted on the next ask.
+    a.engine.retry(&id);
+    let req = b.wait_incoming().await;
+    b.engine.accept(&req, false, false);
+    a.wait_transfer("sent", |t| t.id == id && t.status == TransferStatus::Done).await;
+    b.wait_transfer("received", status(TransferStatus::Done)).await;
+    same_bytes(&f, &b.save().join("again.txt"));
 
     a.stop().await;
     b.stop().await;

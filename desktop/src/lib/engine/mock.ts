@@ -98,21 +98,21 @@ interface Seed extends Device {
 }
 
 const SEED: Seed[] = [
-  { id: 'd-aisyah', name: "Aisyah's laptop", kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '4F2A 91C3', wakeable: false, appearMs: 700 },
-  { id: 'd-phone', name: 'Work phone', kind: 'phone', os: 'android', trusted: true, autoAccept: true, reachable: true, route: 'nearby', fingerprint: 'B7E0 22D9', wakeable: false, appearMs: 1300 },
-  { id: 'd-studio', name: 'Studio PC', kind: 'desktop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '0C5D E81A', wakeable: false, appearMs: 2100 },
-  { id: 'd-tablet', name: "Mei Ling's tablet", kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '6A19 C4F0', wakeable: false, appearMs: 2900 },
-  { id: 'd-office', name: 'Office laptop', kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: false, route: null, fingerprint: 'D3B8 0E57', wakeable: false, appearMs: 400 },
+  { id: 'd-aisyah', name: "Aisyah's laptop", kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '4F2A 91C3', wakeable: false, appearMs: 700 },
+  { id: 'd-phone', name: 'Work phone', kind: 'phone', os: 'android', trusted: true, autoAccept: true, reachable: true, route: 'nearby', nearby: true, fingerprint: 'B7E0 22D9', wakeable: false, appearMs: 1300 },
+  { id: 'd-studio', name: 'Studio PC', kind: 'desktop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '0C5D E81A', wakeable: false, appearMs: 2100 },
+  { id: 'd-tablet', name: "Mei Ling's tablet", kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '6A19 C4F0', wakeable: false, appearMs: 2900 },
+  { id: 'd-office', name: 'Office laptop', kind: 'laptop', os: 'windows', trusted: true, autoAccept: false, reachable: false, route: null, nearby: false, fingerprint: 'D3B8 0E57', wakeable: false, appearMs: 400 },
 ];
 
 const EXTRA: Omit<Device, 'id'>[] = [
-  { name: "Ravi's desktop", kind: 'desktop', os: 'windows', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '91AE 3B70', wakeable: false },
-  { name: 'Living room tablet', kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '27CC F104', wakeable: false },
-  { name: "Daniel's phone", kind: 'phone', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: 'E05B 6D92', wakeable: false },
-  { name: 'Lab laptop', kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', fingerprint: '5F81 A2C6', wakeable: false },
+  { name: "Ravi's desktop", kind: 'desktop', os: 'windows', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '91AE 3B70', wakeable: false },
+  { name: 'Living room tablet', kind: 'tablet', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '27CC F104', wakeable: false },
+  { name: "Daniel's phone", kind: 'phone', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: 'E05B 6D92', wakeable: false },
+  { name: 'Lab laptop', kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '5F81 A2C6', wakeable: false },
 ];
 
-const PAIR_DEVICE: Omit<Device, 'id'> = { name: "Nadia's laptop", kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'direct', fingerprint: '8C4E 17B2', wakeable: false };
+const PAIR_DEVICE: Omit<Device, 'id'> = { name: "Nadia's laptop", kind: 'laptop', os: 'linux', trusted: false, autoAccept: false, reachable: true, route: 'direct', nearby: false, fingerprint: '8C4E 17B2', wakeable: false };
 /** What both screens show after pairing with a code (the real engine derives it from both device keys). */
 const PAIR_CHECK = '5D19 E04A';
 /** What both screens show during a trust ask from Nearby. */
@@ -921,7 +921,7 @@ export class MockEngine implements Engine {
         t.noise += dtMs / 1000;
         const wobble = 0.85 + 0.15 * Math.sin(t.noise * 1.7) + 0.08 * Math.sin(t.noise * 5.3);
         const inst = ROUTE_SPEED[t.route] * wobble * this.speedScale;
-        t.speed += (inst - t.speed) * Math.min(1, dtMs / 900);
+        t.speed = this.speedScale === 0 ? 0 : t.speed + (inst - t.speed) * Math.min(1, dtMs / 900);
         let add = t.speed * (dtMs / 1000);
         if (t.direction === 'receive') {
           const room = this.freeSpace - t.doneBytes;

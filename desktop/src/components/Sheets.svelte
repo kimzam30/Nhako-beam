@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { prefs } from '../lib/state/prefs.svelte';
+  import { arrangeRoom, roomMax, roomOrder } from '../lib/stage/room';
   import { app } from '../lib/state/app.svelte';
+  import { canTrust, sendGroups } from '../lib/state/sendList';
   import { message } from '../lib/engine/tauri';
   import type { LinkVisitor, RedeemResult } from '../lib/engine/types';
   import { TEXT_MAX } from '../lib/engine/types';
@@ -39,8 +42,9 @@
   };
 
   // ---------- Send to ----------
-  const trusted = $derived(app.devices.filter((d) => d.trusted));
-  const nearby = $derived(app.devices.filter((d) => !d.trusted && d.reachable));
+  const groups = $derived(sendGroups(app.devices));
+  const trusted = $derived(groups.trusted);
+  const nearby = $derived(groups.nearby);
 
   // ---------- Compose ----------
   let draft = $state('');
@@ -71,6 +75,22 @@
   }
 
   // ---------- Device ----------
+  // The Devices sheet: tap to send, tick to keep in the room.
+  const devIcon: Record<string, string> = { laptop: 'laptop', desktop: 'desktop-tower', phone: 'device-mobile', tablet: 'device-tablet' };
+  const devMax = $derived(roomMax(app.width, app.height));
+  const devLayout = $derived(arrangeRoom(app.devices, prefs.roomPicked, app.width, app.height));
+  let devNudge = $state(false);
+  function devicesTick(id: string) {
+    if (app.toggleRoom(id)) return;
+    devNudge = true;
+    setTimeout(() => (devNudge = false), 360);
+  }
+  function devicesSend(id: string) {
+    app.sheet = null;
+    if (app.staged.length > 0 || app.stagedText !== null) app.sendTo(id);
+    else app.requestPick('files', id);
+  }
+
   const sheetDevice = $derived(app.sheet?.kind === 'device' ? app.device(app.sheet.deviceId) : undefined);
   /** Sends what's waiting, or asks Home to pick files or a folder for this device. */
   function sendFromDevice(kind: 'files' | 'folder' | 'text') {
@@ -264,7 +284,25 @@
   {/if}
 {/snippet}
 
-{#if app.sheet?.kind === 'send'}
+{#if app.sheet?.kind === 'devices'}
+  <Sheet title={t('home.devices')} onclose={close} testid="sheet-devices">
+    <p class="muted devnote">{t('devices.note', { max: devMax })}</p>
+    <p class="devcount" class:nudge={devNudge}>{t('devices.picked', { n: devLayout.room.length, max: Math.min(devMax, app.devices.length) })}</p>
+    {#each roomOrder(app.devices) as d (d.id)}
+      {@const usable = d.reachable || d.wakeable}
+      {@const inRoom = devLayout.room.some((q) => q.device.id === d.id)}
+      <div class="devrow">
+        <button class="devmain" disabled={!usable} data-testid="devices-send-{d.id}" onclick={() => devicesSend(d.id)}>
+          <span class="devicon"><Icon name={devIcon[d.kind] ?? 'laptop'} size={22} /></span>
+          <span class="devtext"><strong>{d.name}</strong><small class="muted">{t(d.reachable ? 'devices.ready' : d.wakeable ? 'home.orb.asleep' : 'home.orb.offline')}</small></span>
+        </button>
+        <button class="devtick" class:on={inRoom} role="checkbox" aria-checked={inRoom} aria-label={t('devices.keep', { device: d.name })} data-testid="devices-tick-{d.id}" onclick={() => devicesTick(d.id)}>
+          <span><Icon name="check" size={17} weight="bold" /></span>
+        </button>
+      </div>
+    {/each}
+  </Sheet>
+{:else if app.sheet?.kind === 'send'}
   <Sheet title={t('send.choose.title')} onclose={close} testid="sheet-send">
     {#if app.stagedText !== null}
       <div class="staged">
@@ -288,7 +326,7 @@
                 <span class="name">{d.name}</span>
                 {#if d.route}<ConnectionBadge route={d.route} />{:else}<span class="muted small">{t(d.wakeable ? 'home.orb.asleep' : 'home.orb.offline')}</span>{/if}
               </button>
-              {#if !d.trusted && d.route === 'nearby'}
+              {#if canTrust(d)}
                 <Button variant="ghost" size="sm" icon="handshake" testid="send-trust-{d.id}" onclick={() => app.askTrust(d.id)}>{t('send.choose.trust')}</Button>
               {/if}
             </li>
@@ -479,7 +517,7 @@
         </li>
       {/each}
     </ul>
-    {#if !d.trusted && d.reachable && d.route === 'nearby'}
+    {#if canTrust(d)}
       <div class="trust-box" in:springIn={{ delay: stagger(3), y: 8 }}>
         <p class="muted small">{t('device.trust.hint')}</p>
         <Button full icon="handshake" testid="device-trust" onclick={() => app.askTrust(d.id)}>{t('device.trust')}</Button>
@@ -1117,5 +1155,96 @@
     background: var(--color-beam-core);
     transform-origin: left;
     transition: transform var(--spring-smooth-duration) var(--spring-smooth);
+  }
+  .devnote {
+    font-size: var(--type-footnote-size);
+  }
+  .devcount {
+    font-size: var(--type-footnote-size);
+    color: var(--color-accent-text);
+  }
+  .devcount.nudge {
+    animation: devnudge 340ms var(--ease-standard);
+  }
+  @keyframes devnudge {
+    25% {
+      transform: translateX(-5px);
+    }
+    60% {
+      transform: translateX(4px);
+    }
+  }
+  .devrow {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .devmain {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    text-align: left;
+    transition: transform var(--spring-press-duration) var(--spring-press), background-color var(--duration-fast);
+  }
+  .devmain:hover {
+    background: var(--color-fill);
+  }
+  .devmain:active {
+    transform: scale(0.97);
+  }
+  .devmain:disabled {
+    opacity: 0.55;
+    cursor: default;
+    transform: none;
+  }
+  .devicon {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-sm);
+    background: var(--color-fill);
+    display: grid;
+    place-items: center;
+  }
+  .devtext {
+    min-width: 0;
+    display: grid;
+  }
+  .devtext strong {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .devtext small {
+    font-size: var(--type-footnote-size);
+  }
+  .devtick {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+  }
+  .devtick span {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    background: var(--color-fill);
+    color: transparent;
+    transition: background-color var(--duration-fast), transform var(--spring-bouncy-duration) var(--spring-bouncy);
+  }
+  .devtick.on span {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+  .devtick:active span {
+    transform: scale(0.86);
   }
 </style>

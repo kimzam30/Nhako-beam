@@ -6,9 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,7 @@ import io.github.kimzam30.nhakobeam.design.NhakoRadius
 import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
+import io.github.kimzam30.nhakobeam.engine.EngineException
 import io.github.kimzam30.nhakobeam.model.Device
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.state.Sheet
@@ -74,6 +78,8 @@ import io.github.kimzam30.nhakobeam.ui.components.NToggle
 import io.github.kimzam30.nhakobeam.ui.components.QrScanner
 import io.github.kimzam30.nhakobeam.ui.components.RouteBadge
 import io.github.kimzam30.nhakobeam.ui.components.Spinner
+import io.github.kimzam30.nhakobeam.ui.components.kindIcon
+import io.github.kimzam30.nhakobeam.ui.components.pressScale
 import io.github.kimzam30.nhakobeam.ui.components.sparks
 import io.github.kimzam30.nhakobeam.ui.formatBytes
 import io.github.kimzam30.nhakobeam.ui.isLink
@@ -109,6 +115,7 @@ fun SheetHost(app: AppState) {
 
     when (sheet) {
         Sheet.Send -> NSheet(visible, t("send.choose.title"), ::close) { SendContent(app) }
+        Sheet.Devices -> NSheet(visible, t("home.devices"), ::close) { DevicesContent(app) }
         Sheet.ShowCode -> NSheet(visible, t("code.show.title"), ::close) { ShowCodeContent(app) }
         Sheet.EnterCode -> EnterCodeSheet(app, visible, ::close)
         Sheet.Scan -> NSheet(visible, t("code.scan.title"), ::close, footer = {
@@ -235,8 +242,7 @@ fun SheetHost(app: AppState) {
 @Composable
 private fun SendContent(app: AppState) {
     val c = Nhako.colors
-    val trusted = app.devices.filter { it.trusted }.sortedByDescending { it.reachable }
-    val nearby = app.devices.filter { !it.trusted && it.reachable }
+    val (trusted, nearby) = io.github.kimzam30.nhakobeam.state.sendGroups(app.devices)
     val text = app.stagedText
     if (text != null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -256,7 +262,7 @@ private fun SendContent(app: AppState) {
         if (list.isEmpty()) continue
         BasicText(label, style = NhakoType.footnote.style(c.textSecondary).copy(fontWeight = FontWeight(600)))
         Column {
-            for (d in list) DeviceRow(app, d, i++)
+            for (d in list) androidx.compose.runtime.key(d.id) { DeviceRow(app, d, i++) }
         }
     }
     NButton(t("send.choose.useCode"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Plain, icon = "qr-code", full = true)
@@ -409,7 +415,7 @@ private fun DeviceRow(app: AppState, d: Device, order: Int) {
             BasicText(d.name, Modifier.weight(1f), style = NhakoType.body.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
             state()
         }
-        if (!d.trusted && d.route == io.github.kimzam30.nhakobeam.model.Route.Nearby) {
+        if (io.github.kimzam30.nhakobeam.state.canTrust(d)) {
             Spacer(Modifier.width(NhakoSpace.s2))
             NButton(t("send.choose.trust"), { app.askTrust(d.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "handshake")
         }
@@ -500,7 +506,7 @@ private fun DeviceContent(app: AppState, d: Device) {
             PhIcon("caret-right", size = 16.dp, tint = c.textTertiary, weight = IconWeight.Bold)
         }
     }
-    if (!d.trusted && d.reachable && d.route == io.github.kimzam30.nhakobeam.model.Route.Nearby) {
+    if (io.github.kimzam30.nhakobeam.state.canTrust(d)) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(NhakoRadius.md)).background(c.surfaceSunken).padding(NhakoSpace.s4),
             verticalArrangement = Arrangement.spacedBy(NhakoSpace.s3),
@@ -593,9 +599,12 @@ private fun EnterCodeSheet(app: AppState, visible: Boolean, close: () -> Unit) {
         checking = true
         error = ""
         scope.launch {
-            val r = runCatching { app.engine.redeemCode(state.words.toList()) }.getOrElse {
+            // Only the engine's own errors: a cancel (the paired event closing this sheet) isn't one.
+            val r = try {
+                app.engine.redeemCode(state.words.toList())
+            } catch (e: EngineException) {
                 checking = false
-                error = it.message ?: t("code.enter.wrong")
+                error = e.message ?: t("code.enter.wrong")
                 return@launch
             }
             checking = false
@@ -639,20 +648,12 @@ private fun EnterCodeSheet(app: AppState, visible: Boolean, close: () -> Unit) {
 
 @Composable
 private fun ScanContent(app: AppState) {
-    val scope = rememberCoroutineScope()
     var connecting by remember { mutableStateOf(false) }
     BasicText(t("code.enter.body"), style = NhakoType.body.style(Nhako.colors.textSecondary))
     QrScanner(onFound = { words ->
         if (connecting) return@QrScanner
         connecting = true
-        scope.launch {
-            val r = runCatching { app.engine.redeemCode(words) }.getOrNull()
-            connecting = false
-            if (r?.ok != true) {
-                app.toast(if (r?.reason == "tokenRejected") t("code.enter.tokenRejected") else t("code.enter.wrong"), io.github.kimzam30.nhakobeam.state.ToastTone.Danger)
-                app.sheet = Sheet.EnterCode
-            }
-        }
+        app.redeemScanned(words) { connecting = false }
     })
     if (connecting) Row(verticalAlignment = Alignment.CenterVertically) {
         Spinner(Nhako.colors.accent)
@@ -787,5 +788,63 @@ private fun RiskyOpen(sheet: Sheet.ConfirmOpen) {
         ) { PhIcon("warning-circle", size = 28.dp, tint = c.warning, weight = IconWeight.Fill) }
         Spacer(Modifier.width(NhakoSpace.s4))
         BasicText(t("open.risky.body", "device" to sheet.deviceName), style = NhakoType.body.style(c.textSecondary))
+    }
+}
+
+/** Every device: tap one to send to it, tick the ones to keep in your room. */
+@Composable
+private fun DevicesContent(app: AppState) {
+    val c = Nhako.colors
+    val view = LocalView.current
+    val screen = androidx.compose.ui.platform.LocalConfiguration.current
+    val width = screen.screenWidthDp.toFloat()
+    val height = screen.screenHeightDp.toFloat()
+    val data = io.github.kimzam30.nhakobeam.ui.components.rememberRoomData()
+    val layout = app.roomLayout(data, width, height)
+    val max = io.github.kimzam30.nhakobeam.stage.roomMax(data, width, height)
+    val shake = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    BasicText(t("devices.note", "max" to max), style = NhakoType.footnote.style(c.textSecondary))
+    BasicText(t("devices.picked", "n" to layout.room.size, "max" to minOf(max, app.devices.size)), Modifier.graphicsLayer { translationX = shake.value }, style = NhakoType.footnote.style(c.accentText))
+    for (d in io.github.kimzam30.nhakobeam.stage.roomOrder(app.devices)) {
+        val usable = d.reachable || d.wakeable
+        val inRoom = layout.room.any { it.device.id == d.id }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clip(RoundedCornerShape(NhakoRadius.md)).clickable(enabled = usable, role = Role.Button) {
+                    app.sheet = null
+                    if (app.hasStaged) app.sendTo(d.id) else {
+                        app.pickTarget = d.id
+                        app.platform.pickFiles()
+                    }
+                }.padding(vertical = NhakoSpace.s2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(NhakoRadius.sm)).background(c.fill), contentAlignment = Alignment.Center) {
+                    PhIcon(kindIcon(d.kind), size = 22.dp, tint = if (usable) c.textPrimary else c.textTertiary)
+                }
+                Spacer(Modifier.width(NhakoSpace.s3))
+                Column(Modifier.weight(1f)) {
+                    BasicText(d.name, style = NhakoType.body.style(c.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BasicText(t(if (d.reachable) "devices.ready" else if (d.wakeable) "home.orb.asleep" else "home.orb.offline"), style = NhakoType.footnote.style(c.textSecondary))
+                }
+            }
+            val interaction = remember { MutableInteractionSource() }
+            Box(
+                Modifier.size(48.dp).pressScale(interaction, 0.86f).clickable(interaction, null, role = Role.Checkbox) {
+                    if (app.toggleRoom(d.id, data, width, height)) NhakoHaptic.ToggleOn.perform(view)
+                    else {
+                        NhakoHaptic.Decline.perform(view)
+                        scope.launch { shake.snapTo(10f); shake.animateTo(0f, spring(dampingRatio = 0.3f, stiffness = 900f)) }
+                    }
+                }.semantics { contentDescription = t("devices.keep", "device" to d.name); stateDescription = if (inRoom) "on" else "off" },
+                contentAlignment = Alignment.Center,
+            ) {
+                val s by animateFloatAsState(if (inRoom) 1f else 0f, NhakoMotion.bouncy.spec(), label = "tick")
+                Box(Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(if (inRoom) c.accent else c.fill), contentAlignment = Alignment.Center) {
+                    PhIcon("check", Modifier.graphicsLayer { scaleX = s; scaleY = s; alpha = s.coerceIn(0f, 1f) }, size = 18.dp, tint = c.onAccent, weight = IconWeight.Bold)
+                }
+            }
+        }
     }
 }

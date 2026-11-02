@@ -37,15 +37,26 @@ test.describe('sending', () => {
     await sim(page, 'stage-photos');
     await page.getByTestId('outcome').getByRole('radio', { name: 'Decline' }).click();
     await closePanel(page);
-    await page.getByTestId('orb-d-studio').click();
+    await page.getByTestId('choose-device').click();
+    await page.getByTestId('send-row-d-studio').click();
     const card = page.locator('[data-testid^="transfer-"]').first();
     await expect(card).toHaveAttribute('data-status', 'waiting');
     await expect(card).toContainText('Waiting for Studio PC to accept');
-    await expect(page.getByTestId('orb-d-studio')).toHaveAttribute('data-state', 'waiting');
+    await expect(page.getByTestId('radar').getByTestId('orb-d-studio')).toHaveAttribute('data-state', 'waiting');
     await expect(card).toHaveAttribute('data-status', 'declined', { timeout: 5000 });
     await expect(card).toContainText('Studio PC declined');
     await expect(card.getByTestId('retry')).toBeVisible();
     expect(await haptics(page)).toContain('decline');
+  });
+
+  test('a device in the room shows its drawing: its button paints nothing over it', async ({ page }) => {
+    await ready(page);
+    const paint = await page.getByTestId('orb-d-studio').evaluate((orb) => {
+      const circle = orb.querySelector('.circle')!, ring = orb.querySelector('.snapring')!;
+      return { circle: getComputedStyle(circle).backgroundColor, ring: getComputedStyle(ring).fill };
+    });
+    expect(paint.circle).toBe('rgba(0, 0, 0, 0)');
+    expect(paint.ring).toBe('none');
   });
 
   test('drag the staged stack: magnet snaps onto a device, drop sends', async ({ page }) => {
@@ -188,7 +199,8 @@ test.describe('who can send', () => {
     await sim(page, 'stage-photos');
     await page.getByTestId('outcome').getByRole('radio', { name: 'Not theirs' }).click();
     await closePanel(page);
-    await page.getByTestId('orb-d-studio').click();
+    await page.getByTestId('choose-device').click();
+    await page.getByTestId('send-row-d-studio').click();
     const card = page.locator('[data-testid^="transfer-"]').first();
     await expect(card).toHaveAttribute('data-status', 'declined', { timeout: 5000 });
     await expect(card).toContainText('Studio PC only takes files from its own devices');
@@ -524,11 +536,37 @@ test.describe('discovery and layout', () => {
     await expect(page.getByTestId('orb-d-studio')).toBeHidden();
   });
 
-  test('more than 8 devices shows a More button', async ({ page }) => {
+  test('the Devices sheet lists everyone, ticks them in and out of the room, and sends', async ({ page }) => {
     await ready(page);
     await sim(page, 'disc-many');
     await closePanel(page);
-    await expect(page.getByTestId('more-devices')).toContainText('more devices');
+    await page.getByTestId('open-devices').click();
+    const sheet = page.getByTestId('sheet-devices');
+    await expect(sheet.locator('.devrow')).toHaveCount(await page.evaluate(() => (window as any).__nhako.app.devices.length));
+    const inRoom = () => page.locator('[data-testid="radar"] .device').count();
+    const before = await inRoom();
+    const id = await sheet.locator('.devtick.on').first().getAttribute('data-testid');
+    await page.getByTestId(id!).click();
+    await expect(page.getByTestId(id!)).toHaveAttribute('aria-checked', 'false');
+    await expect.poll(inRoom).toBeLessThanOrEqual(before);
+    await page.getByTestId(id!).click();
+    await expect(page.getByTestId(id!)).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+  });
+
+  test('the panel swipes away and comes back; unpicked devices wait as bubbles on a tall window', async ({ page }) => {
+    await page.setViewportSize({ width: 400, height: 860 });
+    await ready(page);
+    await sim(page, 'disc-many');
+    await closePanel(page);
+    const panel = page.getByTestId('home-panel');
+    await expect(panel).toHaveAttribute('data-open', 'true');
+    await page.getByTestId('panel-handle').click();
+    await expect(panel).toHaveAttribute('data-open', 'false');
+    await expect(page.locator('[data-testid^="bubble-"]').first()).toBeVisible();
+    await page.getByTestId('panel-handle').click();
+    await expect(panel).toHaveAttribute('data-open', 'true');
+    await expect(page.getByTestId('send-files')).toBeVisible();
   });
 
   test('no sideways scrolling', async ({ page }) => {
@@ -687,7 +725,7 @@ test.describe('always ready (phase 20)', () => {
 test.describe('found on real devices after phase 8', () => {
   test('a removed trusted device that is away leaves the radar at once', async ({ page }) => {
     await ready(page);
-    await expect(page.getByTestId('orb-d-office')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as any).__nhako.app.devices.some((d: { id: string }) => d.id === 'd-office'))).toBe(true);
     await page.getByTestId('open-settings').click();
     await page.getByTestId('remove-d-office').click();
     await page.getByTestId('confirm-remove').click();
@@ -770,10 +808,25 @@ test.describe('bolt motion (phase 13)', () => {
     return card;
   }
 
+  test('a transfer with nothing moving says so, then carries on', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-video');
+    await closePanel(page);
+    await page.getByTestId('orb-d-aisyah').click();
+    const card = page.locator('[data-testid^="transfer-"]').first();
+    await expect(card).toHaveAttribute('data-status', 'transferring');
+    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0));
+    await expect(page.getByTestId('stalled')).toBeVisible({ timeout: 12000 });
+    await page.evaluate(() => ((window as any).__nhako.app.engine.speedScale = 0.02));
+    await expect(page.getByTestId('stalled')).toHaveCount(0, { timeout: 4000 });
+  });
+
   test('arcs, sparks, the riding bolt and the done check', async ({ page }) => {
     await ready(page, { speed: 4 });
     // A device turning up gets an arc from you to it (drawn by the 3D stage, which counts them).
-    const arcs = Number((await page.getByTestId('radar').getAttribute('data-arcs')) ?? 0);
+    // A tall room is already full of your picks, so there the arcs come from those as they appear.
+    const size = page.viewportSize()!;
+    const arcs = size.width > size.height ? Number((await page.getByTestId('radar').getAttribute('data-arcs')) ?? 0) : 0;
     await sim(page, 'disc-add');
     await expect.poll(async () => Number(await page.getByTestId('radar').getAttribute('data-arcs'))).toBeGreaterThan(arcs);
     await closePanel(page);

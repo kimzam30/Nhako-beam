@@ -44,6 +44,8 @@ class Background(private val context: Context, private val app: AppState, privat
     /** Paused from the notification: until the app is opened, the tile is tapped or the phone restarts. */
     private var alwaysPaused = false
     private var alwaysRunning = false
+    /** Asked Android to start it, and it hasn't yet. */
+    private var alwaysStarting = false
 
     /** Always ready to receive should be running: set up, switched on in Settings, not paused. */
     val alwaysWanted: Boolean get() = app.onboarded && app.alwaysReady && !alwaysPaused
@@ -58,12 +60,14 @@ class Background(private val context: Context, private val app: AppState, privat
             try {
                 ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
                 alwaysRunning = true
+                alwaysStarting = true
             } catch (e: RuntimeException) {
                 // Android doesn't allow it from here (the app was started in the background for
                 // something else). Boot, an update, the tile or opening the app start it.
                 Log.w("nhako", "Couldn't start always ready to receive: ${e.message}")
             }
-        } else if (!want && alwaysRunning) {
+        } else if (!want && alwaysRunning && !alwaysStarting) {
+            // Still starting: it can't be stopped until it has. It checks when it does, and stops itself.
             context.stopService(Intent(context, ReceiverService::class.java))
             alwaysRunning = false
         }
@@ -74,11 +78,13 @@ class Background(private val context: Context, private val app: AppState, privat
     /** Android restarted the service by itself after stopping the app. */
     fun alwaysStarted() {
         alwaysRunning = true
+        alwaysStarting = false
         updateMulticast()
     }
 
     fun alwaysStopped() {
         alwaysRunning = false
+        alwaysStarting = false
         updateMulticast()
         onReadyChanged()
     }
@@ -94,6 +100,8 @@ class Background(private val context: Context, private val app: AppState, privat
     }
 
     private var serviceRunning = false
+    /** Asked Android to start it, and it hasn't yet: it can't be stopped until it has. */
+    private var serviceStarting = false
     /** Ready to receive until this moment (elapsed realtime), with no screen open. 0: not. */
     private var readyUntil = 0L
     /** Woken up by another device (rather than the tile). */
@@ -220,13 +228,22 @@ class Background(private val context: Context, private val app: AppState, privat
      *  next transfer starts it again (Android refuses until its time comes back; that's caught). */
     fun serviceStopped() {
         serviceRunning = false
+        serviceStarting = false
+    }
+
+    /** It's in the foreground now, so it may be stopped from here on. */
+    fun serviceStarted() {
+        serviceStarting = false
+        // Everything ended while it was starting, and it had something to show by then.
+        if (app.activeTransfers.isEmpty() && !ready) syncService()
     }
 
     /** Starts the service when files start moving, keeps its notification fresh, stops it after. */
     private fun syncService() {
         val active = app.activeTransfers
         if (active.isEmpty() && !ready) {
-            if (serviceRunning) {
+            // Still starting: it finds nothing to show when it does, and stops itself.
+            if (serviceRunning && !serviceStarting) {
                 context.stopService(Intent(context, TransferService::class.java))
                 serviceRunning = false
             }
@@ -239,6 +256,7 @@ class Background(private val context: Context, private val app: AppState, privat
             try {
                 ContextCompat.startForegroundService(context, Intent(context, TransferService::class.java))
                 serviceRunning = true
+                serviceStarting = true
             } catch (e: IllegalStateException) {
                 // Android won't let a background app start one (a request accepted automatically
                 // while out of sight). The transfer still runs while Android keeps us around.

@@ -735,16 +735,32 @@ impl Engine {
             }
             let settle = tokio::time::sleep(Duration::from_secs(3));
             tokio::pin!(settle);
+            let mut settled = false;
             loop {
                 tokio::select! {
                     next = checks.next() => if next.is_none() { break },
-                    _ = &mut settle => {}
+                    _ = &mut settle, if !settled => settled = true,
                 }
             }
             if e.st().discovery == DiscoveryState::Searching {
                 e.set_discovery(DiscoveryState::Idle);
             }
         });
+    }
+
+    /// The network changed (Wi-Fi joined or left, local network access just allowed). Android
+    /// can't tell native code this itself, so the app calls it: the endpoint looks at its own
+    /// addresses again, the beacon at its adapters, and then nearby devices are looked for now
+    /// instead of at the next timer.
+    pub fn network_changed(&self) {
+        let e = self.clone();
+        self.spawn_bg(async move {
+            e.endpoint().network_change().await;
+        });
+        if let Some(b) = &self.inner.beacon {
+            b.refresh_adapters();
+        }
+        self.rescan();
     }
 
     /// Sends files to a device. Returns the transfer id.
@@ -914,23 +930,49 @@ impl Engine {
         }
     }
 
-    /// Picks a failed transfer up from the last confirmed byte.
+    /// Try again. A transfer that had started picks up from the last confirmed byte. A send the
+    /// other device has nothing of (refused, declined, cancelled there, or it never answered)
+    /// asks again from the start, so it gets the answer that device would give now.
     pub fn retry(&self, transfer_id: &str) {
         let Some(id) = wire::parse_transfer_id(transfer_id) else { return };
-        let dir = self.with_tx(&id, |tx| {
-            if tx.t.status != TransferStatus::Failed {
+        let plan = self.with_tx(&id, |tx| {
+            let send = tx.t.direction == TransferDirection::Send;
+            let ask_again = send
+                && match tx.t.status {
+                    TransferStatus::Declined => true,
+                    TransferStatus::Cancelled => tx.t.cancelled_by == Some(Side::Peer),
+                    TransferStatus::Failed => tx.session_start.is_none(),
+                    _ => false,
+                };
+            if tx.t.status != TransferStatus::Failed && !ask_again {
                 return None;
             }
             tx.t.status = TransferStatus::Connecting;
             tx.t.error = None;
             tx.t.paused_by = None;
-            tx.epoch += 1;
-            Some((tx.t.direction, tx.epoch))
+            if ask_again {
+                tx.t.cancelled_by = None;
+                tx.t.finished_at = None;
+                tx.t.waiting_long = false;
+                tx.stop_moving();
+                let none = vec![0; tx.t.files.len()];
+                tx.set_have(&none);
+                // Ending removed the copy of a text; a device on an older version gets it as a file.
+                if let (Some(temp), Some(text)) = (&tx.temp, &tx.t.text)
+                    && !temp.exists()
+                {
+                    let _ = std::fs::write(temp, text);
+                }
+            } else {
+                tx.epoch += 1;
+            }
+            Some((tx.t.direction, tx.epoch, ask_again))
         });
-        let Some(Some((direction, epoch))) = dir else { return };
+        let Some(Some((direction, epoch, ask_again))) = plan else { return };
         self.emit_tx(&id, true);
         let e = self.clone();
         match direction {
+            TransferDirection::Send if ask_again => self.spawn_bg(async move { e.drive_send(id).await }),
             TransferDirection::Send => self.spawn_bg(async move { e.reconnect_send(id, epoch).await }),
             TransferDirection::Receive => self.spawn_bg(async move { e.pull(id, epoch).await }),
         }
@@ -1346,6 +1388,7 @@ impl Engine {
             auto_accept: trusted.is_some_and(|t| t.auto_accept),
             reachable,
             route: if reachable { dev.and_then(|d| d.route) } else { None },
+            nearby: reachable && dev.is_some_and(|d| d.nearby),
             fingerprint: fingerprint(id),
             wakeable,
         })
@@ -1641,11 +1684,12 @@ impl Engine {
             return;
         }
         let every = if self.is_foreground() { RECHECK_NEARBY } else { RECHECK_IN_BACKGROUND };
-        let check = {
+        let (check, newly) = {
             let mut st = self.st();
-            st.devices.entry(id).or_default().nearby = true;
+            let d = st.devices.entry(id).or_default();
+            let newly = !std::mem::replace(&mut d.nearby, true);
             let now = Instant::now();
-            if st.nearby_checked.get(&id).is_some_and(|t| now - *t < every) {
+            let check = if st.nearby_checked.get(&id).is_some_and(|t| now - *t < every) {
                 false
             } else {
                 if st.nearby_checked.len() > 64 {
@@ -1653,8 +1697,12 @@ impl Engine {
                 }
                 st.nearby_checked.insert(id, now);
                 true
-            }
+            };
+            (check, newly)
         };
+        if newly {
+            self.emit_device(&id);
+        }
         if check {
             tokio::spawn(self.clone().check_device(id));
         }
@@ -1692,6 +1740,7 @@ impl Engine {
         if let Some(d) = self.st().devices.get_mut(&id) {
             d.nearby = false;
         }
+        self.emit_device(&id);
         tokio::spawn(self.clone().check_device(id));
     }
 
@@ -1868,7 +1917,12 @@ impl Engine {
         });
         let admitted = {
             let mut st = self.st();
-            if st.transfers.contains_key(&offer.id) || st.requests.contains_key(&offer.id) {
+            // Cancelled here, then the sender tried again: a new ask under the same id.
+            let asked_again = st
+                .transfers
+                .get(&offer.id)
+                .is_some_and(|t| t.peer == peer && t.t.status == TransferStatus::Cancelled);
+            if (st.transfers.contains_key(&offer.id) && !asked_again) || st.requests.contains_key(&offer.id) {
                 None
             } else {
                 let admitted = Self::admit_offer(&mut st, &peer, yours, who);

@@ -20,7 +20,13 @@ interface Prefs {
     var updateSeen: String?
     /** Keep receiving with no screen open, from the moment the phone starts (on by default). */
     var alwaysReady: Boolean
+    /** Who's asleep at the desk in Home's room. */
+    var roomPerson: RoomPerson
+    /** The devices you picked for the room; null until you first tick one (it fills up by itself till then). */
+    var roomPicked: Set<String>?
 }
+
+enum class RoomPerson { Boy, Girl }
 
 /** Saved in SharedPreferences; the Compose state makes theme and motion switch live. */
 class SharedPrefs(context: Context) : Prefs {
@@ -64,6 +70,20 @@ class SharedPrefs(context: Context) : Prefs {
             alwaysState = v
             sp.edit().putBoolean("alwaysReady", v).apply()
         }
+    private var personState by mutableStateOf(runCatching { RoomPerson.valueOf(sp.getString("roomPerson", null) ?: "Boy") }.getOrDefault(RoomPerson.Boy))
+    override var roomPerson: RoomPerson
+        get() = personState
+        set(v) {
+            personState = v
+            sp.edit().putString("roomPerson", v.name).apply()
+        }
+    private var pickedState by mutableStateOf(sp.getStringSet("roomPicked", null)?.toSet())
+    override var roomPicked: Set<String>?
+        get() = pickedState
+        set(v) {
+            pickedState = v
+            sp.edit().putStringSet("roomPicked", v).apply()
+        }
 }
 
 /** For previews and tests. */
@@ -74,4 +94,6 @@ class MemoryPrefs(onboarded: Boolean = true) : Prefs {
     override var sounds by mutableStateOf(SoundPref.Soft)
     override var updateSeen: String? = null
     override var alwaysReady by mutableStateOf(true)
+    override var roomPerson by mutableStateOf(RoomPerson.Boy)
+    override var roomPicked by mutableStateOf<Set<String>?>(null)
 }

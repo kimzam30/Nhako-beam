@@ -383,6 +383,8 @@ fun NSheet(
                 }
                 .clip(RoundedCornerShape(topStart = NhakoRadius.xl, topEnd = NhakoRadius.xl))
                 .background(c.surfaceRaised)
+                // A tap on an empty part stays on the sheet, or it would fall through to the scrim and close it.
+                .pointerInput(Unit) { detectTapGestures {} }
                 // Above the keyboard when a field in the sheet has focus (the code words, a name).
                 .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
         ) {

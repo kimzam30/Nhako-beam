@@ -1,4 +1,6 @@
 // App-wide UI state. Holds what the engine reports plus what the UI is showing.
+import { arrangeRoom, roomMax } from '../stage/room';
+import { prefs } from './prefs.svelte';
 import { breakpoint } from '../tokens';
 import { MockEngine } from '../engine/mock';
 import { TauriEngine, isTauri, message } from '../engine/tauri';
@@ -34,6 +36,7 @@ export type Layout = 'compact' | 'medium' | 'expanded';
 
 export type Sheet =
   | { kind: 'send' }
+  | { kind: 'devices' }
   | { kind: 'showCode' }
   | { kind: 'enterCode' }
   | { kind: 'scan' }
@@ -118,6 +121,7 @@ class AppState {
   platformMode = $state<PlatformMode>('auto');
   coarsePointer = $state(false);
   width = $state(1024);
+  height = $state(768);
 
   devices = $state<Device[]>([]);
   discovery = $state<DiscoveryState>('idle');
@@ -332,7 +336,11 @@ class AppState {
     this.coarsePointer = coarse.matches;
     coarse.addEventListener('change', (e) => (this.coarsePointer = e.matches));
     this.width = innerWidth;
-    addEventListener('resize', () => (this.width = innerWidth));
+    this.height = innerHeight;
+    addEventListener('resize', () => {
+      this.width = innerWidth;
+      this.height = innerHeight;
+    });
   }
 
   /** Starts the engine; when it can't start, says why (as Android does). */
@@ -501,6 +509,16 @@ class AppState {
     }
     this.lanDiscovery = on;
     this.toast(t(on ? 'settings.network.lan.on' : 'settings.network.lan.off'), 'success');
+    return true;
+  }
+
+  /** Ticks a device into the room or out of it. False: the room is full, nothing changed. */
+  toggleRoom(deviceId: string): boolean {
+    const now = arrangeRoom(this.devices, prefs.roomPicked, this.width, this.height).room.map((q) => q.device.id);
+    if (now.includes(deviceId)) prefs.roomPicked = now.filter((id) => id !== deviceId);
+    else if (now.length >= roomMax(this.width, this.height)) return false;
+    else prefs.roomPicked = [...now, deviceId];
+    prefs.save();
     return true;
   }
 

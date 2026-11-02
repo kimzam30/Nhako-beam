@@ -59,11 +59,33 @@ Words we use and avoid:
 | Key | Text |
 |---|---|
 | `home.title` | Ready to beam |
-| `home.searching` | Looking for devices |
+| `home.searching` | Looking for devices (the Home heading while it looks; no longer on the stage) |
+| `home.status.offline` | You're offline |
+| `home.status.blocked` | Can't look for devices |
+| `home.status.nearby.one` | 1 device ready |
+| `home.status.nearby.many` | {n} devices ready |
+| `home.status.staged` | Pick a device |
+| `home.status.sending` | Sending to {device} (with the percent beside it) |
+| `home.status.receiving` | Receiving from {device} (with the percent) |
+| `home.status.waiting` | Waiting for {device} |
+| `home.status.connecting` | Connecting to {device} |
+| `home.status.paused` | Paused with {device} |
+| `home.status.many` | {n} transfers going |
 | `home.empty.title` | No devices nearby |
 | `home.empty.body` | Make sure the other device has Nhako Beam open and is on the same Wi-Fi. Or use a code. |
-| `home.action.sendCode` | Send with a code |
-| `home.action.receiveCode` | Receive with a code |
+| `home.action.yourCode` | Your code |
+| `home.action.scanCode` | Scan code |
+| `home.action.enterCode` | Enter code (desktop, which has no camera) |
+| `home.devices` | Devices |
+| `home.panel` | Show or hide the buttons (screen readers) |
+| `devices.note` | Tap a device to send to it. Tick up to {max} to keep in your room; the rest wait as bubbles when you swipe the buttons away. |
+| `devices.picked` | {n} of {max} in your room |
+| `devices.keep` | Keep {device} in your room |
+| `devices.ready` | Ready |
+| `settings.room.title` | Who's in your room |
+| `settings.room.boy` | Boy |
+| `settings.room.girl` | Girl |
+| `settings.room.note` | Changes the person and a few of their things. The room and your devices stay where they are. |
 | `home.action.chooseFiles` | Choose files |
 | `home.action.sendFiles` | Send files |
 | `home.orb.you` | This device |
@@ -71,6 +93,8 @@ Words we use and avoid:
 | `home.banner.offline` | You're offline. Nearby devices will appear when you reconnect. |
 | `home.banner.discoveryBlocked` | Can't look for nearby devices. Check that local network access is allowed. |
 | `home.banner.discoveryBlocked.fix` | Fix this |
+| `home.banner.localNetwork` | Your computers can't be found on this Wi-Fi until you allow Nearby devices. (Android 17 and newer, when local network access is off.) |
+| `home.banner.localNetwork.fix` | Allow (opens the app's page in Settings once the prompt was turned down) |
 | `home.moreDevices` | {count} more devices |
 | `home.drop.hint` | Drop to send |
 | `home.drop.onDevice` | Send to {device} |
@@ -101,7 +125,7 @@ Words we use and avoid:
 | Key | Text |
 |---|---|
 | `code.show.title` | Your code |
-| `code.show.body` | On the other device, choose Receive with a code and enter these words or scan this code. |
+| `code.show.body` | On the other device, tap Scan code or Enter code, then scan this code or type these words. |
 | `code.show.copy` | Copy |
 | `code.show.copied` | Copied |
 | `code.show.expired` | This code expired |
@@ -152,6 +176,7 @@ Summary builder examples: "3 photos", "1 video", "3 photos and 1 video", "12 fil
 | `transfer.paused` | Paused |
 | `transfer.paused.byOther` | {device} paused this transfer |
 | `transfer.reconnecting` | Reconnecting. Your progress is safe. |
+| `transfer.stalled` | Not moving. Waiting for the connection. |
 | `transfer.reconnected` | Back on track |
 | `transfer.done.sent` | Sent to {device} |
 | `transfer.done.received` | Received from {device} |

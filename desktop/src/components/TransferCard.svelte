@@ -23,6 +23,8 @@
   let hovered = $state(false);
   let focused = $state(false);
 
+  /** Nothing confirmed for this long while a transfer should be moving. */
+  const STALL_MS = 8000;
   const device = $derived(app.device(tr.deviceId));
   const name = $derived(device?.name ?? 'The other device');
   const pct = $derived(percent(tr.doneBytes, tr.totalBytes));
@@ -30,6 +32,18 @@
   const ended = $derived(['done', 'failed', 'cancelled', 'declined'].includes(tr.status));
   const showEta = $derived(moving && tr.movingSince !== null && Date.now() - tr.movingSince > 3000);
   const eta = $derived(formatEta(tr.totalBytes - tr.doneBytes, tr.speed));
+  // A connection can stay open with nothing moving (the Wi-Fi went): say so instead of a frozen estimate.
+  // Derived, so a new copy of the transfer with the same count doesn't restart the wait.
+  const done = $derived(tr.doneBytes);
+  const going = $derived(moving && done < tr.totalBytes);
+  let stalled = $state(false);
+  $effect(() => {
+    void done;
+    stalled = false;
+    if (!going) return;
+    const timer = setTimeout(() => (stalled = true), STALL_MS);
+    return () => clearTimeout(timer);
+  });
   const mode = $derived(
     tr.status === 'transferring' ? 'moving' : tr.status === 'paused' ? 'paused' : tr.status === 'reconnecting' ? 'reconnecting' : tr.status === 'done' ? 'done' : tr.status === 'failed' ? 'failed' : 'idle',
   );
@@ -130,8 +144,8 @@
       <p class="numbers tabular" aria-live="off">
         <span class="pct"><RollingNumber value={pct} suffix="%" /></span>
         {#if moving && tr.speed > 0}<span>{formatSpeed(tr.speed)}</span>{/if}
-        {#if moving}<span class="eta">{showEta && eta ? t('transfer.eta', { time: eta }) : t('transfer.eta.calculating')}</span>{/if}
-        <ConnectionBadge route={tr.route} />
+        {#if stalled}<span class="eta" data-testid="stalled">{t('transfer.stalled')}</span>{:else if moving}<span class="eta">{showEta && eta ? t('transfer.eta', { time: eta }) : t('transfer.eta.calculating')}</span>{/if}
+        {#if !stalled}<ConnectionBadge route={tr.route} />{/if}
       </p>
       <div class="actions">
         {#if tr.status === 'paused' && tr.pausedBy !== 'peer'}

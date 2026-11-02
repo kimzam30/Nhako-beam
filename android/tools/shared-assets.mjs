@@ -79,7 +79,7 @@ const listed = (weight) => {
   return m ? m[1].split(',') : [];
 };
 // Android-only: the camera for scanning, the files picker, and letting the app run in the background.
-const extra = { duotone: ['camera', 'camera-slash', 'image', 'flashlight', 'battery-charging'], fill: [], bold: ['arrow-left'] };
+const extra = { duotone: ['camera', 'camera-slash', 'image', 'flashlight', 'battery-charging', 'devices'], fill: [], bold: ['arrow-left'] };
 // Icons are named in Kotlin as plain strings ("paper-plane-tilt"); only those are bundled.
 const named = new Set();
 (function walk(dir) {

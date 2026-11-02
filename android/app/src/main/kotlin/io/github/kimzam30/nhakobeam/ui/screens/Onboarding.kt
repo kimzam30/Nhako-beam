@@ -56,6 +56,7 @@ import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.design.NhakoRadius
 import io.github.kimzam30.nhakobeam.design.NhakoSpace
 import io.github.kimzam30.nhakobeam.design.NhakoType
+import io.github.kimzam30.nhakobeam.platform.LocalNetwork
 import io.github.kimzam30.nhakobeam.state.AppState
 import io.github.kimzam30.nhakobeam.ui.Copy.t
 import io.github.kimzam30.nhakobeam.ui.components.ButtonSize
@@ -97,7 +98,13 @@ fun OnboardingScreen(app: AppState) {
         if (index + d > steps.lastIndex) app.finishOnboarding() else index = (index + d).coerceAtLeast(0)
     }
 
+    val context = LocalContext.current
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { go(1) }
+    // Nearby Wi-Fi devices, plus local network access on Android 17: one prompt.
+    val nearby = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        app.localNetworkChanged(LocalNetwork.allowed(context))
+        go(1)
+    }
     // Android 10 and older need the storage permission to save into Download.
     val storage = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { app.finishOnboarding() }
     val needsStorage = Build.VERSION.SDK_INT <= 29 && !LocalInspectionMode.current &&
@@ -154,15 +161,17 @@ fun OnboardingScreen(app: AppState) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
+        Row(Modifier.widthIn(max = 520.dp).fillMaxWidth().align(Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
             if (index > 0) NIconButton("caret-left", t("settings.back"), { go(-1) }, weight = IconWeight.Bold)
             when (step) {
                 Step.Nearby, Step.Notify -> {
                     NButton(t("onboarding.perm.skip"), { go(1) }, variant = ButtonVariant.Secondary, size = ButtonSize.Lg)
                     NButton(t("onboarding.perm.allow"), {
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            permission.launch(if (step == Step.Nearby) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.POST_NOTIFICATIONS)
-                        } else go(1)
+                        when {
+                            Build.VERSION.SDK_INT < 33 -> go(1)
+                            step == Step.Nearby -> nearby.launch(LocalNetwork.permissions)
+                            else -> permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     }, Modifier.weight(1f), size = ButtonSize.Lg, full = true)
                 }
                 else -> NButton(

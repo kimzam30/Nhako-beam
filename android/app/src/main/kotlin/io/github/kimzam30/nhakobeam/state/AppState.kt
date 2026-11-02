@@ -9,6 +9,9 @@ import androidx.compose.runtime.setValue
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoSound
 import io.github.kimzam30.nhakobeam.engine.Engine
+import io.github.kimzam30.nhakobeam.stage.RoomData
+import io.github.kimzam30.nhakobeam.stage.RoomLayout
+import io.github.kimzam30.nhakobeam.stage.arrangeRoom
 import io.github.kimzam30.nhakobeam.engine.EngineException
 import io.github.kimzam30.nhakobeam.model.Connection
 import io.github.kimzam30.nhakobeam.model.Device
@@ -68,6 +71,8 @@ sealed interface Sheet {
     data class TextSheet(val id: String) : Sheet
     /** The link being shared: its QR, who opened it, Stop. */
     data object Link : Sheet
+    /** Every device: tap to send, tick to keep it in the room. */
+    data object Devices : Sheet
 }
 
 enum class ToastTone { Neutral, Success, Warning, Danger }
@@ -102,7 +107,7 @@ interface PlatformHooks {
  * Everything the app shows: what the engine reports plus what the UI is doing. The Kotlin twin of
  * desktop/src/lib/state/app.svelte.ts, so both apps behave the same.
  */
-class AppState(val engine: Engine, private val prefs: Prefs, private val scope: CoroutineScope) {
+class AppState(val engine: Engine, val prefs: Prefs, private val scope: CoroutineScope) {
     var platform: PlatformHooks = object : PlatformHooks {}
     /** Called after each engine event has been applied (notifications, the transfer service). */
     var afterEvent: (EngineEvent) -> Unit = {}
@@ -131,6 +136,19 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     var stagedText by mutableStateOf<String?>(null)
     /** On Wi-Fi or a cable, where nearby devices can be found (from the system's network callback). */
     var onLan by mutableStateOf(true)
+    /** Android 17 lets the app reach the local network (see [io.github.kimzam30.nhakobeam.platform.LocalNetwork]). */
+    var localNetwork by mutableStateOf(true)
+        private set
+
+    /** Checked whenever the app comes on screen and after the prompt. Allowed again: look now,
+     *  rather than at the next timer. */
+    /** Home asks for local network access by itself once per run; after that only the banner does. */
+    var askedLocalNetwork = false
+
+    fun localNetworkChanged(allowed: Boolean) {
+        if (allowed && !localNetwork) engine.networkChanged()
+        localNetwork = allowed
+    }
     /** Trust asks from other devices, waiting for an answer here. */
     var trustAsks by mutableStateOf(listOf<TrustRequest>())
     private var sheetState by mutableStateOf<Sheet?>(null)
@@ -193,6 +211,8 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     val stagedSummary by derivedStateOf { summarizeFiles(staged) }
     /** Something is waiting to be sent: files or text. */
     val hasStaged by derivedStateOf { staged.isNotEmpty() || stagedText != null }
+    /** Home's heading (see [homeStatus]). */
+    val homeStatus by derivedStateOf { homeStatus(discovery, activeTransfers, reachable.size, hasStaged, ::deviceName) }
 
     private var toastSeq = 0L
     /** Devices whose request was accepted on the card, so no extra "Receiving" toast. */
@@ -440,6 +460,20 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
 
     /** Home > Clipboard: whatever text is on the clipboard, ready to go to a device. */
     fun stageClipboard() = stageText(platform.readClipboard())
+
+    // ---------- The room ----------
+
+    fun roomLayout(data: RoomData, width: Float, height: Float): RoomLayout = arrangeRoom(devices, prefs.roomPicked, data, width, height)
+
+    /** Ticks a device into the room or out of it. False: the room is full, nothing changed. */
+    fun toggleRoom(deviceId: String, data: RoomData, width: Float, height: Float): Boolean {
+        val now = roomLayout(data, width, height).room.map { it.device.id }.toSet()
+        return when {
+            deviceId in now -> { prefs.roomPicked = now - deviceId; true }
+            now.size >= io.github.kimzam30.nhakobeam.stage.roomMax(data, width, height) -> false
+            else -> { prefs.roomPicked = now + deviceId; true }
+        }
+    }
 
     /** Text shared from another app (a link from the browser): ready to go, and pick a device. */
     fun shareText(text: String) {
@@ -715,6 +749,25 @@ class AppState(val engine: Engine, private val prefs: Prefs, private val scope: 
     fun newCode() {
         scope.launch {
             runCatching { engine.createCode() }.onFailure { toast(it.message ?: "Couldn't make a code.", ToastTone.Danger) }
+        }
+    }
+
+    /** Pairs with a code read from a QR. It runs here, not in the Scan sheet: the paired event swaps
+     *  that sheet for the Paired one while the engine is still finishing, which cancelled the
+     *  sheet's own call and made a pairing that worked look like a wrong code. [done] runs once
+     *  there's an answer, whatever it is. */
+    fun redeemScanned(words: List<String>, done: () -> Unit = {}) {
+        scope.launch {
+            val r = try {
+                engine.redeemCode(words)
+            } catch (e: EngineException) {
+                null
+            }
+            done()
+            if (r?.ok == true) return@launch // the paired event opens the paired sheet
+            toast(t(if (r?.reason == "tokenRejected") "code.enter.tokenRejected" else "code.enter.wrong"), ToastTone.Danger)
+            // Only if still scanning: the person may have closed the sheet meanwhile.
+            if (sheet == Sheet.Scan) sheet = Sheet.EnterCode
         }
     }
 

@@ -60,6 +60,9 @@ pub struct Device {
     pub auto_accept: bool,
     pub reachable: bool,
     pub route: Option<Route>,
+    /// On this network right now, so it can be asked to trust this device. Unlike `route`, it
+    /// doesn't change with the path a connection happens to use.
+    pub nearby: bool,
     pub fingerprint: String,
     /// Not reachable right now, but can be woken up to receive (a phone Android put to sleep).
     pub wakeable: bool,

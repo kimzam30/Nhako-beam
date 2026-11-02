@@ -14,14 +14,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
 import io.github.kimzam30.nhakobeam.state.AppState
@@ -49,11 +52,16 @@ fun NhakoBeamApp(app: AppState, prefs: Prefs, intro: Boolean = false) {
     NhakoTheme(prefs.theme, prefs.motion) {
         CompositionLocalProvider(LocalSound provides app.sound) {
             val reduced = Nhako.reducedMotion
+            // Licenses opens from Settings: back from there lands where you were. From Home it starts at the top.
+            val settingsScroll = rememberScrollState()
+            LaunchedEffect(app.screen) { if (app.screen == Screen.Home) settingsScroll.scrollTo(0) }
             Box(Modifier.fillMaxSize().background(Nhako.colors.canvas)) {
                 // Forward slides in from the right on the gentle spring while the old screen shifts a
                 // little the other way and fades; back is the mirror image.
                 AnimatedContent(
                     app.screen,
+                    // With a sheet or a request on top, a screen reader stays on that, not the screen behind.
+                    if (app.sheet != null || app.requests.isNotEmpty()) Modifier.clearAndSetSemantics {} else Modifier,
                     transitionSpec = {
                         val d = app.navDir
                         if (reduced) fadeIn(tween(150)) togetherWith fadeOut(tween(120))
@@ -65,13 +73,13 @@ fun NhakoBeamApp(app: AppState, prefs: Prefs, intro: Boolean = false) {
                     when (screen) {
                         Screen.Onboarding -> OnboardingScreen(app)
                         Screen.Home -> HomeScreen(app)
-                        Screen.Settings -> SettingsScreen(app, prefs)
+                        Screen.Settings -> SettingsScreen(app, prefs, settingsScroll)
                         Screen.History -> HistoryScreen(app)
                         Screen.Licenses -> LicensesScreen(app)
                     }
                 }
-                IncomingLayer(app)
                 SheetHost(app)
+                IncomingLayer(app)
                 ToastHost(app, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 136.dp))
                 if (showIntro) SplashIntro(onDone = { showIntro = false })
             }

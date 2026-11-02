@@ -177,9 +177,6 @@
   .ghost .circle > :global(:not(.trusted)) {
     opacity: 0;
   }
-  .ghost .name {
-    text-shadow: 0 1px 2px var(--color-canvas);
-  }
   .orb {
     display: grid;
     justify-items: center;
@@ -318,6 +315,11 @@
   :global([data-reduced='true']) .wait {
     animation: none;
     opacity: 0.8;
+  }
+  /* In the room the drawing is the device, and its name is a tag of its own (Room.svelte). */
+  .orb.ghost {
+    width: var(--size);
+    max-width: none;
   }
   .name {
     max-width: 100%;
