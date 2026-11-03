@@ -22,7 +22,9 @@ import io.github.kimzam30.nhakobeam.model.PairingCode
 import io.github.kimzam30.nhakobeam.model.RedeemResult
 import io.github.kimzam30.nhakobeam.model.SelfInfo
 import io.github.kimzam30.nhakobeam.model.ServerCheck
+import io.github.kimzam30.nhakobeam.model.Side
 import io.github.kimzam30.nhakobeam.model.Snapshot
+import io.github.kimzam30.nhakobeam.model.Transfer
 import io.github.kimzam30.nhakobeam.model.TransferStatus
 import io.github.kimzam30.nhakobeam.model.WhoCanSend
 import java.io.File
@@ -44,6 +46,16 @@ import kotlinx.coroutines.withContext
  * the engine `/proc/self/fd/N` with the real name; the handles stay open until the transfer is
  * finished (a failed one may be resumed, so it keeps them).
  */
+/**
+ * True when this transfer can't read its files again. A send the other device refused or stopped
+ * can still be asked again with Try again, and the engine reads through the same descriptors.
+ */
+internal fun Transfer.doneWithFiles(): Boolean = when (status) {
+    TransferStatus.Done -> true
+    TransferStatus.Cancelled -> cancelledBy != Side.Peer
+    else -> false
+}
+
 class RealEngine(private val context: Context, private val scope: CoroutineScope) : Engine {
     private val _events = MutableSharedFlow<EngineEvent>(extraBufferCapacity = 512)
     override val events: SharedFlow<EngineEvent> = _events
@@ -79,14 +91,15 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
     private val copies = ConcurrentHashMap<String, File>()
     private val seq = AtomicLong()
 
+    private fun release(transferId: String) {
+        openFiles.remove(transferId)?.forEach { runCatching { it.close() } }
+        copies.remove(transferId)?.deleteRecursively()
+    }
+
     private fun onEngineEvent(json: String) {
         val event = runCatching { ContractJson.decodeFromString<EngineEvent>(json) }.getOrNull() ?: return
         if (event is EngineEvent.TransferChanged) {
-            val s = event.transfer.status
-            if (s == TransferStatus.Done || s == TransferStatus.Cancelled || s == TransferStatus.Declined) {
-                openFiles.remove(event.transfer.id)?.forEach { runCatching { it.close() } }
-                copies.remove(event.transfer.id)?.deleteRecursively()
-            }
+            if (event.transfer.doneWithFiles()) release(event.transfer.id)
         }
         // A link stopped (Stop, or its time ran out): its files can close.
         if (event is EngineEvent.LinkShareChanged && event.share == null) closeLinkFiles()
@@ -284,6 +297,7 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
     override fun resume(transferId: String) = fire { resume(transferId) }
     override fun cancel(transferId: String) = fire { cancel(transferId) }
     override fun retry(transferId: String) = fire { retry(transferId) }
+    override fun forget(transferId: String) = release(transferId)
 
     override suspend fun createCode(): PairingCode = ContractJson.decodeFromString(call { createCode() })
     override fun cancelCode() = fire { cancelCode() }

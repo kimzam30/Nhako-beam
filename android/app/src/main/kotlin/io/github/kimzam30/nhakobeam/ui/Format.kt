@@ -31,6 +31,8 @@ fun formatSpeed(bytesPerSecond: Double) = "${formatBytes(bytesPerSecond)}/s"
 fun formatEta(remainingBytes: Long, speed: Double): String? {
     if (speed <= 0 || remainingBytes <= 0) return null
     val s = remainingBytes / speed
+    // More than a day is a connection crawling for now, not a real estimate.
+    if (s >= 86400) return null
     return when {
         s < 60 -> "${(ceil(s / 5) * 5).toLong()} sec"
         s < 3600 -> "${(s / 60).roundToLong()} min"

@@ -723,6 +723,7 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
 
     fun dismissTransfer(id: String) {
         dismissed = dismissed + id
+        engine.forget(id)
         if (sheet == Sheet.TransferDetails(id)) sheet = null
     }
 

@@ -691,9 +691,27 @@ test.describe('phase 8', () => {
     await expect(page.getByTestId('popover')).toBeVisible();
     await expect(page.getByTestId('pop-device-d-aisyah')).toBeVisible();
     await expect(page.getByTestId('pop-open')).toBeVisible();
+    // A fifth device starts a second row of tiles: it fits too, inside the window and above the Open button.
+    await page.evaluate(() => {
+      const app = (window as any).__nhako.app;
+      app.devices = app.devices.map((d: any) => ({ ...d, reachable: true }));
+    });
+    await expect(page.locator('[data-testid^="pop-device-"]')).toHaveCount(5);
+    for (const tile of await page.locator('[data-testid^="pop-device-"]').all()) await expect(tile).toBeInViewport({ ratio: 1 });
     const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
     expect(r.sw).toBeLessThanOrEqual(r.cw);
   });
+});
+
+test('a running transfer gets its time left after a few seconds', async ({ page }) => {
+  await ready(page, { speed: 0.05 });
+  await sim(page, 'stage-photos');
+  await closePanel(page);
+  await page.getByTestId('choose-device').click();
+  await page.getByTestId('send-row-d-studio').click();
+  const card = page.locator('[data-testid^="transfer-"]').first();
+  await expect(card).toHaveAttribute('data-status', 'transferring', { timeout: 8000 });
+  await expect(card).toContainText(/About .+ left/, { timeout: 8000 });
 });
 
 test.describe('always ready (phase 20)', () => {

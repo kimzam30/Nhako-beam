@@ -30,7 +30,8 @@
   const pct = $derived(percent(tr.doneBytes, tr.totalBytes));
   const moving = $derived(tr.status === 'transferring');
   const ended = $derived(['done', 'failed', 'cancelled', 'declined'].includes(tr.status));
-  const showEta = $derived(moving && tr.movingSince !== null && Date.now() - tr.movingSince > 3000);
+  // Reads doneBytes so each progress update looks at the clock again; the clock alone wakes nothing.
+  const showEta = $derived(moving && tr.doneBytes >= 0 && tr.movingSince !== null && Date.now() - tr.movingSince > 3000);
   const eta = $derived(formatEta(tr.totalBytes - tr.doneBytes, tr.speed));
   // A connection can stay open with nothing moving (the Wi-Fi went): say so instead of a frozen estimate.
   // Derived, so a new copy of the transfer with the same count doesn't restart the wait.

@@ -266,12 +266,17 @@
   }
   .devices li {
     display: grid;
+    min-width: 0;
     justify-items: center;
     border-radius: var(--radius-md);
     transition: background-color var(--duration-fast) var(--ease-standard);
   }
   .devices li.drop {
     background: var(--color-accent-subtle);
+  }
+  /* An orb is wider than its circle, for its name. Here it takes its column, or the row runs off the window. */
+  .devices :global(.orb) {
+    width: 100%;
   }
   .devices :global(.name) {
     font-size: var(--type-caption-size);

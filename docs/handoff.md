@@ -78,6 +78,52 @@ Not tested: the installed laptop app's window, tray, Windows, QR with a real cam
 
 **Not verified:** the S24+ (off, in use). Tab upright and a foldable on real hardware (only the calculated checks; rotating is a system setting). The girl on a device. Mid-transfer cancel and Wi-Fi drop on hardware. F8 and F12 on hardware, because Flip and Tab trust each other. TalkBack, a real finger, QR, tile, notification buttons, share sheet, boot start, 200% font, Windows. The laptop still runs the old `.deb`. The S24+ still has the Phase 3 test settings: Who can send, and Always accept.
 
+**All six devices on the new build (2026-11-02, Phase 1 of `~/.claude/plans/zippy-mixing-quill.md`).** Everything is from `61e7315`, updated in place: Flip, S24+ and Tab (`adb install -r --user 0`), the XPS and KIMMAIN (`.deb`), KIMA5 (nightly `.exe`, hash matched, firewall rule kept). The Nightly passed on all three platforms. How each is reached: phones by Wi-Fi adb; KIMMAIN by SSH, with `xwd` and `xdotool` on its X11 desktop; the XPS by `tauri-driver` on `/usr/bin/nhako-beam` (Wayland blocks the usual tools; the app must be restarted normally afterwards); KIMA5 through a Claude session on that PC, no SSH or firewall change.
+
+**Verified:** every device reports 5 others ready. The command line tool on the XPS lists all six on the same network. No crash logged on the three Android devices. Clicks work on KIMMAIN and the XPS session returns the page and a screenshot.
+
+**Found, not fixed:**
+- N1: old identities stay in the trust list after a clean install, so the room draws the same device twice: "Kim's S24+" (`5efb55ff`) and "Kim's Flip" (`cb9ed360`) on the XPS and KIMMAIN, plus "KIMS24+" (`92f25fa5`) on the XPS. The live ones are `73d03a64` and `f8c048f1`, which those PCs don't trust yet. KIMA5 showed the same labels at 20:42, but by 20:45 its list held only five current ids (Tab, Flip and S24+ added then), with no old entries left.
+- N2: the phone at the desk corner has its name tag about 50 px below the device, over the drawers, so it reads as floating. The device itself stands on the desk.
+- N3: on KIMMAIN, the top bar button's tooltip stayed on screen, on a black box, over History after the click. Not checked with a real mouse.
+- Note: the XPS has Who can send on everyone nearby and KIMMAIN on your devices.
+
+**Phase 2 on hardware (2026-11-02), all on the `61e7315` build.** 64 MiB between each pair, both directions, every hash checked: 28 of 30 passed. Kimmain to Flip was correctly refused (they don't trust each other, kept that way for the Phase 3 retest of F12); Flip to kimmain wasn't run for the same reason. Also passed by hash: two files plus a folder (XPS to Tab), a folder (Tab to XPS), 1.1 GiB (XPS to kimmain 61 s, XPS to Tab 221 s). Passed by what the receiver shows: text (XPS to Tab, Flip to XPS, Quick Send on Tab to XPS), a link (XPS to Tab), Trust from Nearby with both screens showing the same check (XPS with Flip and S24+, kimmain with S24+), cancel while waiting, a background request's notification with Accept and Decline. No crash logged on the three Android devices.
+
+**Further findings, not fixed:**
+- N4: the route badge in Send to changes between openings with no network change and often doesn't match the route used (KIMA5: 3 of 5 wrong; kimmain showed "Relayed" to the XPS on the same network). Seen from KIMA5's session and once here.
+- N5: KIMA5, left click on the tray icon: `popover.rs` should open the 360 x 520 popover, but its session saw the main window go from 799 to 967 tall and 7 px past the screen's bottom, with no popover reported. Open Nhako Beam from the menu brought back the same 967 tall window. `show_window` only unminimizes, shows and focuses, and nothing in the app sets the main window's size (no window-state plugin; 1080 x 760 comes from `tauri.conf.json`), so the height came from outside the app's code, possibly Windows, Deskflow or the display setup. Not reproduced by me, cause unproven. What's still open: why no popover was seen, and that nothing keeps a window on screen when shown. The tray menu has Open Nhako Beam and Quit, as the code says.
+- N6: a short transfer shows "Working out time left" throughout and a low live speed (2 MB/s shown, 7.9 MB/s average).
+- N7: S24+ idle Home: 33% of a core, 183 MB, 56% of frames janky (F17 is better, not gone).
+- N8, once each and not reproduced: a request from kimmain didn't show on the S24+ within 75 s (the retry showed in 2 s), and my tap on a notification didn't open the app (the retry did). Could be my tests. Needs a real finger.
+- Withdrawn: N3 is the normal hover tooltip, the black box comes from `xwd`; Escape does close History (KIMMAIN, KIMA5).
+
+**Phase 3 on hardware (2026-11-02), `61e7315`.** Confirmed fixed: cancel mid-transfer from each side, both directions (XPS and Tab; both sides agree, no part file stays); F5, F6, F8 (Accept in 2 s over an open sheet, hash matches), F9, F11 on the Flip, F13, F14, F15, F16 (12 background cycles and 3 force stops on the Tab, no crash). F10: Flip Wi-Fi off and on during a 2.2 GiB send to the XPS: "Not moving. Waiting for the connection." showed, it recovered by itself, hash matches. F12 with a desktop sender: refused, the receiver allows everyone, Try again works, hash matches. Not run: F4 (needs a clean install on the Tab).
+
+**Phase 3 findings, not fixed:**
+- N9 HIGH, F12 is only half fixed: on Android, Try again after a refusal reaches the other device but then fails with "changed while sending" (Flip to kimmain). `RealEngine.onEngineEvent` closes the transfer's file handles on Declined (and Cancelled), so `open_to_send` can't read `/proc/self/fd/<n>` when the engine asks again. Cause read from the code and seen once; not yet proven with a fix.
+- N10: that failed transfer left a 0-byte `.nhakopart` on the receiver (removed by hand).
+- N11: while a connection trickles, the time left swings wildly ("About 422 hr 39 min left") between the "Not moving" messages (F10 run). The route badge also flipped between Nearby and Direct during that send, like N4.
+- N12: the KIMA5 popover says 5 devices ready but showed 4 tiles, without kimmain, per its session. `Popover.svelte` limits to 8 reachable `radarDevices`, so the cap isn't why. Not reproduced by me. Its session also says the tray click does not resize the main window: withdrawn from N5, popover does open and hide on losing focus, the 7 px is still unexplained.
+
+**Phase 4 (2026-11-03), fixes after `61e7315`, not committed.**
+- N9: `RealEngine` keeps a send's file handles while Try again can still ask (Declined, Cancelled by the other side, Failed) and lets go on Done, your own Cancel, or when the card is dismissed (new `Engine.forget`). `SentFilesTest`.
+- N10: on `fileChanged` the receiver removes the part files (`engine.rs`). `changed_source_file_stops_the_transfer`.
+- N4: a device check waits up to 1.5 s for a relayed connection to find a direct path before reporting its route (`net.rs`). Nearby and Direct can still swap: that's a real change of path, for example over Tailscale.
+- N2: name tags take the width of the name, not the full box, so two short names on the desk stay on one row (`room.ts`, `RoomModel.kt`). A tag showing a percentage is longer, and can touch its neighbour during a transfer.
+- N6: desktop only: `showEta` read nothing that changes, so "Working out time left" stayed until the status changed (`TransferCard.svelte`). e2e test added.
+- N11: over a day left shows "Working out time left" (`format.ts`, `Format.kt`). A crawl can still show hours.
+- N12: popover tiles were wider than their columns and ran off the window (`Popover.svelte`). e2e test with five devices.
+- N5: showing the window pulls it back on screen (`shell.rs`). Why KIMA5's window grew is still unknown; a visible window that overflows isn't corrected until it's shown again.
+
+**Verified:** cargo fmt, clippy, cargo test; `npm run check`; vitest 175; Playwright 154 passed, 10 skipped; Android unit tests; `test:app` all 8 steps. On hardware (XPS, KIMMAIN, Flip, Tab): N9, Flip to KIMMAIN: Decline, Try again, Accept, hash matches, no crash; N6, time left at 4 s and counting down, 700 MiB hash matches; N4, 60 badge readings over 2 minutes with one "Relayed"; N2 on KIMMAIN and the XPS; 64 MiB by hash: XPS and Tab, Tab and Flip, both ways, plus XPS to Flip, KIMMAIN to XPS.
+
+**Not verified:** N9 through a real refusal (the Flip is now trusted on KIMMAIN; refused and declined share the status and code path). N5 and N12 on Windows, and anything on KIMA5 or the S24+: they're on `61e7315`, and KIMA5 needs a push and a new Nightly. N10 and N11 on hardware (tests only). `test:app` hangs under `dbus-run-session` on this Wayland desktop at the Accept step and passes on the normal session bus, where that step took 141 s, including what looks like a 2 minute keyring wait from the test's fresh home; Xvfb isn't installed here. N7 (idle CPU on the S24+) and N8 not touched.
+
+**Not reset:** auto-accept toggles. The Tab has them on for KIMA5, Flip and S24+; KIMA5 on for all five (owner's choice). The S24+'s settings from the first test round weren't read because the phone was in use; the Flip's weren't read either.
+
+**Not tested in Phase 2:** screen off, a file through the real share sheet, Direct Share, tile, tapping notification buttons, clipboard (it would send whatever is on it), drag and drop, tray on Linux, code pairing.
+
 ## What's done
 
 | Phase | What |

@@ -165,6 +165,9 @@ pub fn route_for(addr: &TransportAddr) -> Route {
     }
 }
 
+/// How long a device check waits for a relayed connection to find a direct path.
+const ROUTE_SETTLE: Duration = Duration::from_millis(1500);
+
 /// The route the connection is using right now.
 pub fn route_of(conn: &Conn) -> Route {
     let paths = conn.paths();
@@ -215,7 +218,14 @@ pub async fn ping(
             Err(wire::WireError::Closed) => return Err(PingError::Refused),
             Err(e) => return Err(e.into()),
         };
-        let route = route_of(&conn);
+        // A new connection starts on the relay and moves to a direct path a moment later, so an
+        // answer this quick would call a device on the same Wi-Fi "Relayed".
+        let settle = tokio::time::Instant::now() + ROUTE_SETTLE;
+        let mut route = route_of(&conn);
+        while route == Route::Relayed && tokio::time::Instant::now() < settle {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            route = route_of(&conn);
+        }
         conn.close(wire::close::DONE, b"");
         Ok((hello.info, their_ext, route))
     })

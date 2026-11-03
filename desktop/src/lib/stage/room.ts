@@ -74,14 +74,15 @@ export function arrangeRoom(devices: Device[], picks: string[] | null, width: nu
 /** How many devices this screen's room can hold. */
 export const roomMax = (width: number, height: number) => roomSlots(width, height).length;
 
-/** Each name goes under its device, on the hutch above it so it never covers the desk's monitor. If two would touch, the later moves one row away from its device. */
-export function roomTags(room: RoomSpot[], f: RoomFit, width: number): { id: string; x: number; y: number }[] {
-  const { w, h, gap } = data.tag, out: { id: string; x: number; y: number }[] = [];
+/** Each name goes under its device, on the hutch above it so it never covers the desk's monitor. If two would touch, the later moves one row away from its device. A tag is centred in its box of `tag.w`, and only as wide as its name, so `w` is the room it really takes. */
+export function roomTags(room: RoomSpot[], f: RoomFit, width: number): { id: string; x: number; y: number; w: number }[] {
+  const { w, h, gap } = data.tag, out: { id: string; x: number; y: number; w: number }[] = [];
   for (const q of [...room].sort((a, b) => a.x - b.x)) {
     const above = q.on === 'hutch', x = Math.max(6, Math.min(width - w - 6, f.ox + q.x * f.k - w / 2));
+    const wide = Math.min(w, Math.max(44, q.device.name.length * 7 + 22));
     let y = above ? f.oy + q.box.y0 * f.k - h - 3 : f.oy + q.y * f.k + gap;
-    while (out.some((o) => x < o.x + w && o.x < x + w && y < o.y + h + 2 && o.y < y + h + 2)) y += above ? -(h + 3) : h + 3;
-    out.push({ id: q.device.id, x, y });
+    while (out.some((o) => Math.abs(x - o.x) < (wide + o.w) / 2 + 2 && y < o.y + h + 2 && o.y < y + h + 2)) y += above ? -(h + 3) : h + 3;
+    out.push({ id: q.device.id, x, y, w: wide });
   }
   return out;
 }

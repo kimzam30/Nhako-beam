@@ -907,6 +907,9 @@ async fn changed_source_file_stops_the_transfer() {
     assert_eq!(t.error, Some(TransferError::FileChanged));
     let t = b.wait_transfer("receiver failed", status(TransferStatus::Failed)).await;
     assert_eq!(t.error, Some(TransferError::FileChanged));
+    // What came so far can't be continued, so no part file stays behind.
+    let left: Vec<_> = std::fs::read_dir(b.save()).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert!(left.is_empty(), "left in the save folder: {left:?}");
 
     a.stop().await;
     b.stop().await;

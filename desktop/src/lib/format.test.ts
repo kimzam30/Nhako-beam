@@ -26,6 +26,10 @@ describe('formatEta', () => {
     expect(formatEta(130, 1)).toBe('2 min');
     expect(formatEta(3600 * 2 + 60 * 15, 1)).toBe('2 hr 15 min');
   });
+  it('gives no estimate past a day', () => {
+    expect(formatEta(86399, 1)).toBe('23 hr 60 min');
+    expect(formatEta(86400, 1)).toBeNull();
+  });
 });
 
 describe('percent', () => {

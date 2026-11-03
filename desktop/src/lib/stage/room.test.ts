@@ -58,9 +58,17 @@ describe('every mix of devices, on every screen', () => {
           expect(f.ox + q.box.x1 * f.k, `${q.slot} ${w}x${h}`).toBeLessThanOrEqual(w);
         }
         const tags = roomTags(r.room, f, w);
-        for (const a of tags) for (const b of tags) if (a !== b) expect(a.x < b.x + ROOM.tag.w && b.x < a.x + ROOM.tag.w && a.y < b.y + ROOM.tag.h && b.y < a.y + ROOM.tag.h, `${a.id} touches ${b.id}, ${w}x${h}`).toBe(false);
+        for (const a of tags) for (const b of tags) if (a !== b) expect(Math.abs(a.x - b.x) < (a.w + b.w) / 2 && a.y < b.y + ROOM.tag.h && b.y < a.y + ROOM.tag.h, `${a.id} touches ${b.id}, ${w}x${h}`).toBe(false);
       }
     }
+  });
+  it('short names side by side stay on one row', () => {
+    const spot = (id: string, name: string, x: number) => ({ device: { ...dev(id, 'phone'), name }, slot: id, on: 'desk', z: 0, x, y: 500, box: { x0: x, x1: x, y0: 400, y1: 500 } }) as unknown as Parameters<typeof deviceArt>[0];
+    const f = { k: 1, ox: 0, oy: 0 } as Parameters<typeof roomTags>[1];
+    const [a, b] = roomTags([spot('a', 'KIMA5', 560), spot('b', "Kim's S24+", 650)], f, 1200);
+    expect(a!.y).toBe(b!.y);
+    const [c, d] = roomTags([spot('c', 'A much longer device name', 560), spot('d', 'Another long device name', 650)], f, 1200);
+    expect(d!.y).toBeGreaterThan(c!.y);
   });
   it('every place holds what it offers, with its picture', () => {
     for (const s of ROOM.slots) for (const [kind, q] of Object.entries(s.kinds)) {

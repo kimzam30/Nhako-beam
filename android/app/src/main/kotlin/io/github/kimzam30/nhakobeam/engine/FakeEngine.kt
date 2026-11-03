@@ -108,6 +108,7 @@ class FakeEngine : Engine {
     override fun resume(transferId: String) {}
     override fun cancel(transferId: String) {}
     override fun retry(transferId: String) {}
+    override fun forget(transferId: String) {}
 
     override suspend fun createCode(): PairingCode {
         val code = PairingCode(listOf("ember", "marigold", "meadow", "willow"), System.currentTimeMillis() + 600_000, "nhakobeam://pair/ember-marigold-meadow-willow")

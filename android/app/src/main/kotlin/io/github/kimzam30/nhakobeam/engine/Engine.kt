@@ -47,6 +47,8 @@ interface Engine {
     fun resume(transferId: String)
     fun cancel(transferId: String)
     fun retry(transferId: String)
+    /** The transfer's card was dismissed, so Try again is gone: lets go of what it kept for that. */
+    fun forget(transferId: String)
 
     suspend fun createCode(): PairingCode
     fun cancelCode()

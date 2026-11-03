@@ -24,6 +24,8 @@ export function formatSpeed(bytesPerSecond: number): string {
 export function formatEta(remainingBytes: number, speed: number): string | null {
   if (speed <= 0 || remainingBytes <= 0) return null;
   const s = remainingBytes / speed;
+  // More than a day is a connection crawling for now, not a real estimate.
+  if (s >= 86400) return null;
   // Up to the next 5 seconds, so a short wait still reads "About 5 sec left".
   if (s < 60) return `${Math.ceil(s / 5) * 5} sec`;
   if (s < 3600) return `${Math.round(s / 60)} min`;

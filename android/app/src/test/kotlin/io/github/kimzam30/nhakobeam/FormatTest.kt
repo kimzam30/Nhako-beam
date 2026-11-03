@@ -40,6 +40,7 @@ class FormatTest {
         assertEquals("45 sec", formatEta(42, 1.0))
         assertEquals("2 min", formatEta(130, 1.0))
         assertEquals("2 hr 15 min", formatEta(3600 * 2 + 60 * 15, 1.0))
+        assertNull(formatEta(86400, 1.0))
     }
 
     @Test fun floorsAndClampsPercent() {

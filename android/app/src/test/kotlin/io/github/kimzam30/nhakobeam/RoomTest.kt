@@ -80,7 +80,7 @@ class RoomTest {
                     assertTrue("${q.slot}, ${w}x$h", f.ox + q.at.box.x0 * f.k >= 0f && f.ox + q.at.box.x1 * f.k <= w)
                 }
                 val tags = roomTags(data, r.room, f, w)
-                for (t in tags) for (u in tags) if (t !== u) assertFalse("${t.id} touches ${u.id}, ${w}x$h", t.x < u.x + data.tag.w && u.x < t.x + data.tag.w && t.y < u.y + data.tag.h && u.y < t.y + data.tag.h)
+                for (t in tags) for (u in tags) if (t !== u) assertFalse("${t.id} touches ${u.id}, ${w}x$h", kotlin.math.abs(t.x - u.x) < (t.w + u.w) / 2 && t.y < u.y + data.tag.h && u.y < t.y + data.tag.h)
             }
         }
     }

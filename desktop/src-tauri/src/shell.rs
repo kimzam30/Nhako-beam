@@ -119,8 +119,28 @@ pub fn show_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.unminimize();
         let _ = w.show();
+        keep_on_screen(&w);
         let _ = w.set_focus();
     }
+}
+
+/// A window can come back partly off screen after the displays change. Moves it fully back in.
+fn keep_on_screen<R: Runtime>(w: &tauri::WebviewWindow<R>) {
+    let (Ok(at), Ok(size), Ok(Some(monitor))) = (w.outer_position(), w.outer_size(), w.current_monitor()) else {
+        return;
+    };
+    let area = monitor.work_area();
+    let (left, top) = (area.position.x, area.position.y);
+    let x = pull_in(at.x, size.width as i32, left, left + area.size.width as i32);
+    let y = pull_in(at.y, size.height as i32, top, top + area.size.height as i32);
+    if (x, y) != (at.x, at.y) {
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+/// Where a window of `len` starting at `at` should start so it ends by `end`, never before `start`.
+fn pull_in(at: i32, len: i32, start: i32, end: i32) -> i32 {
+    at.min(end - len).max(start)
 }
 
 pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -408,6 +428,15 @@ pub async fn fix_firewall() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_past_the_screen_edge_comes_back_in() {
+        // KIMA5's main window: 967 tall at y 960 on a 1920 tall screen.
+        assert_eq!(pull_in(960, 967, 0, 1920), 953);
+        assert_eq!(pull_in(100, 500, 0, 1920), 100, "already on screen");
+        assert_eq!(pull_in(-40, 500, 0, 1920), 0);
+        assert_eq!(pull_in(2553, 1094, 2560, 3640), 2560, "starts on this screen when it can't fit");
+    }
 
     #[test]
     fn keeps_running_by_default_and_remembers_the_choice() {

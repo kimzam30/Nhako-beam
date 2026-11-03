@@ -3,6 +3,7 @@ package io.github.kimzam30.nhakobeam.stage
 import io.github.kimzam30.nhakobeam.model.Device
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.math.abs
 
 // Home's room, as data (design/room/build.mjs writes room.json next to the images). Where things go,
 // and which device stands where. The desktop twin is desktop/src/lib/stage/room.ts.
@@ -55,7 +56,7 @@ data class RoomLayout(val room: List<RoomSpot>, val rest: List<Device>)
 data class RoomFit(val view: String, val k: Float, val ox: Float, val oy: Float, val top: Float, val bottom: Float, val panelW: Float)
 
 /** A name tag's place on screen, in screen points. */
-data class RoomTagAt(val id: String, val x: Float, val y: Float)
+data class RoomTagAt(val id: String, val x: Float, val y: Float, val w: Float)
 
 /** Trusted first, then by name, and never by whether it's online: nothing moves when a device sleeps. */
 fun roomOrder(devices: List<Device>): List<Device> = devices.sortedWith(compareBy({ !it.trusted }, { it.name.lowercase() }, { it.id }))
@@ -125,7 +126,7 @@ fun arrangeRoom(devices: List<Device>, picks: Set<String>?, data: RoomData, widt
     return RoomLayout(room, ordered.filter { d -> room.none { it.device == d } })
 }
 
-/** Each name goes under its device, on the hutch above it so it never covers the desk's monitor. If two would touch, the later moves one row away from its device. */
+/** Each name goes under its device, on the hutch above it so it never covers the desk's monitor. If two would touch, the later moves one row away from its device. A tag is centred in its box of `tag.w`, and only as wide as its name, so `w` is the room it really takes. */
 fun roomTags(data: RoomData, room: List<RoomSpot>, f: RoomFit, width: Float): List<RoomTagAt> {
     val w = data.tag.w
     val h = data.tag.h
@@ -133,9 +134,10 @@ fun roomTags(data: RoomData, room: List<RoomSpot>, f: RoomFit, width: Float): Li
     for (q in room.sortedBy { it.at.x }) {
         val above = q.on == "hutch"
         val x = (f.ox + q.at.x * f.k - w / 2).coerceIn(6f, maxOf(6f, width - w - 6))
+        val wide = (q.device.name.length * 7 + 22f).coerceIn(44f, w)
         var y = if (above) f.oy + q.at.box.y0 * f.k - h - 3 else f.oy + q.at.y * f.k + data.tag.gap
-        while (out.any { x < it.x + w && it.x < x + w && y < it.y + h + 2 && it.y < y + h + 2 }) y += if (above) -(h + 3) else h + 3
-        out += RoomTagAt(q.device.id, x, y)
+        while (out.any { abs(x - it.x) < (wide + it.w) / 2 + 2 && y < it.y + h + 2 && it.y < y + h + 2 }) y += if (above) -(h + 3) else h + 3
+        out += RoomTagAt(q.device.id, x, y, wide)
     }
     return out
 }

@@ -2462,7 +2462,13 @@ impl Engine {
                     End::Failed(err) => {
                         tx.t.status = TransferStatus::Failed;
                         tx.t.error = Some(err);
-                        (vec![], vec![])
+                        // The sender's copy changed, so what came so far can't be continued.
+                        match &tx.side {
+                            TxSide::Recv(files) if err == TransferError::FileChanged => {
+                                (files.iter().filter(|f| !f.verified).filter_map(|f| f.part.clone()).collect(), vec![])
+                            }
+                            _ => (vec![], vec![]),
+                        }
                     }
                     End::Lost => {
                         tx.t.status = TransferStatus::Reconnecting;
