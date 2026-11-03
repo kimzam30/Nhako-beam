@@ -1,7 +1,7 @@
 {
   "name": "nhako-beam-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Nhako Beam desktop app: the Svelte UI (also runs in a browser on a pretend engine) and the Tauri shell in src-tauri/ that runs the real engine.",
   "license": "MIT OR Apache-2.0",

@@ -71,6 +71,11 @@
     <color type="primary" scheme_preference="dark">#1559B8</color>
   </branding>
   <releases>
+    <release version="1.0.0" date="2026-11-03">
+      <description>
+        <p>The first full release: a new Home, stronger transfers and a long list of fixes tested on real phones, a tablet and PCs.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-13">
       <description>
         <p>The first release.</p>

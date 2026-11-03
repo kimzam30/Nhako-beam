@@ -4322,7 +4322,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nhako-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4335,7 +4335,7 @@ dependencies = [
 
 [[package]]
 name = "nhako-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "argon2",
  "blake3",
@@ -4368,7 +4368,7 @@ dependencies = [
 
 [[package]]
 name = "nhako-desktop"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "nhako-core",
  "notify-rust",
@@ -4391,7 +4391,7 @@ dependencies = [
 
 [[package]]
 name = "nhako-ffi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "nhako-core",
  "serde",

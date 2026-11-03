@@ -55,6 +55,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/kimzam30/Nhako-beam.git
-        tag: v0.2.0
+        tag: v1.0.0
       - cargo-sources.json
       - node-sources.json

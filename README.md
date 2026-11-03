@@ -8,7 +8,7 @@
 ### Send files straight between your own devices.
 **No cloud. No size limit. No account.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-1A6FE0)](#project-status)
+[![Version](https://img.shields.io/badge/version-1.0.0-1A6FE0)](#project-status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-1A6FE0)](#install)
 [![License](https://img.shields.io/badge/license-MIT%20or%20Apache--2.0-0B1B33)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.91%2B-0B1B33?logo=rust)](https://rustup.rs)
@@ -119,12 +119,13 @@ It's an open alternative to apps like Blip.
 
 ## Install
 
-There are no store releases yet. The newest build of `dev` is always on the
+**[Download the latest release](https://github.com/kimzam30/Nhako-beam/releases/latest)**: Windows
+`.exe`, Linux `.deb` and Android `.apk`. There are no store releases yet.
+
+Want the newest changes before a release? The
 [**Nhako Beam nightly**](https://github.com/kimzam30/Nhako-beam/releases/tag/latest) pre-release
-(Windows `.exe`, Linux `.deb`, Android `.apk`; more in
-[docs/releasing.md](docs/releasing.md#nightly-builds)). Numbered versions are under
-[Releases](https://github.com/kimzam30/Nhako-beam/releases). Or build the apps yourself (free; the
-scripts check what you need and tell you what's missing).
+always has the latest build of `dev` ([more](docs/releasing.md#nightly-builds)). Or build the apps
+yourself (free; the scripts check what you need and tell you what's missing).
 
 | Platform | Build it | Install it |
 |---|---|---|
@@ -246,8 +247,8 @@ cd android && ./gradlew testDebugUnitTest
 
 ## Project status
 
-Version **0.1.0**, in active development and tested on real devices (Linux on Zorin OS and Android
-on a Galaxy S24+).
+Version **1.0.0**, tested on real devices: Windows 11, Linux on Zorin OS, and Android on a Galaxy
+S24+, Z Flip5 and Tab S9 FE.
 
 | Phase | Done |
 |---|---|

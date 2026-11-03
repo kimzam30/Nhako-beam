@@ -1,0 +1,1 @@
+The first full release. A new Home with your devices in an illustrated room, proper tablet support, clearer progress when Wi-Fi drops, and many fixes tested on real phones, a tablet and PCs.

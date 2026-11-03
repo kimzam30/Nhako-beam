@@ -18,7 +18,7 @@ Last updated 2026-10-30, at the end of Phase 22. Read [CLAUDE.md](../CLAUDE.md) 
 - The plan for Phases 18 to 23 (cleanup, Windows discovery, always on, the voxel mascot and 3D UI, the nightly build) is in `~/.claude/plans/check-the-code-repo-frolicking-storm.md` on the owner's machine.
 - The audit of 2026-10-27 that set Phases 16 and 17 is in `~/.claude/plans/scan-whole-repo-and-clever-lighthouse.md` on the owner's machine.
 - The audit after Phase 9 (security, performance, how it compares, the motion plan) is in `~/.claude/plans/eager-kindling-ember.md` on the owner's machine. Its order: 10 Windows discovery, 11 security, 12 performance, 13 the bolt motion pass. The owner picked Phase 14 from its "later" list.
-- Versions: 0.1.0 everywhere. Android: versionCode 1, minSdk 26, targetSdk 37, compileSdk 37.
+- Versions: 1.0.0 everywhere. Android: versionCode 2, minSdk 26, targetSdk 37, compileSdk 37.
 
 ## Room fix and real-device testing (2026-11-02, in progress)
 
