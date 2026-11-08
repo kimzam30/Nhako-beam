@@ -213,6 +213,10 @@ pub struct TrustRequest {
     pub device_id: String,
     pub check: String,
     pub received_at: u64,
+    /// An offline trusted device with the same name, type and system: most likely this one
+    /// before a reinstall gave it a new key. Saying yes can replace it (`answer_trust`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
 }
 
 /// How a trust ask ended without both devices trusting each other.
@@ -575,11 +579,24 @@ mod tests {
                 device_id: "d".into(),
                 check: "5D19 E04A".into(),
                 received_at: 1,
+                replaces: None,
             },
         };
         assert_eq!(
             serde_json::to_string(&e).unwrap(),
             r#"{"type":"trustAsk","request":{"deviceId":"d","check":"5D19 E04A","receivedAt":1}}"#
+        );
+        let e = EngineEvent::TrustAsk {
+            request: TrustRequest {
+                device_id: "d".into(),
+                check: "5D19 E04A".into(),
+                received_at: 1,
+                replaces: Some("old".into()),
+            },
+        };
+        assert_eq!(
+            serde_json::to_string(&e).unwrap(),
+            r#"{"type":"trustAsk","request":{"deviceId":"d","check":"5D19 E04A","receivedAt":1,"replaces":"old"}}"#
         );
         let e = EngineEvent::TrustEnded {
             device_id: "d".into(),

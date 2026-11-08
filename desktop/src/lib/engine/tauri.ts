@@ -163,8 +163,8 @@ export class TauriEngine implements Engine {
     this.fire('cancel_trust', { deviceId });
   }
 
-  answerTrust(deviceId: string, yes: boolean): void {
-    this.fire('answer_trust', { deviceId, yes });
+  answerTrust(deviceId: string, yes: boolean, replace: boolean): void {
+    this.fire('answer_trust', { deviceId, yes, replace });
   }
 
   setAutoAccept(deviceId: string, on: boolean): void {

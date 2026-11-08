@@ -109,4 +109,13 @@ describe('the pictures', () => {
     expect(deviceArt(q)).toBe(deviceArt(q));
     expect(deviceArt({ ...q, device: { ...q.device, reachable: false } })).toBe(`device-${q.slot}-phone-off`);
   });
+
+  it('the trophy bolt stands on its peg', () => {
+    // The peg is R(925, 302, 10, 8) in scene.js. The logo's tip is its bottom row, cells 22 to 27
+    // of 48, so its middle is 25 cells in and its bottom 48 cells down.
+    const b = ROOM.bolt;
+    const cell = b.size / 48;
+    expect(Math.abs(b.x + 25 * cell - 930)).toBeLessThanOrEqual(0.5);
+    expect(b.y + 48 * cell).toBe(302);
+  });
 });

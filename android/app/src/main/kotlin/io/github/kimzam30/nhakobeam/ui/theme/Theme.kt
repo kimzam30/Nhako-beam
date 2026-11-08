@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,11 +43,15 @@ data class NhakoLook(val colors: NhakoColors, val dark: Boolean, val reducedMoti
 
 val LocalLook = staticCompositionLocalOf { NhakoLook(NhakoPalette.Light, dark = false, reducedMotion = false) }
 
+/** Nothing has happened for a while (AppState.still): what moves for its own sake holds still. */
+val LocalStill = compositionLocalOf { false }
+
 /** Shortcuts: `Nhako.colors.accent`, `Nhako.reducedMotion`. */
 object Nhako {
     val colors: NhakoColors @Composable get() = LocalLook.current.colors
     val dark: Boolean @Composable get() = LocalLook.current.dark
     val reducedMotion: Boolean @Composable get() = LocalLook.current.reducedMotion
+    val still: Boolean @Composable get() = LocalStill.current
 }
 
 /** System "Remove animations" (animator duration scale 0) counts as asking for reduced motion. */

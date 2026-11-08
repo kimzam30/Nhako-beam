@@ -55,6 +55,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.unit.dp
 import io.github.kimzam30.nhakobeam.design.NhakoHaptic
 import io.github.kimzam30.nhakobeam.design.NhakoMotion
@@ -123,24 +132,7 @@ fun SettingsScreen(app: AppState, prefs: Prefs, scroll: androidx.compose.foundat
             Section(0, t("settings.section.device")) {
                 NCard {
                     Column {
-                        var name by remember { mutableStateOf(app.selfName) }
-                        LaunchedEffect(name) {
-                            delay(800)
-                            if (name.isNotBlank() && name != app.selfName) app.renameSelf(name)
-                        }
-                        // The label beside the field, or above it when the system font is large.
-                        if (largeText()) {
-                            Column(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s2)) {
-                                BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
-                                NTextField(name, { name = it.take(32) }, Modifier.fillMaxWidth(), capitalize = true, onDone = { if (name.isNotBlank()) app.renameSelf(name) }, label = t("settings.device.name"))
-                            }
-                        } else {
-                            Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalAlignment = Alignment.CenterVertically) {
-                                BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
-                                Spacer(Modifier.width(NhakoSpace.s5))
-                                NTextField(name, { name = it.take(32) }, Modifier.weight(1f), align = androidx.compose.ui.text.style.TextAlign.End, capitalize = true, onDone = { if (name.isNotBlank()) app.renameSelf(name) }, label = t("settings.device.name"))
-                            }
-                        }
+                        NameField(app)
                         Separator()
                         Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4), verticalAlignment = Alignment.CenterVertically) {
                             BasicText(t("settings.device.save"), style = NhakoType.body.style(c.textPrimary))
@@ -628,6 +620,80 @@ private fun ResultRow(order: Int, label: String, r: CheckResult, isRelay: Boolea
                 BasicText(text, style = NhakoType.callout.style(c.textSecondary))
             }
             if (why != null) BasicText(why, style = NhakoType.footnote.style(c.textSecondary))
+        }
+    }
+}
+
+/**
+ * The device name, saved only when you confirm it: the bolt button beside the field, or the
+ * keyboard's Done. Escape on a hardware keyboard puts the saved name back. An empty name can't be
+ * saved. The button pops in once the name differs from the saved one and flashes a tick on save.
+ */
+@Composable
+private fun NameField(app: AppState) {
+    val c = Nhako.colors
+    val reduced = Nhako.reducedMotion
+    var name by remember { mutableStateOf(app.selfName) }
+    var editing by remember { mutableStateOf(false) }
+    var justSaved by remember { mutableStateOf(false) }
+    // The engine can settle the name (first start); follow it unless you are mid-edit.
+    LaunchedEffect(app.selfName) { if (!editing) name = app.selfName }
+    LaunchedEffect(justSaved) { if (justSaved) { delay(1400); justSaved = false } }
+    val clean = name.trim()
+    val changed = clean != app.selfName
+    val empty = clean.isEmpty()
+    val canSave = changed && !empty
+    val save = {
+        if (canSave) {
+            app.renameSelf(clean)
+            name = clean
+            editing = false
+            justSaved = true
+        }
+    }
+    val onChange = { v: String -> name = v.take(32); editing = true; justSaved = false }
+    val escape = Modifier.onPreviewKeyEvent {
+        if (it.key == Key.Escape && it.type == KeyEventType.KeyDown && name != app.selfName) {
+            name = app.selfName; editing = false; true
+        } else false
+    }
+    val button = @Composable {
+        AnimatedVisibility(
+            changed || justSaved,
+            enter = if (reduced) fadeIn(tween(NhakoMotion.Duration.fast)) else scaleIn(NhakoMotion.bouncy.spec(), initialScale = 0.6f) + fadeIn(tween(NhakoMotion.Duration.fast)),
+            exit = if (reduced) fadeOut(tween(NhakoMotion.Duration.fast)) else scaleOut(tween(NhakoMotion.Duration.fast), targetScale = 0.6f) + fadeOut(tween(NhakoMotion.Duration.fast)),
+        ) {
+            val bg by androidx.compose.animation.animateColorAsState(if (justSaved) c.success else if (canSave) c.accent else c.fill, tween(NhakoMotion.Duration.fast), label = "nameOkBg")
+            val fg = if (justSaved || canSave) c.onAccent else c.textDisabled
+            Box(Modifier.padding(start = NhakoSpace.s3).size(48.dp).clip(CircleShape).background(bg)
+                .clickable(enabled = canSave, role = androidx.compose.ui.semantics.Role.Button) { save() }
+                .semantics { contentDescription = t("settings.device.name.save") },
+                contentAlignment = Alignment.Center,
+            ) {
+                PhIcon(if (justSaved) "check" else "lightning", size = 20.dp, tint = fg, weight = if (justSaved) IconWeight.Bold else IconWeight.Fill)
+            }
+        }
+    }
+    val note = when { empty -> t("settings.device.name.empty"); justSaved -> t("settings.device.name.saved"); changed -> t("settings.device.name.hint"); else -> "" }
+    val noteColor = when { empty -> c.danger; justSaved -> c.success; else -> c.textSecondary }
+    Column(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s3), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s2)) {
+        // The label beside the field, or above it when the system font is large.
+        if (largeText()) {
+            BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NTextField(name, onChange, Modifier.weight(1f).then(escape), capitalize = true, onDone = save, error = empty, label = t("settings.device.name"))
+                button()
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BasicText(t("settings.device.name"), style = NhakoType.body.style(c.textPrimary))
+                Spacer(Modifier.width(NhakoSpace.s5))
+                NTextField(name, onChange, Modifier.weight(1f).then(escape), align = androidx.compose.ui.text.style.TextAlign.End, capitalize = true, onDone = save, error = empty, label = t("settings.device.name"))
+                button()
+            }
+        }
+        AnimatedVisibility(note.isNotEmpty(), enter = expandVertically(NhakoMotion.smooth.spec()) + fadeIn(), exit = shrinkVertically(tween(NhakoMotion.Duration.fast)) + fadeOut()) {
+            BasicText(note, Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, style = NhakoType.footnote.style(noteColor).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End))
         }
     }
 }

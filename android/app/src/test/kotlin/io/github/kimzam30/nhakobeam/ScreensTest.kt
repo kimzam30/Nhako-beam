@@ -19,6 +19,10 @@ import androidx.compose.ui.test.onRoot
 import io.github.kimzam30.nhakobeam.ui.screens.readLicenses
 import org.junit.Assert.assertTrue
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performScrollTo
+import io.github.kimzam30.nhakobeam.ui.Copy.t
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.kimzam30.nhakobeam.engine.FakeEngine
 import io.github.kimzam30.nhakobeam.model.Connection
@@ -327,6 +331,21 @@ class ScreensTest {
             assertEquals(null, app.sheet)
             assertTrue("toasts: ${app.toasts.map { it.text }}", app.toasts.any { it.text == "Studio PC said no." })
         }
+    }
+
+    @Test fun aReinstalledDeviceAsks() {
+        show { fake.simReinstall("d-office") }
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithText(t("trust.ask.replace.title", "device" to "Office laptop")).performScrollTo().assertExists()
+        shot("33-trust-replace")
+    }
+
+    @Test fun renamingShowsTheBolt() {
+        show { navigate(Screen.Settings) }
+        compose.onNodeWithContentDescription(t("settings.device.name")).performTextReplacement("Kim's Tab")
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithContentDescription(t("settings.device.name.save")).assertExists()
+        shot("12-settings-rename")
     }
 
     @Test fun beingAskedThenPaired() {

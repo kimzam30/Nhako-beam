@@ -135,7 +135,7 @@
 
   <img class="art" alt="" src={roomImage(`${who}-under`)} style={box(P.x, P.y, P.w, P.h)} />
   <div class="breath"><img class="art" alt="" src={roomImage(`${who}-torso`)} style={box(P.x, P.y, P.w, P.h)} /></div>
-  <div class="head-move"><img class="art" alt="" src={roomImage(`${who}-head`)} style={box(P.x, P.y, P.w, P.h)} /></div>
+  <div class="head-move" style:transform-origin="{sx(745)}px {sy(561)}px"><img class="art" alt="" src={roomImage(`${who}-head`)} style={box(P.x, P.y, P.w, P.h)} /></div>
   <div class="breath"><img class="art" alt="" src={roomImage(`${who}-over`)} style={box(P.x, P.y, P.w, P.h)} /></div>
   <img class="art" alt="" src={roomImage(`${who}-chair`)} style={box(P.x, P.y, P.w, P.h)} />
 
@@ -226,9 +226,11 @@
     animation: none;
     transform: translateY(calc(-10px * var(--k)));
   }
+  /* The head rises only 4 more than the shoulders and hood, and tilts up a little (as Android):
+     a bigger lift showed the boy's neck at nearly three times its length. */
   .awake .head-move {
     animation: none;
-    transform: translateY(calc(-36px * var(--k)));
+    transform: translateY(calc(-14px * var(--k))) rotate(-3deg);
   }
   @keyframes room-breath {
     50% {

@@ -1055,6 +1055,58 @@ test.describe('folders, text and trust (phase 14)', () => {
     await expect(page.getByTestId('sheet-trust-ask')).toHaveCount(0);
   });
 
+  test('a reinstalled device: Replace is picked, and the old entry goes', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'trust-reinstall');
+    await closePanel(page);
+    await expect(page.getByTestId('trust-twin')).toContainText('This looks like Office laptop from before');
+    await expect(page.getByTestId('trust-replace')).toBeChecked();
+    await page.getByTestId('trust-yes').click();
+    await expect(page.getByTestId('sheet-paired')).toBeVisible();
+    await page.getByTestId('paired-continue').click();
+    const offices = await page.evaluate(() => (window as any).__nhako.app.devices.filter((d: any) => d.name === 'Office laptop').map((d: any) => d.id));
+    expect(offices).toHaveLength(1);
+    expect(offices[0]).not.toBe('d-office');
+  });
+
+  test('a reinstalled device: Keep both keeps the old entry, out of the room while the new one is online', async ({ page }, info) => {
+    // The phone-sized room doesn't show the offline laptop to start with.
+    test.skip(info.project.name !== 'desktop', 'room with space for it');
+    await ready(page);
+    await expect(page.getByTestId('orb-d-office')).toHaveCount(1);
+    await sim(page, 'trust-reinstall');
+    await closePanel(page);
+    await page.getByTestId('trust-keep').check();
+    await page.getByTestId('trust-yes').click();
+    await page.getByTestId('paired-continue').click();
+    await expect(page.getByTestId('orb-d-office')).toHaveCount(0);
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('remove-d-office')).toBeVisible();
+  });
+
+  test('renaming waits for the bolt or Enter, and Escape undoes', async ({ page }) => {
+    await ready(page);
+    await page.getByTestId('open-settings').click();
+    const field = page.getByTestId('settings-name');
+    const before = await field.inputValue();
+    await expect(page.getByTestId('settings-name-save')).toHaveCount(0);
+    await field.fill('Desk PC');
+    await expect(page.getByTestId('settings-name-save')).toBeEnabled();
+    await field.press('Escape');
+    await expect(field).toHaveValue(before);
+    await expect(page.getByTestId('settings')).toBeVisible();
+    await field.fill('   ');
+    await expect(page.getByTestId('settings-name-save')).toBeDisabled();
+    await expect(page.getByText("A name can't be empty.")).toBeVisible();
+    await field.fill('Desk PC');
+    await page.getByTestId('settings-name-save').click();
+    await expect(page.getByText('Saved. Your other devices see it next time they connect.')).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__nhako.app.selfName)).toBe('Desk PC');
+    await field.fill('Desk PC 2');
+    await field.press('Enter');
+    expect(await page.evaluate(() => (window as any).__nhako.app.selfName)).toBe('Desk PC 2');
+  });
+
   test('off Wi-Fi: a banner, and an empty radar says why and offers a code', async ({ page }) => {
     await ready(page);
     await sim(page, 'lan-off');

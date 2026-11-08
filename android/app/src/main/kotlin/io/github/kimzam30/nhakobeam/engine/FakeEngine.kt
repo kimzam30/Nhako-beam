@@ -154,9 +154,18 @@ class FakeEngine : Engine {
         }
     }
     override fun cancelTrust(deviceId: String) {}
-    override fun answerTrust(deviceId: String, yes: Boolean) {
+    private val asked = HashMap<String, String?>()
+    override fun answerTrust(deviceId: String, yes: Boolean, replace: Boolean) {
+        val old = asked.remove(deviceId)
         if (!yes) return emit(EngineEvent.TrustEnded(deviceId, TrustOutcome.Declined))
         update(deviceId) { it.copy(trusted = true) }
+        // Like the engine: the reinstalled device keeps the old one's Always accept, and the old one goes.
+        if (replace && old != null) {
+            val auto = devices.find { it.id == old }?.autoAccept == true
+            if (auto) update(deviceId) { it.copy(autoAccept = true) }
+            devices = devices.filter { it.id != old }
+            emit(EngineEvent.DeviceLost(old))
+        }
         devices.find { it.id == deviceId }?.let { emit(EngineEvent.Paired(it, PairVia.Nearby, TRUST_CHECK)) }
     }
     override suspend fun renameSelf(name: String) {
@@ -284,7 +293,23 @@ class FakeEngine : Engine {
         emit(EngineEvent.Incoming(r))
         return r
     }
-    fun simTrustAsk(deviceId: String = "d-studio") = emit(EngineEvent.TrustAsk(TrustRequest(deviceId, TRUST_CHECK, System.currentTimeMillis())))
+    /** A trusted, offline device reinstalled: a new key, the same name, type and system, asking to be trusted. */
+    fun simReinstall(oldId: String): String {
+        val old = devices.first { it.id == oldId }
+        val fresh = old.copy(id = "$oldId-new", trusted = false, autoAccept = false, reachable = true, nearby = true, route = Route.Nearby)
+        devices = devices + fresh
+        emit(EngineEvent.DeviceChanged(fresh))
+        simTrustAsk(fresh.id)
+        return fresh.id
+    }
+
+    fun simTrustAsk(deviceId: String = "d-studio") {
+        // Like the engine: an offline trusted device just like it is most likely it before a reinstall.
+        val d = devices.find { it.id == deviceId }
+        val twin = d?.let { n -> devices.find { it.id != n.id && it.trusted && !it.reachable && it.name == n.name && it.kind == n.kind && it.os == n.os } }
+        asked[deviceId] = twin?.id
+        emit(EngineEvent.TrustAsk(TrustRequest(deviceId, TRUST_CHECK, System.currentTimeMillis(), twin?.id)))
+    }
     /** A browser opens the shared link: asking, or (with [state] and [done]) let in and downloading. */
     fun simVisitor(label: String = "Chrome on Android", address: String = "192.168.1.23", state: VisitorState = VisitorState.Asking, done: Double = 0.0, downloads: Int = 0) {
         val share = link ?: return

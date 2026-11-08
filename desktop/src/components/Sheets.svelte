@@ -106,6 +106,11 @@
   }
 
   // ---------- Trust ----------
+  // A reinstalled device asking to be trusted: replace its old entry (the default) or keep both.
+  let replaceOld = $state(true);
+  $effect(() => {
+    if (app.sheet?.kind === 'trustAsk') replaceOld = true;
+  });
   const trustDevice = $derived(app.sheet && (app.sheet.kind === 'trustWait' || app.sheet.kind === 'trustAsk') ? app.device(app.sheet.deviceId) : undefined);
 
   // ---------- Text ----------
@@ -559,9 +564,22 @@
       <span class="muted">{t('trust.ask.check')}</span>
       <span class="fp tabular scan" data-testid="trust-ask-check"><Icon name="fingerprint-simple" size={18} />{ask.check}</span>
     </div>
+    {#if ask.replaces}
+      <fieldset class="twin" data-testid="trust-twin" in:springIn={{ y: 8 }}>
+        <legend>{t('trust.ask.replace.title', { device: app.deviceName(ask.replaces) })}</legend>
+        <label class="twin-opt" class:on={replaceOld}>
+          <input type="radio" name="trust-twin" checked={replaceOld} onchange={() => (replaceOld = true)} data-testid="trust-replace" />
+          <span><span>{t('trust.ask.replace.yes', { device: app.deviceName(ask.replaces) })}</span><small>{t('trust.ask.replace.yesHint')}</small></span>
+        </label>
+        <label class="twin-opt" class:on={!replaceOld}>
+          <input type="radio" name="trust-twin" checked={!replaceOld} onchange={() => (replaceOld = false)} data-testid="trust-keep" />
+          <span><span>{t('trust.ask.replace.keep')}</span><small>{t('trust.ask.replace.keepHint')}</small></span>
+        </label>
+      </fieldset>
+    {/if}
     {#snippet footer()}
       <Button variant="secondary" full testid="trust-no" onclick={() => app.answerTrust(ask.deviceId, false)}>{t('trust.ask.no')}</Button>
-      <Button full icon="handshake" testid="trust-yes" onclick={() => app.answerTrust(ask.deviceId, true)}>{t('trust.ask.yes')}</Button>
+      <Button full icon="handshake" testid="trust-yes" onclick={() => app.answerTrust(ask.deviceId, true, !!ask.replaces && replaceOld)}>{t('trust.ask.yes')}</Button>
     {/snippet}
   </Sheet>
 {:else if app.sheet?.kind === 'text' && textItem}
@@ -1100,6 +1118,43 @@
   }
   .meet :global(.orb) {
     width: auto;
+  }
+  .twin {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-6);
+    padding: 0;
+    border: 0;
+  }
+  .twin legend {
+    padding: 0 0 var(--space-2);
+    font-weight: 600;
+  }
+  .twin-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+    cursor: pointer;
+    transition: background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+  }
+  .twin-opt.on {
+    background: var(--color-accent-subtle);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+  }
+  .twin-opt input {
+    margin: 3px 0 0;
+    accent-color: var(--color-accent);
+  }
+  .twin-opt > span {
+    display: grid;
+    gap: 2px;
+  }
+  .twin-opt small {
+    font-size: var(--type-footnote-size);
+    color: var(--color-text-secondary);
   }
   .verify {
     display: grid;

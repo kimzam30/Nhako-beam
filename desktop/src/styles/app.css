@@ -114,9 +114,13 @@ p {
   opacity: 1;
 }
 
-/* The window is hidden (see main.ts): nothing animates where nobody can see it. */
+/* The window is hidden, or nothing has happened for a while (see main.ts): nothing animates
+   for its own sake. */
 .hidden-app *,
 .hidden-app *::before,
-.hidden-app *::after {
+.hidden-app *::after,
+.still-app *,
+.still-app *::before,
+.still-app *::after {
   animation-play-state: paused !important;
 }

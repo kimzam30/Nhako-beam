@@ -137,7 +137,7 @@
   }
 </script>
 
-<svelte:window ondragenter={dragenter} ondragover={dragover} ondragleave={dragleave} ondrop={drop} />
+<svelte:window ondragenter={dragenter} ondragover={dragover} ondragleave={dragleave} ondrop={drop} onpointerdown={() => app.poke()} onkeydown={() => app.poke()} onwheel={() => app.poke()} onfocus={() => app.poke()} />
 
 <div class="screens">
   {#key app.screen}

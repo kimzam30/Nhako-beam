@@ -5,6 +5,8 @@ import io.github.kimzam30.nhakobeam.model.DeviceKind
 import io.github.kimzam30.nhakobeam.model.Route
 import io.github.kimzam30.nhakobeam.state.canTrust
 import io.github.kimzam30.nhakobeam.state.sendGroups
+import io.github.kimzam30.nhakobeam.state.withoutTwins
+import io.github.kimzam30.nhakobeam.model.OsPlatform
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,6 +26,14 @@ class SendListTest {
         val a = dev("a", "Alpha", trusted = true); val b = dev("b", "Beta", trusted = true)
         assertEquals(listOf("a", "b"), sendGroups(listOf(b, a)).first.map { it.id })
         assertEquals(listOf("a", "b"), sendGroups(listOf(a.copy(reachable = false, route = null), b.copy(route = Route.Direct))).first.map { it.id })
+    }
+
+    @Test fun aReinstalledDeviceShowsOnceItsOfflineTwinHidesWhileItIsOnline() {
+        val old = dev("old", "Tab", trusted = true, reachable = false, route = null); val fresh = dev("new", "Tab", trusted = true)
+        assertEquals(listOf("new"), sendGroups(listOf(old, fresh)).first.map { it.id })
+        assertEquals(listOf("old", "new"), withoutTwins(listOf(old, fresh.copy(reachable = false))).map { it.id })
+        for (o in listOf(old.copy(name = "Tab 2"), old.copy(kind = DeviceKind.Tablet), old.copy(os = OsPlatform.Windows))) assertEquals(2, withoutTwins(listOf(o, fresh)).size)
+        assertEquals(2, withoutTwins(listOf(old, fresh.copy(trusted = false))).size)
     }
 
     @Test fun trustGoesByBeingOnThisNetworkNotByTheRoute() {

@@ -48,7 +48,7 @@ export type Sheet =
   /** This device asked another to trust it; `check` arrives once the other device has the ask. */
   | { kind: 'trustWait'; deviceId: string; check: string | null }
   /** Another device asks to trust this one. */
-  | { kind: 'trustAsk'; deviceId: string; check: string }
+  | { kind: 'trustAsk'; deviceId: string; check: string; replaces?: string }
   /** Text that was sent or received (a transfer, or a History entry). */
   | { kind: 'text'; id: string }
   | { kind: 'transfer'; id: string }
@@ -93,6 +93,10 @@ function loadStored(): { onboarded: boolean; selfName: string; saveLocation: str
 }
 
 const ACTIVE = new Set(['waiting', 'connecting', 'transferring', 'paused', 'reconnecting']);
+/** Transfers that keep the room awake: anything on its way, not one paused. */
+const MOVING = new Set(['waiting', 'connecting', 'transferring', 'reconnecting']);
+/** With no touch, key or news for this long, everything that moves for its own sake holds still. */
+export const STILL_AFTER_MS = 30_000;
 /** The browser prototype's pretend folders (the desktop app uses the real folder picker). */
 const SAVE_OPTIONS = ['Downloads/Nhako Beam', 'Documents/Nhako Beam', 'Desktop'];
 /** Default names the onboarding screen fills in; the engine's own default replaces them. */
@@ -198,6 +202,31 @@ class AppState {
     [...this.devices].sort((a, b) => Number(b.reachable) - Number(a.reachable) || Number(b.trusted) - Number(a.trusted) || a.name.localeCompare(b.name)),
   );
   activeTransfers = $derived(this.transfers.filter((x) => ACTIVE.has(x.status)));
+  /** Nothing has happened for a while: the room, pulses and the 3D bolt hold still to save the
+   *  battery. Any touch, key, new device, request or transfer wakes them (`poke`). Android's
+   *  AppState has the same rule. */
+  still = $state(false);
+  #stillTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Something happened: wake up, and hold still again after STILL_AFTER_MS of quiet. */
+  poke() {
+    this.#setStill(false);
+    clearTimeout(this.#stillTimer);
+    this.#stillTimer = setTimeout(() => {
+      if (this.transfers.some((x) => MOVING.has(x.status))) this.poke();
+      else this.#setStill(true);
+    }, STILL_AFTER_MS);
+  }
+
+  /** The page's `still-app` class pauses every CSS animation (app.css); the 3D bolt listens for
+   *  `nhako:still` (stage/scene.ts). */
+  #setStill(on: boolean) {
+    if (this.still === on) return;
+    this.still = on;
+    if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('still-app', on);
+    window.dispatchEvent(new Event('nhako:still'));
+  }
   visibleTransfers = $derived(this.transfers.filter((x) => !this.dismissed.includes(x.id)));
 
   /** Element registry for magnet targets (not reactive on purpose). */
@@ -236,8 +265,11 @@ class AppState {
     void this.loadSelf();
     if (this.native) void this.checkFirewall();
     this.wire(opts);
+    this.poke();
 
     this.offEngine = this.engine.on((e) => {
+      // News worth seeing wakes the room. Progress, free space and the like don't.
+      if (e.type !== 'transferProgress' && e.type !== 'freeSpace' && e.type !== 'server' && e.type !== 'history' && e.type !== 'discovery') this.poke();
       switch (e.type) {
         case 'discovery':
           this.discovery = e.state;
@@ -291,7 +323,7 @@ class AppState {
         case 'trustAsk':
           this.trustAsks = [...this.trustAsks.filter((r) => r.deviceId !== e.request.deviceId), e.request];
           // Someone is holding the other device and waiting: this comes first.
-          this.sheet = { kind: 'trustAsk', deviceId: e.request.deviceId, check: e.request.check };
+          this.sheet = { kind: 'trustAsk', deviceId: e.request.deviceId, check: e.request.check, replaces: e.request.replaces };
           playSound('incoming');
           break;
         case 'trustWaiting':
@@ -923,10 +955,10 @@ class AppState {
     if (this.sheet?.kind === 'trustWait' && this.sheet.deviceId === deviceId) this.sheet = null;
   }
 
-  answerTrust(deviceId: string, yes: boolean): void {
+  answerTrust(deviceId: string, yes: boolean, replace = false): void {
     this.trustAsks = this.trustAsks.filter((r) => r.deviceId !== deviceId);
     if (this.sheet?.kind === 'trustAsk' && this.sheet.deviceId === deviceId) this.sheet = null;
-    this.engine.answerTrust(deviceId, yes);
+    this.engine.answerTrust(deviceId, yes, replace);
     // A yes opens the paired sheet when both have saved each other.
   }
 

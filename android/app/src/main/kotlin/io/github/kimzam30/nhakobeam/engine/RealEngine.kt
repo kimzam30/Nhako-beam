@@ -287,7 +287,7 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
 
     override suspend fun askTrust(deviceId: String) = call { askTrust(deviceId) }
     override fun cancelTrust(deviceId: String) = fire { cancelTrust(deviceId) }
-    override fun answerTrust(deviceId: String, yes: Boolean) = fire { answerTrust(deviceId, yes) }
+    override fun answerTrust(deviceId: String, yes: Boolean, replace: Boolean) = fire { answerTrust(deviceId, yes, replace) }
 
     override suspend fun accept(requestId: String, trust: Boolean, autoAccept: Boolean): String? =
         call { accept(requestId, trust, autoAccept) }

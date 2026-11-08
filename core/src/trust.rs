@@ -30,7 +30,8 @@ const ASKS_PER_MINUTE: usize = 3;
 /// An ask from another device, waiting for an answer here.
 pub(crate) struct Asked {
     pub request: TrustRequest,
-    pub decide: Option<oneshot::Sender<bool>>,
+    /// Yes or no, and whether a yes replaces `request.replaces`.
+    pub decide: Option<oneshot::Sender<(bool, bool)>>,
 }
 
 impl Engine {
@@ -70,7 +71,7 @@ impl Engine {
             };
             e.st().trust_asking.remove(&peer);
             match outcome {
-                Some(Ok(check)) => e.trusted_both(peer, check),
+                Some(Ok(check)) => e.trusted_both(peer, check, None),
                 Some(Err(outcome)) => {
                     info!(peer = %peer.fmt_short(), ?outcome, "trust ask ended");
                     e.emit(EngineEvent::TrustEnded {
@@ -91,12 +92,14 @@ impl Engine {
         }
     }
 
-    /// Answers another device's ask: `true` trusts it, and tells it to trust this one.
-    pub fn answer_trust(&self, device: &str, yes: bool) {
+    /// Answers another device's ask: `true` trusts it, and tells it to trust this one. With
+    /// `replace`, a yes also removes the old entry the ask named in `replaces`, keeping its
+    /// Always accept setting. Ignored when the ask named none.
+    pub fn answer_trust(&self, device: &str, yes: bool, replace: bool) {
         let Some(peer) = parse_device_id(device) else { return };
         let decide = self.st().trust_asks.get_mut(&peer).and_then(|a| a.decide.take());
         if let Some(d) = decide {
-            let _ = d.send(yes);
+            let _ = d.send((yes, replace));
         }
     }
 
@@ -164,10 +167,12 @@ impl Engine {
         };
         let check = codekeys::trust_check(&theirs, &mine, &peer, &self.id());
         let (decide, decided) = oneshot::channel();
+        let replaces = self.similar_trusted(&peer);
         let request = TrustRequest {
             device_id: device_id(&peer),
             check: check.clone(),
             received_at: now_ms(),
+            replaces: replaces.map(|old| device_id(&old)),
         };
         self.st().trust_asks.insert(
             peer,
@@ -191,14 +196,14 @@ impl Engine {
             })
         };
         match answer {
-            Some(true) => {
+            Some((true, replace)) => {
                 if wire::write_frame(&mut send, &TrustMsg::Answer(TrustAnswer::Yes)).await.is_err() {
                     ended(TrustOutcome::Withdrawn);
                     return Ok(());
                 }
-                self.trusted_both(peer, check);
+                self.trusted_both(peer, check, replaces.filter(|_| replace));
             }
-            Some(false) => {
+            Some((false, _)) => {
                 let _ = wire::write_frame(&mut send, &TrustMsg::Answer(TrustAnswer::No)).await;
                 ended(TrustOutcome::Declined);
             }
@@ -226,9 +231,43 @@ impl Engine {
         times.len() > ASKS_PER_MINUTE
     }
 
-    /// Both sides agreed: save the other device as trusted and say so, as pairing does.
-    fn trusted_both(&self, peer: EndpointId, check: String) {
+    /// A trusted device that looks like `peer` from before a reinstall: offline, a different key,
+    /// and the same name, type and system as `peer` says it has. The newest one if several.
+    pub(crate) fn similar_trusted(&self, peer: &EndpointId) -> Option<EndpointId> {
+        let (info, online) = {
+            let st = self.st();
+            let info = st.devices.get(peer)?.info.clone()?;
+            let online: Vec<EndpointId> = st.devices.iter().filter(|(_, d)| d.reachable).map(|(id, _)| *id).collect();
+            (info, online)
+        };
+        let s = self.store();
+        s.state
+            .trusted
+            .iter()
+            .filter(|t| t.id != *peer && !online.contains(&t.id))
+            .filter(|t| t.name == info.name && t.kind == info.kind && t.os == info.os)
+            .max_by_key(|t| t.added_at)
+            .map(|t| t.id)
+    }
+
+    /// `new` is `old` after a reinstall: it keeps old's Always accept, and old goes. Old's wake
+    /// token isn't kept: a reinstall gets a new one, which comes with new's hello.
+    fn replace_trusted(&self, old: EndpointId, new: EndpointId) {
+        let auto = self.store().trusted(&old).is_some_and(|t| t.auto_accept);
+        if auto {
+            self.set_auto_accept(&device_id(&new), true);
+        }
+        self.set_trusted(&device_id(&old), false);
+        info!(old = %old.fmt_short(), new = %new.fmt_short(), "replaced a reinstalled device");
+    }
+
+    /// Both sides agreed: save the other device as trusted and say so, as pairing does. With
+    /// `replace`, that old entry was this device before a reinstall, and goes.
+    fn trusted_both(&self, peer: EndpointId, check: String, replace: Option<EndpointId>) {
         self.set_trusted(&device_id(&peer), true);
+        if let Some(old) = replace {
+            self.replace_trusted(old, peer);
+        }
         if let Some(device) = self.device_snapshot(&peer) {
             info!(peer = %peer.fmt_short(), "trusted each other");
             self.emit(EngineEvent::Paired {

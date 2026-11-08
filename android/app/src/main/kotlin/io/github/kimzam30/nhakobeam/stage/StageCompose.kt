@@ -60,8 +60,9 @@ fun StageCanvas(scene: StageScene, modifier: Modifier, paused: Boolean = false) 
     var tick by remember { mutableLongStateOf(0L) }
     // Held still while something covers it (a sheet). An endless animation, so tests (which
     // don't run those) draw it once and go on.
-    LaunchedEffect(scene, paused) {
-        if (paused) return@LaunchedEffect
+    val still = Nhako.still
+    LaunchedEffect(scene, paused, still) {
+        if (paused || still) return@LaunchedEffect
         while (true) {
             withInfiniteAnimationFrameMillis { tick = it }
             if (!scene.moving) delay(250) else if (scene.calm) delay(17)

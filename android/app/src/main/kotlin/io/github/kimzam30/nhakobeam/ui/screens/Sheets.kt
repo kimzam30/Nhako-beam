@@ -43,6 +43,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.heading
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -185,15 +191,19 @@ fun SheetHost(app: AppState) {
         }
         is Sheet.TrustAsk -> {
             val name = app.deviceName(sheet.deviceId)
+            // A reinstalled device: replace its old entry (the default) or keep both.
+            var replaceOld by remember(sheet.deviceId) { mutableStateOf(true) }
+            val replace = sheet.replaces != null && replaceOld
             NSheet(visible, t("trust.ask.title", "device" to name), { app.answerTrust(sheet.deviceId, false) }, footer = {
                 Row(horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3)) {
                     NButton(t("trust.ask.no"), { app.answerTrust(sheet.deviceId, false) }, Modifier.weight(1f), variant = ButtonVariant.Secondary, full = true)
-                    NButton(t("trust.ask.yes"), { app.answerTrust(sheet.deviceId, true) }, Modifier.weight(1f), full = true, icon = "handshake")
+                    NButton(t("trust.ask.yes"), { app.answerTrust(sheet.deviceId, true, replace) }, Modifier.weight(1f), full = true, icon = "handshake")
                 }
             }) {
                 TrustPair(app, sheet.deviceId, live = true, waiting = false)
                 BasicText(t("trust.ask.body", "device" to name), style = NhakoType.body.style(Nhako.colors.textSecondary))
                 CheckChip(sheet, t("trust.ask.check"), sheet.check)
+                sheet.replaces?.let { old -> TwinChoice(app.deviceName(old), replaceOld) { replaceOld = it } }
             }
         }
         is Sheet.TextSheet -> {
@@ -843,6 +853,40 @@ private fun DevicesContent(app: AppState) {
                 val s by animateFloatAsState(if (inRoom) 1f else 0f, NhakoMotion.bouncy.spec(), label = "tick")
                 Box(Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(if (inRoom) c.accent else c.fill), contentAlignment = Alignment.Center) {
                     PhIcon("check", Modifier.graphicsLayer { scaleX = s; scaleY = s; alpha = s.coerceIn(0f, 1f) }, size = 18.dp, tint = c.onAccent, weight = IconWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+
+/** "This looks like X from before": replace the old entry, or keep both. Replace comes first and is picked. */
+@Composable
+private fun TwinChoice(old: String, replace: Boolean, onPick: (Boolean) -> Unit) {
+    val c = Nhako.colors
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(NhakoSpace.s2)) {
+        BasicText(t("trust.ask.replace.title", "device" to old), Modifier.semantics { heading() }, style = NhakoType.headline.style(c.textPrimary))
+        for ((on, title, hint) in listOf(
+            Triple(true, t("trust.ask.replace.yes", "device" to old), t("trust.ask.replace.yesHint")),
+            Triple(false, t("trust.ask.replace.keep"), t("trust.ask.replace.keepHint")),
+        )) {
+            val picked = replace == on
+            val bg by androidx.compose.animation.animateColorAsState(if (picked) c.accentSubtle else c.surfaceSunken, tween(NhakoMotion.Duration.fast), label = "twinBg")
+            val edge by androidx.compose.animation.animateColorAsState(if (picked) c.accent else Color.Transparent, tween(NhakoMotion.Duration.fast), label = "twinEdge")
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(NhakoRadius.md)).background(bg)
+                    .border(1.dp, edge, RoundedCornerShape(NhakoRadius.md))
+                    .selectable(picked, role = Role.RadioButton) { onPick(on) }
+                    .padding(horizontal = NhakoSpace.s4, vertical = NhakoSpace.s3),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NhakoSpace.s3),
+            ) {
+                Box(Modifier.size(20.dp).clip(CircleShape).border(2.dp, if (picked) c.accent else c.textTertiary, CircleShape), contentAlignment = Alignment.Center) {
+                    if (picked) Box(Modifier.size(10.dp).clip(CircleShape).background(c.accent))
+                }
+                Column(Modifier.weight(1f)) {
+                    BasicText(title, style = NhakoType.body.style(c.textPrimary))
+                    BasicText(hint, style = NhakoType.footnote.style(c.textSecondary))
                 }
             }
         }

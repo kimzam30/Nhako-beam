@@ -60,7 +60,8 @@ interface Engine {
     suspend fun askTrust(deviceId: String)
     fun cancelTrust(deviceId: String)
     /** Answers another device's ask. */
-    fun answerTrust(deviceId: String, yes: Boolean)
+    /** With [replace], a yes also removes the old entry the ask named in `replaces`, keeping its Always accept. */
+    fun answerTrust(deviceId: String, yes: Boolean, replace: Boolean)
     fun setAutoAccept(deviceId: String, on: Boolean)
     suspend fun renameSelf(name: String)
     suspend fun getSelf(): SelfInfo

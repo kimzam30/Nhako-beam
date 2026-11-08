@@ -26,6 +26,26 @@ class PairingTest {
         it.sheet = Sheet.Scan
     }
 
+    @Test fun aReinstalledDeviceCanReplaceItsOldEntryOrSitBesideIt() {
+        val fake = FakeEngine()
+        fake.devices = fake.devices.map { if (it.id == "d-office") it.copy(autoAccept = true) else it }
+        val app = app(fake).also { it.sheet = null }
+        val fresh = fake.simReinstall("d-office")
+        val ask = app.sheet as Sheet.TrustAsk
+        assertEquals("d-office", ask.replaces)
+        app.answerTrust(fresh, true, replace = true)
+        assertTrue(app.devices.none { it.id == "d-office" })
+        assertTrue(app.devices.single { it.id == fresh }.let { it.trusted && it.autoAccept })
+
+        // Keep both: the old one stays.
+        val fake2 = FakeEngine()
+        val app2 = app(fake2).also { it.sheet = null }
+        val fresh2 = fake2.simReinstall("d-office")
+        app2.answerTrust(fresh2, true, replace = false)
+        assertTrue(app2.devices.any { it.id == "d-office" && it.trusted })
+        assertTrue(app2.devices.single { it.id == fresh2 }.trusted)
+    }
+
     @Test fun aScannedCodeThatWorksShowsOnlyThePairedSheet() {
         val fake = FakeEngine()
         val app = app(fake)

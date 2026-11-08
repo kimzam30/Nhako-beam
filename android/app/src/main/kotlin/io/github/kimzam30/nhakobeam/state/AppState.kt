@@ -66,7 +66,7 @@ sealed interface Sheet {
     /** This device asked another to trust it; [check] arrives once the other device has the ask. */
     data class TrustWait(val deviceId: String, val check: String? = null) : Sheet
     /** Another device asks to trust this one. */
-    data class TrustAsk(val deviceId: String, val check: String) : Sheet
+    data class TrustAsk(val deviceId: String, val check: String, val replaces: String? = null) : Sheet
     /** Text that was sent or received (a transfer, or a History entry). */
     data class TextSheet(val id: String) : Sheet
     /** The link being shared: its QR, who opened it, Stop. */
@@ -107,6 +107,12 @@ interface PlatformHooks {
  * Everything the app shows: what the engine reports plus what the UI is doing. The Kotlin twin of
  * desktop/src/lib/state/app.svelte.ts, so both apps behave the same.
  */
+/** With no touch or news for this long, everything that moves for its own sake holds still. */
+const val STILL_AFTER_MS = 30_000L
+
+/** Transfers that keep the room awake: anything on its way, not one paused. */
+private val MOVING = setOf(TransferStatus.Waiting, TransferStatus.Connecting, TransferStatus.Transferring, TransferStatus.Reconnecting)
+
 class AppState(val engine: Engine, val prefs: Prefs, private val scope: CoroutineScope) {
     var platform: PlatformHooks = object : PlatformHooks {}
     /** Called after each engine event has been applied (notifications, the transfer service). */
@@ -219,10 +225,30 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
     private val acceptedHere = mutableSetOf<String>()
     private var eventsJob: Job? = null
 
+    /**
+     * Nothing has happened for a while: the room, pulses and the 3D bolt hold still to save the
+     * battery. Any touch, new device, request or transfer wakes them ([poke]). Desktop's
+     * app.svelte.ts has the same rule.
+     */
+    var still by mutableStateOf(false)
+        private set
+    private var stillJob: Job? = null
+
+    /** Something happened: wake up, and hold still again after [STILL_AFTER_MS] of quiet. */
+    fun poke() {
+        still = false
+        stillJob?.cancel()
+        stillJob = scope.launch {
+            do delay(STILL_AFTER_MS) while (transfers.any { it.status in MOVING })
+            still = true
+        }
+    }
+
     /** Listens to the engine, reads the saved settings and, once onboarded, starts the engine. */
     fun init() {
         if (eventsJob != null) return
         eventsJob = scope.launch { engine.events.collect { onEvent(it) } }
+        poke()
         scope.launch {
             runCatching { connection = engine.getConnection() }
             runCatching { lanDiscovery = engine.getLanDiscovery() }
@@ -254,6 +280,8 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
     }
 
     fun onEvent(e: EngineEvent) {
+        // News worth seeing wakes the room. Progress, free space and the like don't.
+        if (e !is EngineEvent.TransferProgress && e !is EngineEvent.FreeSpace && e !is EngineEvent.Server && e !is EngineEvent.History && e !is EngineEvent.Discovery) poke()
         when (e) {
             is EngineEvent.Discovery -> discovery = e.state
             is EngineEvent.DeviceChanged -> {
@@ -293,7 +321,7 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
             is EngineEvent.TrustAsk -> {
                 trustAsks = trustAsks.filter { it.deviceId != e.request.deviceId } + e.request
                 // Someone is holding the other device and waiting: this comes first.
-                sheet = Sheet.TrustAsk(e.request.deviceId, e.request.check)
+                sheet = Sheet.TrustAsk(e.request.deviceId, e.request.check, e.request.replaces)
                 sound(NhakoSound.Incoming)
             }
             is EngineEvent.TrustWaiting -> (sheet as? Sheet.TrustWait)?.let { if (it.deviceId == e.deviceId) sheet = it.copy(check = e.check) }
@@ -602,10 +630,10 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
         if ((sheet as? Sheet.TrustWait)?.deviceId == deviceId) sheet = null
     }
 
-    fun answerTrust(deviceId: String, yes: Boolean) {
+    fun answerTrust(deviceId: String, yes: Boolean, replace: Boolean = false) {
         trustAsks = trustAsks.filter { it.deviceId != deviceId }
         if ((sheet as? Sheet.TrustAsk)?.deviceId == deviceId) sheet = null
-        engine.answerTrust(deviceId, yes)
+        engine.answerTrust(deviceId, yes, replace)
         // A yes opens the paired sheet when both have saved each other.
     }
 

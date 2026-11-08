@@ -61,8 +61,16 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         nhako.app.engine.setForeground(true)
+        // Opening the app wakes the room; it holds still again after a quiet while.
+        nhako.app.poke()
         // Local network access can be turned on or off in system Settings while we're away.
         nhako.app.localNetworkChanged(LocalNetwork.allowed(this))
+    }
+
+    // Any touch wakes the room (AppState.still).
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) nhako.app.poke()
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onStop() {

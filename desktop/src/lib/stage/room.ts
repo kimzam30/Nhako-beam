@@ -1,5 +1,6 @@
 // Home's room, as data (design/room/build.mjs writes room.json next to the images). Where things go,
 // and which device stands where. The Kotlin twin is android/.../stage/RoomModel.kt.
+import { withoutTwins } from '../state/sendList';
 import data from '../../../../design/room/build/room.json';
 import type { Device } from '../engine/types';
 
@@ -19,7 +20,7 @@ export interface RoomFit { view: RoomView; k: number; ox: number; oy: number; to
 
 /** Trusted first, then by name, never by whether it's online: nothing moves when a device sleeps. */
 export function roomOrder(devices: Device[]): Device[] {
-  return [...devices].sort((a, b) => Number(b.trusted) - Number(a.trusted) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
+  return withoutTwins(devices).sort((a, b) => Number(b.trusted) - Number(a.trusted) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
 }
 
 /** Which crop of the room a screen uses: rotating a screen just changes crop. */

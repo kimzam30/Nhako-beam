@@ -178,7 +178,14 @@ data class IncomingRequest(
 /** Another device on the same network asking to be one of your devices, and you one of its own
  *  (Trust this device, from Nearby). Both screens show [check]. */
 @Serializable
-data class TrustRequest(val deviceId: String, val check: String, val receivedAt: Long = 0)
+data class TrustRequest(
+    val deviceId: String,
+    val check: String,
+    val receivedAt: Long = 0,
+    /** An offline trusted device with the same name, type and system: most likely this one before
+     *  a reinstall. A yes can replace it (answerTrust). */
+    val replaces: String? = null,
+)
 
 /** How a trust ask ended without both devices trusting each other. */
 @Serializable

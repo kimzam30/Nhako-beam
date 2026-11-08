@@ -59,7 +59,7 @@ data class RoomFit(val view: String, val k: Float, val ox: Float, val oy: Float,
 data class RoomTagAt(val id: String, val x: Float, val y: Float, val w: Float)
 
 /** Trusted first, then by name, and never by whether it's online: nothing moves when a device sleeps. */
-fun roomOrder(devices: List<Device>): List<Device> = devices.sortedWith(compareBy({ !it.trusted }, { it.name.lowercase() }, { it.id }))
+fun roomOrder(devices: List<Device>): List<Device> = io.github.kimzam30.nhakobeam.state.withoutTwins(devices).sortedWith(compareBy({ !it.trusted }, { it.name.lowercase() }, { it.id }))
 
 /** Which crop of the room a screen uses: rotating a screen just changes crop. */
 fun roomView(data: RoomData, width: Float, height: Float): String {

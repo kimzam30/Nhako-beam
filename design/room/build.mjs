@@ -20,7 +20,7 @@ boltSvg = boltSvg.replace(/<path fill="#bcdcff" d="[^"]*"\/>/, '').replace(/(<pa
 const VIEWS = { tall: { x: 490, y: -200, w: 620, h: 1700 }, mid: { x: 290, y: -200, w: 1020, h: 1700 }, wide: { x: 0, y: 0, w: 1600, h: 900 } };
 const VIEW_SCALE = { tall: 1.75, mid: 1.4, wide: 1.5 };
 const PERSON = { x: 620, y: 450, w: 290, h: 450 };
-const BOLT = { x: 913, y: 252, size: 56, threadX: 934, threadY: 276 };
+const BOLT = { x: 901, y: 246, size: 56, threadX: 922, threadY: 270 };
 const FRONT = { x: 250, y: 130, w: 340, h: 410 };
 
 const wrong = problems();

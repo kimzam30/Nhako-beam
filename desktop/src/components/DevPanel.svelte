@@ -96,6 +96,7 @@
       [
         ['Studio PC asks to trust me', () => e.simTrustAsk('d-studio'), 'trust-ask'],
         ['It stops asking', () => e.simTrustWithdraw(), 'trust-withdraw'],
+        ['Office laptop, reinstalled, asks', () => e.simReinstall(), 'trust-reinstall'],
       ],
     ],
     [

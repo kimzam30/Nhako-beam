@@ -287,6 +287,8 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   io.observe(canvas);
   const onVisibility = () => wake();
   document.addEventListener('visibilitychange', onVisibility);
+  // The app went still after a quiet while, or woke again (AppState.poke).
+  window.addEventListener('nhako:still', onVisibility);
 
   for (const r of rigs) r.motion.set(opts.pair ? 'happy' : 'idle', born);
 
@@ -471,7 +473,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   }
 
   function wake() {
-    if (raf || nap || !visible || paused || document.hidden) return;
+    if (raf || nap || !visible || paused || document.hidden || document.documentElement.classList.contains('still-app')) return;
     raf = requestAnimationFrame(frame);
   }
 
@@ -594,6 +596,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
       if (nap) clearTimeout(nap);
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('nhako:still', onVisibility);
       // The model's geometry is shared with the cached copy, so only the context goes.
       renderer.dispose();
       renderer.forceContextLoss();

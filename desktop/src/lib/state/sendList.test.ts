@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Device } from '../engine/types';
-import { canTrust, sendGroups } from './sendList';
+import { canTrust, sendGroups, withoutTwins } from './sendList';
 
 const dev = (id: string, name: string, p: Partial<Device> = {}): Device => ({ id, name, kind: 'phone', os: 'android', trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '', wakeable: false, ...p });
 
@@ -25,6 +25,17 @@ describe('sendGroups', () => {
 
   it('leaves out strangers that are gone', () => {
     expect(sendGroups([dev('a', 'A', { reachable: false })]).nearby).toEqual([]);
+  });
+
+  it('shows a reinstalled device once: its offline twin hides while it is online', () => {
+    const old = dev('old', 'Tab', { trusted: true, reachable: false, route: null }), fresh = dev('new', 'Tab', { trusted: true });
+    expect(sendGroups([old, fresh]).trusted.map((d) => d.id)).toEqual(['new']);
+    // Both offline: both stay, nothing to choose between.
+    expect(withoutTwins([old, { ...fresh, reachable: false }]).map((d) => d.id)).toEqual(['old', 'new']);
+    // A different name, type or system is a different device.
+    for (const p of [{ name: 'Tab 2' }, { kind: 'tablet' as const }, { os: 'windows' as const }]) expect(withoutTwins([{ ...old, ...p }, fresh])).toHaveLength(2);
+    // Not trusted yet (asking now): the old one stays until you answer.
+    expect(withoutTwins([old, { ...fresh, trusted: false }])).toHaveLength(2);
   });
 });
 

@@ -245,7 +245,7 @@ fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modi
  */
 @Composable
 fun loopFloat(on: Boolean, from: Float, to: Float, spec: InfiniteRepeatableSpec<Float>, label: String): State<Float> {
-    if (!on) return remember(from) { mutableFloatStateOf(from) }
+    if (!on || Nhako.still) return remember(from) { mutableFloatStateOf(from) }
     return rememberInfiniteTransition(label = label).animateFloat(from, to, spec, label = label)
 }
 

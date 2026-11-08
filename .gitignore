@@ -14,3 +14,6 @@
 # The Flatpak's generated source lists (packaging/flatpak/generate-sources.sh): they go to the Flathub repository.
 packaging/flatpak/cargo-sources.json
 packaging/flatpak/node-sources.json
+
+# A local preview setting for the browser prototype.
+/.claude/launch.json

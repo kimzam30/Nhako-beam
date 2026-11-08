@@ -317,9 +317,9 @@ impl NhakoEngine {
         Ok(())
     }
 
-    pub fn answer_trust(&self, device_id: String, yes: bool) -> Result<(), NhakoError> {
+    pub fn answer_trust(&self, device_id: String, yes: bool, replace: bool) -> Result<(), NhakoError> {
         let e = self.engine()?;
-        self.in_rt(|| e.answer_trust(&device_id, yes));
+        self.in_rt(|| e.answer_trust(&device_id, yes, replace));
         Ok(())
     }
 

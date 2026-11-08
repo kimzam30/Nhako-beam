@@ -739,8 +739,8 @@ pub async fn cancel_trust(host: State<'_, Host>, device_id: String) -> Result<()
 }
 
 #[tauri::command]
-pub async fn answer_trust(host: State<'_, Host>, device_id: String, yes: bool) -> Result<(), String> {
-    host.engine()?.answer_trust(&device_id, yes);
+pub async fn answer_trust(host: State<'_, Host>, device_id: String, yes: bool, replace: bool) -> Result<(), String> {
+    host.engine()?.answer_trust(&device_id, yes, replace);
     Ok(())
 }
 

@@ -47,6 +47,47 @@
   function back() {
     app.navigate('home');
   }
+
+  // The name is a draft until you confirm it with the bolt button or Enter. Escape puts the saved
+  // name back. Nothing saves on its own, so a half-typed name never reaches your other devices.
+  let draft = $state(app.selfName);
+  let editing = $state(false);
+  let justSaved = $state(false);
+  let savedTimer: ReturnType<typeof setTimeout> | undefined;
+  // The engine can settle the name (first start); follow it unless you are mid-edit.
+  $effect(() => {
+    const saved = app.selfName;
+    if (!editing) draft = saved;
+  });
+  const clean = $derived(draft.trim());
+  const nameChanged = $derived(clean !== app.selfName);
+  const nameEmpty = $derived(clean.length === 0);
+  const canSave = $derived(nameChanged && !nameEmpty);
+  const nameNote = $derived(nameEmpty ? t('settings.device.name.empty') : justSaved ? t('settings.device.name.saved') : nameChanged ? t('settings.device.name.hint') : '');
+
+  function saveName() {
+    if (!canSave) return;
+    app.selfName = clean;
+    draft = clean;
+    editing = false;
+    app.persist();
+    app.engine.renameSelf(clean);
+    justSaved = true;
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => (justSaved = false), 1400);
+  }
+  function nameKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveName();
+    } else if (e.key === 'Escape' && draft !== app.selfName) {
+      // Undo the edit; a second Escape leaves Settings as before.
+      e.stopPropagation();
+      draft = app.selfName;
+      editing = false;
+    }
+  }
+  $effect(() => () => clearTimeout(savedTimer));
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && !app.sheet && back()} />
@@ -61,10 +102,18 @@
     <section class="group" in:springIn={{ delay: stagger(0) }}>
       <h2>{t('settings.section.device')}</h2>
       <div class="card">
-        <label class="field">
-          <span>{t('settings.device.name')}</span>
-          <span class="charge name"><input bind:value={app.selfName} maxlength="32" onchange={() => (app.persist(), app.engine.renameSelf(app.selfName))} data-testid="settings-name" /></span>
-        </label>
+        <div class="field">
+          <label for="settings-name">{t('settings.device.name')}</label>
+          <span class="name-row">
+            <span class="charge name"><input id="settings-name" bind:value={draft} maxlength="32" oninput={() => ((editing = true), (justSaved = false))} onkeydown={nameKey} aria-describedby="settings-name-note" data-testid="settings-name" /></span>
+            {#if nameChanged || justSaved}
+              <button class="name-ok" class:saved={justSaved} class:ready={canSave} disabled={!canSave} aria-label={t('settings.device.name.save')} title={t('settings.device.name.save')} onclick={saveName} data-testid="settings-name-save" in:springIn={{ scale: 0.6, y: 0, preset: 'snappy' }} out:quickOut={{ scale: 0.6, y: 0 }}>
+                <Icon name={justSaved ? 'check' : 'lightning'} weight={justSaved ? 'bold' : 'fill'} size={16} />
+              </button>
+            {/if}
+          </span>
+        </div>
+        <p class="name-note" class:bad={nameEmpty} class:good={justSaved && !nameEmpty} id="settings-name-note" role="status">{nameNote}</p>
         <div class="sep"></div>
         <div class="field">
           <span>{t('settings.device.save')}</span>
@@ -393,10 +442,63 @@
     gap: var(--space-3);
     min-height: 0;
   }
+  .field .name-row {
+    flex: 1;
+    min-width: 0;
+    max-width: 296px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
   .field .name {
     flex: 1;
     min-width: 0;
     max-width: 260px;
+  }
+  .name-ok {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-fill);
+    color: var(--color-text-disabled);
+    transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, transform var(--duration-fast) ease;
+  }
+  .name-ok.ready {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    cursor: pointer;
+  }
+  .name-ok.ready:active {
+    transform: scale(0.92);
+  }
+  .name-ok.saved {
+    background: var(--color-success);
+    color: var(--color-on-accent);
+  }
+  .name-ok:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+  .name-note {
+    margin: 0 0 var(--space-2);
+    font-size: var(--type-footnote-size);
+    line-height: var(--type-footnote-line);
+    color: var(--color-text-secondary);
+    text-align: right;
+  }
+  .name-note:empty {
+    display: none;
+  }
+  .name-note.bad {
+    color: var(--color-danger);
+  }
+  .name-note.good {
+    color: var(--color-success);
   }
   .field input {
     flex: 1;

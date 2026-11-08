@@ -97,7 +97,7 @@ class RealEngineTest {
         assertTrue("sending text to nobody fails: $textErr", textErr is NhakoException.Failed)
         assertTrue(runCatching { engine.askTrust(noSuch) }.isFailure)
         engine.cancelTrust(noSuch)
-        engine.answerTrust(noSuch, false)
+        engine.answerTrust(noSuch, false, false)
         assertTrue(ContractJson.decodeFromString<Snapshot>(engine.snapshot()).trustAsks.isEmpty())
 
         // Phase 15: Share via link, with text only (no files to open). Off a local network it says

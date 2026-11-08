@@ -39,6 +39,7 @@ import io.github.kimzam30.nhakobeam.ui.screens.LicensesScreen
 import io.github.kimzam30.nhakobeam.ui.screens.OnboardingScreen
 import io.github.kimzam30.nhakobeam.ui.screens.SettingsScreen
 import io.github.kimzam30.nhakobeam.ui.screens.SheetHost
+import io.github.kimzam30.nhakobeam.ui.theme.LocalStill
 import io.github.kimzam30.nhakobeam.ui.theme.Nhako
 import io.github.kimzam30.nhakobeam.ui.theme.NhakoTheme
 
@@ -50,7 +51,7 @@ import io.github.kimzam30.nhakobeam.ui.theme.NhakoTheme
 fun NhakoBeamApp(app: AppState, prefs: Prefs, intro: Boolean = false) {
     var showIntro by rememberSaveable { mutableStateOf(intro) }
     NhakoTheme(prefs.theme, prefs.motion) {
-        CompositionLocalProvider(LocalSound provides app.sound) {
+        CompositionLocalProvider(LocalSound provides app.sound, LocalStill provides app.still) {
             val reduced = Nhako.reducedMotion
             // Licenses opens from Settings: back from there lands where you were. From Home it starts at the top.
             val settingsScroll = rememberScrollState()

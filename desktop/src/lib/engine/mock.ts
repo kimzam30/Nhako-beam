@@ -750,13 +750,20 @@ export class MockEngine implements Engine {
     this.asking.delete(deviceId);
   }
 
-  answerTrust(deviceId: string, yes: boolean): void {
-    if (!this.trustAsks.delete(deviceId)) return;
+  answerTrust(deviceId: string, yes: boolean, replace: boolean): void {
+    const ask = this.trustAsks.get(deviceId);
+    if (!ask) return;
+    this.trustAsks.delete(deviceId);
     if (!yes) {
       this.emit({ type: 'trustEnded', deviceId, outcome: 'declined' });
       return;
     }
     this.setTrusted(deviceId, true);
+    // Like the engine: the reinstalled device keeps the old one's Always accept, and the old one goes.
+    if (replace && ask.replaces) {
+      if (this.devices.get(ask.replaces)?.autoAccept) this.setAutoAccept(deviceId, true);
+      this.setTrusted(ask.replaces, false);
+    }
     const d = this.devices.get(deviceId);
     if (d) this.emit({ type: 'paired', device: { ...d }, via: 'nearby', check: TRUST_CHECK });
   }
@@ -993,7 +1000,9 @@ export class MockEngine implements Engine {
   simTrustAsk(deviceId = 'd-studio'): void {
     const d = this.devices.get(deviceId) ?? [...this.devices.values()].find((x) => x.reachable && !x.trusted);
     if (!d) return;
-    const request: TrustRequest = { deviceId: d.id, check: TRUST_CHECK, receivedAt: this.now() };
+    // Like the engine: an offline trusted device just like it is most likely it before a reinstall.
+    const twin = [...this.devices.values()].find((x) => x.id !== d.id && x.trusted && !x.reachable && x.name === d.name && x.kind === d.kind && x.os === d.os);
+    const request: TrustRequest = { deviceId: d.id, check: TRUST_CHECK, receivedAt: this.now(), ...(twin ? { replaces: twin.id } : {}) };
     this.trustAsks.set(d.id, request);
     this.emit({ type: 'trustAsk', request });
   }
@@ -1171,6 +1180,16 @@ export class MockEngine implements Engine {
     const device: Device = { ...base, id: `d-extra-${++this.seq}` };
     this.devices.set(device.id, device);
     this.emit({ type: 'device', device: { ...device } });
+  }
+
+  /** Office laptop, reinstalled: a new key, the same name, type and system, asking to be trusted. */
+  simReinstall(): void {
+    const old = this.devices.get('d-office');
+    if (!old) return;
+    const device: Device = { ...old, id: `d-office-${++this.seq}`, trusted: false, autoAccept: false, reachable: true, route: 'nearby', nearby: true, fingerprint: '91AE 3C07' };
+    this.devices.set(device.id, device);
+    this.emit({ type: 'device', device: { ...device } });
+    this.simTrustAsk(device.id);
   }
 
   simRemoveDevice(): void {

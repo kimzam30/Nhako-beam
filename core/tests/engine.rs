@@ -730,7 +730,7 @@ async fn trust_from_nearby_needs_both_to_agree() {
     assert_eq!(asked.check, check, "both screens show the same");
     assert_eq!(asked.device_id, a.id());
     assert_eq!(b.engine.snapshot().trust_asks.len(), 1);
-    b.engine.answer_trust(&a.id(), true);
+    b.engine.answer_trust(&a.id(), true, true);
     let paired = |want: String| {
         move |e: &EngineEvent| match e {
             EngineEvent::Paired { device, via, check } if device.id == want => Some((*via, check.clone(), device.trusted)),
@@ -748,7 +748,7 @@ async fn trust_from_nearby_needs_both_to_agree() {
     b.engine.set_trusted(&a.id(), false);
     a.engine.ask_trust(&b.id()).unwrap();
     b.wait("second ask", |e| matches!(e, EngineEvent::TrustAsk { .. }).then_some(())).await;
-    b.engine.answer_trust(&a.id(), false);
+    b.engine.answer_trust(&a.id(), false, false);
     let outcome = a
         .wait("told no", |e| match e {
             EngineEvent::TrustEnded { outcome, .. } => Some(*outcome),
@@ -777,6 +777,69 @@ async fn trust_from_nearby_needs_both_to_agree() {
     assert!(a.engine.ask_trust(&stranger).is_err());
     a.stop().await;
     b.stop().await;
+}
+
+/// The ask names `id`'s offline twin (a reinstall) on `b`, and returns once b has answered.
+async fn ask_after_reinstall(a: &mut Node, b: &mut Node, replace: bool) -> Option<String> {
+    let id = a.engine.send_text(&b.id(), "hi").unwrap();
+    let req = b.wait_request().await;
+    b.engine.accept(&req.id, false, false);
+    a.wait_transfer("met", |t| t.id == id && t.status == TransferStatus::Done).await;
+    a.engine.ask_trust(&b.id()).unwrap();
+    let asked = b
+        .wait("the ask", |e| match e {
+            EngineEvent::TrustAsk { request } => Some(request.clone()),
+            _ => None,
+        })
+        .await;
+    b.engine.answer_trust(&a.id(), true, replace);
+    let want = a.id();
+    b.wait("paired", move |e| {
+        matches!(e, EngineEvent::Paired { device, .. } if device.id == want).then_some(())
+    })
+    .await;
+    asked.replaces
+}
+
+/// A reinstalled device has a new key. When it asks to be trusted, the other device offers to
+/// replace its old, offline entry, which keeps Always accept; Keep both leaves the old one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reinstalled_device_replaces_its_old_entry() {
+    let mem = MemoryLookup::new();
+    let mut old = Node::new(&mem, "Laptop", None).await;
+    let mut b = Node::new(&mem, "Phone", None).await;
+    assert_eq!(ask_after_reinstall(&mut old, &mut b, true).await, None, "nothing like it yet");
+    let old_id = old.id();
+    b.engine.set_auto_accept(&old_id, true);
+    // The phone restarts while the laptop is gone, so the old laptop is offline.
+    let config = b.dir.join("config");
+    b.engine.stop().await;
+    old.stop().await;
+    let mut b = Node::with(&mem, "Phone", None, |c| c.config_dir = config.clone()).await;
+    assert!(b.engine.devices().iter().any(|d| d.id == old_id && d.trusted && !d.reachable));
+
+    // Reinstalled: same name, type and system, new key.
+    let mut new = Node::new(&mem, "Laptop", None).await;
+    assert_eq!(ask_after_reinstall(&mut new, &mut b, true).await, Some(old_id.clone()));
+    let devices = b.engine.devices();
+    assert!(!devices.iter().any(|d| d.id == old_id), "the old entry went");
+    let now = devices.iter().find(|d| d.id == new.id()).unwrap();
+    assert!(now.trusted && now.auto_accept, "it kept Always accept");
+
+    // Keep both: another reinstall, with the answer to keep the old one.
+    let new_id = new.id();
+    new.stop().await;
+    // Still the phone's first config folder; its `dir` is only the restart's scratch.
+    b.engine.stop().await;
+    let mut b = Node::with(&mem, "Phone", None, |c| c.config_dir = config.clone()).await;
+    let mut again = Node::new(&mem, "Laptop", None).await;
+    assert_eq!(ask_after_reinstall(&mut again, &mut b, false).await, Some(new_id.clone()));
+    let devices = b.engine.devices();
+    assert!(devices.iter().any(|d| d.id == new_id && d.trusted), "kept");
+    assert!(devices.iter().any(|d| d.id == again.id() && d.trusted && !d.auto_accept));
+    again.stop().await;
+    b.stop().await;
+    let _ = std::fs::remove_dir_all(config.parent().unwrap());
 }
 
 fn iroh_base_id() -> iroh::EndpointId {

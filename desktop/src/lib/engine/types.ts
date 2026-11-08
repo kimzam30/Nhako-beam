@@ -140,6 +140,9 @@ export interface TrustRequest {
   deviceId: string;
   check: string;
   receivedAt: number;
+  /** An offline trusted device with the same name, type and system: most likely this one before
+   *  a reinstall. A yes can replace it (`answerTrust`). */
+  replaces?: string;
 }
 
 /** How a trust ask ended without both devices trusting each other.
@@ -335,7 +338,9 @@ export interface Engine {
   askTrust(deviceId: string): Promise<void>;
   cancelTrust(deviceId: string): void;
   /** Answers another device's ask. */
-  answerTrust(deviceId: string, yes: boolean): void;
+  /** With `replace`, a yes also removes the old entry the ask named in `replaces`, keeping its
+   *  Always accept. */
+  answerTrust(deviceId: string, yes: boolean, replace: boolean): void;
   setAutoAccept(deviceId: string, on: boolean): void;
   renameSelf(name: string): void;
   getSelf(): Promise<SelfInfo>;
