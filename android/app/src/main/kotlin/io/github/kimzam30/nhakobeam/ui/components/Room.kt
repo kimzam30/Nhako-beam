@@ -19,6 +19,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.translate
+import kotlin.math.ceil
+import kotlin.math.floor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -253,15 +258,39 @@ fun RoomStage(app: AppState, layout: RoomLayout, data: RoomData, onPick: (String
     }
 }
 
+/**
+ * A canvas over only part of the room, drawn in the room's own pixel coordinates. Each moving
+ * thing gets one sized to where it can reach, so a frame of rain or dust marks only that patch
+ * of the screen as changed. A full-screen canvas made the whole screen redraw 15 times a second
+ * (13 ms a frame on a Tab S9 FE). [r] must hold everything [draw] paints: it clips to it.
+ */
+@Composable
+private fun RoomPatch(f: RoomPixels, r: RoomRect, draw: DrawScope.() -> Unit) {
+    val left = floor(f.x(r.x))
+    val top = floor(f.y(r.y))
+    Canvas(
+        Modifier.layout { m, _ ->
+            val w = (ceil(f.x(r.x + r.w)) - left).toInt().coerceAtLeast(1)
+            val h = (ceil(f.y(r.y + r.h)) - top).toInt().coerceAtLeast(1)
+            val p = m.measure(Constraints.fixed(w, h))
+            layout(0, 0) { p.place(left.toInt(), top.toInt()) }
+        }.clipToBounds(),
+    ) { translate(-left, -top) { draw() } }
+}
+
+/** A box around the points, grown by [pad] room units on every side. */
+private fun roomAround(x0: Float, y0: Float, x1: Float, y1: Float, pad: Float = 3f) =
+    RoomRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad)
+
 /** Rain on the window. It's clipped to the glass, and the window's front layer covers everything else there. */
 @Composable
 private fun RoomRain(data: RoomData, f: RoomPixels, clock: () -> Float, reduced: Boolean) {
     if (reduced) return
     val rain = remember { val q = java.util.Random(9); List(26) { floatArrayOf(q.nextFloat(), q.nextFloat(), 0.8f + q.nextFloat() * 0.6f) } }
-    Canvas(Modifier.fillMaxSize()) {
+    val w = data.window
+    RoomPatch(f, roomAround(w.x, w.y, w.x + w.w, w.y + w.h)) {
         val t = clock()
         val k = f.k
-        val w = data.window
         clipRect(f.x(w.x), f.y(w.y), f.x(w.x + w.w), f.y(w.y + w.h)) {
             for (d in rain) {
                 val a = ((t / d[2] + d[1]) % 1f)
@@ -277,10 +306,13 @@ private fun RoomRain(data: RoomData, f: RoomPixels, clock: () -> Float, reduced:
 @Composable
 private fun RoomMotion(data: RoomData, f: RoomPixels, clock: () -> Float, awake: () -> Float, lit: () -> Float, target: RoomSpot?, reduced: Boolean) {
     val dust = remember { val q = java.util.Random(77); List(26) { floatArrayOf(q.nextFloat(), q.nextFloat(), 7f + q.nextFloat() * 8f, q.nextFloat() * 12f) } }
-    Canvas(Modifier.fillMaxSize()) {
-        val t = clock()
-        val k = f.k
-        if (!reduced) {
+    if (!reduced) {
+        // Dust drifts across the cone of lamp light, up to 14 right and 70 up.
+        val xs = data.cone.map { it[0] }
+        val ys = data.cone.map { it[1] }
+        RoomPatch(f, roomAround(xs.min(), ys.min() - 70f, xs.max() + 14f, ys.max())) {
+            val t = clock()
+            val k = f.k
             val (apexA, apexB, footB, footA) = data.cone
             for (d in dust) {
                 val a = ((t + d[3]) / d[2]) % 1f
@@ -291,6 +323,12 @@ private fun RoomMotion(data: RoomData, f: RoomPixels, clock: () -> Float, awake:
                 val fade = if (a < 0.25f) a / 0.25f else if (a > 0.75f) (1f - a) / 0.25f else 1f
                 drawCircle(Color(0xFFFFE9AD).copy(alpha = 0.8f * fade), 1.1f * k, Offset(f.x(lx + (rx - lx) * d[0] + a * 14f), f.y(y)))
             }
+        }
+        // Three wisps from the mug: 12 apart, swaying 6 either side, rising 30 and 40 tall.
+        val st = data.steam
+        RoomPatch(f, roomAround(st.x - 6f, st.y - 70f, st.x + 18f, st.y)) {
+            val t = clock()
+            val k = f.k
             for (i in 0 until 3) {
                 val a = ((t / 3.6f) + i / 3f) % 1f
                 val path = Path().apply {
@@ -302,6 +340,12 @@ private fun RoomMotion(data: RoomData, f: RoomPixels, clock: () -> Float, awake:
                 }
                 drawPath(path, Color(0xFFFFF3D2).copy(alpha = 0.5f * sin(a * PI.toFloat())), style = Stroke(1.8f * k, cap = StrokeCap.Round))
             }
+        }
+        // The z's float 22 right and 42 up, up to 13 across.
+        val z = data.z
+        RoomPatch(f, roomAround(z.x, z.y - 42f, z.x + 35f, z.y + 13f)) {
+            val t = clock()
+            val k = f.k
             val sleepy = 1f - awake()
             if (sleepy > 0.02f) for (i in 0 until 3) {
                 val a = (t / 4f + i / 3f) % 1f
@@ -314,9 +358,14 @@ private fun RoomMotion(data: RoomData, f: RoomPixels, clock: () -> Float, awake:
                 )
             }
         }
-        // While files move, a thread of light from the trophy to the device.
+    }
+    // While files move, a thread of light from the trophy to the device. Only then is there a
+    // canvas across the room at all.
+    if (target != null) Canvas(Modifier.fillMaxSize()) {
+        val t = clock()
+        val k = f.k
         val l = lit()
-        if (target != null && l > 0.01f) {
+        if (l > 0.01f) {
             val a = Offset(f.x(data.bolt.threadX), f.y(data.bolt.threadY))
             val e = Offset(f.x((target.at.box.x0 + target.at.box.x1) / 2), f.y((target.at.box.y0 + target.at.box.y1) / 2))
             val path = Path().apply { moveTo(a.x, a.y); quadraticBezierTo((a.x + e.x) / 2, min(a.y, e.y) - 90f * k, e.x, e.y) }
