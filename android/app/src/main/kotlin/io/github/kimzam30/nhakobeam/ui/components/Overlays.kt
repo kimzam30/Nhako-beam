@@ -1,5 +1,5 @@
 // Things that sit over the screen: the incoming request card, bottom sheets and toasts. Each one
-// follows the finger and leaves faster than it arrives (docs/design/motion-spec.md).
+// follows the finger and leaves faster than it arrives.
 package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable

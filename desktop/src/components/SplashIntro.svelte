@@ -2,8 +2,7 @@
   // The launch intro: the window opens brand blue (tauri.conf.json backgroundColor), the voxel
   // bolt drops onto its spot, lands with a squash and blinks, then the blue fades away into the
   // app. Until the 3D bolt is ready (or without WebGL) the flat bolt stands in, so it's never
-  // empty. The Svelte twin of android/.../ui/components/SplashIntro.kt. Motion:
-  // docs/design/motion-spec.md, section 4.14.
+  // empty. The Svelte twin of android/.../ui/components/SplashIntro.kt.
   import { onMount } from 'svelte';
   import { brand } from '../lib/tokens';
   import { prefs } from '../lib/state/prefs.svelte';

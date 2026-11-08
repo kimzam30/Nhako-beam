@@ -9,9 +9,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,6 +90,7 @@ import io.github.kimzam30.nhakobeam.ui.components.ButtonVariant
 import io.github.kimzam30.nhakobeam.ui.components.FileStack
 import io.github.kimzam30.nhakobeam.ui.components.NBanner
 import io.github.kimzam30.nhakobeam.ui.components.NButton
+import io.github.kimzam30.nhakobeam.ui.components.loopFloat
 import io.github.kimzam30.nhakobeam.ui.components.NIconButton
 import io.github.kimzam30.nhakobeam.ui.components.TransferCard
 import io.github.kimzam30.nhakobeam.ui.formatBytes
@@ -297,15 +296,14 @@ private fun StatusDot(tone: StatusTone, reduced: Boolean) {
         tween(NhakoMotion.Duration.base),
         label = "dot",
     )
-    val loop = rememberInfiniteTransition(label = "dot")
-    val sonar by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(NhakoMotion.Duration.searchingPulse, easing = LinearOutSlowInEasing)), label = "sonar")
-    val beat by loop.animateFloat(1f, 1.3f, infiniteRepeatable(tween(440, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "beat")
     val ring = tone == StatusTone.Searching && !reduced
-    val scale = if (tone == StatusTone.Busy && !reduced) beat else 1f
+    val pulsing = tone == StatusTone.Busy && !reduced
+    val sonar by loopFloat(ring, 0f, 1f, infiniteRepeatable(tween(NhakoMotion.Duration.searchingPulse, easing = LinearOutSlowInEasing)), "sonar")
+    val beat by loopFloat(pulsing, 1f, 1.3f, infiniteRepeatable(tween(440, easing = FastOutSlowInEasing), RepeatMode.Reverse), "beat")
     Box(
         Modifier.size(10.dp).drawBehind {
             if (ring) drawCircle(color.copy(alpha = 0.6f * (1f - sonar)), radius = size.minDimension / 2 * (1f + 1.6f * sonar))
-            drawCircle(color, radius = size.minDimension / 2 * scale)
+            drawCircle(color, radius = size.minDimension / 2 * beat)
         },
     )
 }

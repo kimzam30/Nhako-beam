@@ -19,6 +19,7 @@ pub mod server;
 mod session;
 mod share;
 pub mod store;
+pub mod sync;
 pub mod text;
 mod trust;
 pub mod types;

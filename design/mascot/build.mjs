@@ -6,7 +6,7 @@
 // Writes, into design/mascot/build/:
 //   mascot.glb    one glTF model with a node per moving part (both apps load the same file)
 //   mascot.json   the parts, the states and their timings, for the apps' animation code
-// How it's built and what each state is for: design/mascot/README.md.
+// Each state's use and timings are written into mascot.json below.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

@@ -1,6 +1,7 @@
 //! The engine: one iroh endpoint, the device list, transfers and requests, and the public API
 //! that mirrors the app's `Engine` contract (`desktop/src/lib/engine/types.ts`).
 
+use crate::sync::Locked;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
@@ -363,6 +364,8 @@ pub(crate) struct Inner {
     pub code_task: Mutex<Option<JoinHandle<()>>>,
     /// The app is on screen (see `set_foreground`).
     foreground: std::sync::atomic::AtomicBool,
+    /// Wakes the background timers when the app comes back on screen, so they speed up at once.
+    woke: tokio::sync::Notify,
     /// Connections turned away by `peer_allowed`, for Copy diagnostics.
     pub(crate) turned_away: std::sync::atomic::AtomicU64,
 }
@@ -403,6 +406,17 @@ const ANNOUNCE_EVERY: Duration = Duration::from_secs(30);
 const ASK_AGAIN: Duration = Duration::from_secs(2);
 /// How often the beacon looks for new network adapters (Wi-Fi joined, cable plugged in).
 const ADAPTERS_EVERY: Duration = Duration::from_secs(10);
+/// The same in the background. Android also says when the network changes (`network_changed`),
+/// so this is only the fallback there.
+const ADAPTERS_IN_BACKGROUND: Duration = Duration::from_secs(60);
+/// How often the housekeeping loop wakes on screen, and in the background or tray.
+const HOUSEKEEPING_EVERY: Duration = Duration::from_secs(15);
+const HOUSEKEEPING_IN_BACKGROUND: Duration = Duration::from_secs(60);
+/// How often the free space is read in the background.
+const FREE_SPACE_IN_BACKGROUND: Duration = Duration::from_secs(60);
+/// Your own server is checked this often while something is wrong with it, and otherwise.
+const SERVER_RECHECK_PROBLEM: Duration = Duration::from_secs(30);
+const SERVER_RECHECK: Duration = Duration::from_secs(300);
 /// How often the beacon joins its multicast group again on every adapter.
 const REJOIN_EVERY: Duration = Duration::from_secs(300);
 /// How long a connection from a device this one doesn't know may take to move onto a
@@ -556,6 +570,7 @@ impl Engine {
             tasks: Mutex::new(Vec::new()),
             code_task: Mutex::new(None),
             foreground: std::sync::atomic::AtomicBool::new(true),
+            woke: tokio::sync::Notify::new(),
             turned_away: std::sync::atomic::AtomicU64::new(0),
         };
         let engine = Self { inner: Arc::new(inner) };
@@ -573,11 +588,11 @@ impl Engine {
     pub async fn stop(&self) {
         self.cancel_code();
         self.stop_link();
-        let code_task = self.inner.code_task.lock().expect("code task lock").take();
+        let code_task = self.inner.code_task.locked().take();
         if let Some(t) = code_task {
             let _ = tokio::time::timeout(Duration::from_secs(3), t).await;
         }
-        for h in self.inner.tasks.lock().expect("tasks lock").drain(..) {
+        for h in self.inner.tasks.locked().drain(..) {
             h.abort();
         }
         self.inner.endpoint.close().await;
@@ -1216,15 +1231,15 @@ impl Engine {
     // ---------- internals ----------
 
     pub(crate) fn st(&self) -> MutexGuard<'_, St> {
-        self.inner.st.lock().expect("engine state lock")
+        self.inner.st.locked()
     }
 
     pub(crate) fn store(&self) -> MutexGuard<'_, Store> {
-        self.inner.store.lock().expect("store lock")
+        self.inner.store.locked()
     }
 
     fn history_lock(&self) -> MutexGuard<'_, History> {
-        self.inner.history.lock().expect("history lock")
+        self.inner.history.locked()
     }
 
     pub(crate) fn emit(&self, e: EngineEvent) {
@@ -1233,7 +1248,7 @@ impl Engine {
 
     pub(crate) fn spawn_bg(&self, fut: impl Future<Output = ()> + Send + 'static) {
         let h = tokio::spawn(fut);
-        let mut tasks = self.inner.tasks.lock().expect("tasks lock");
+        let mut tasks = self.inner.tasks.locked();
         tasks.retain(|t| !t.is_finished());
         tasks.push(h);
     }
@@ -1615,7 +1630,8 @@ impl Engine {
         let mut replied: HashMap<std::net::IpAddr, Instant> = HashMap::new();
         let mut asks_left = 3u8;
         let mut announce_at = tokio::time::Instant::now();
-        let mut adapters_at = tokio::time::Instant::now() + ADAPTERS_EVERY;
+        let adapters_every = |e: &Self| if e.is_foreground() { ADAPTERS_EVERY } else { ADAPTERS_IN_BACKGROUND };
+        let mut adapters_at = tokio::time::Instant::now() + adapters_every(&self);
         let mut rejoin_at = tokio::time::Instant::now() + REJOIN_EVERY;
         loop {
             tokio::select! {
@@ -1652,7 +1668,7 @@ impl Engine {
                     announce_at = tokio::time::Instant::now();
                 }
                 _ = tokio::time::sleep_until(adapters_at) => {
-                    adapters_at = tokio::time::Instant::now() + ADAPTERS_EVERY;
+                    adapters_at = tokio::time::Instant::now() + adapters_every(&self);
                     if b.refresh_adapters() {
                         asks_left = 3;
                         announce_at = tokio::time::Instant::now();
@@ -1732,6 +1748,7 @@ impl Engine {
         if on && !was {
             debug!("back on screen: checking devices");
             self.check_trusted(Duration::from_secs(10));
+            self.inner.woke.notify_waiters();
         }
     }
 
@@ -1745,14 +1762,18 @@ impl Engine {
     }
 
     /// Free space every 15 s (every minute in the background), trusted devices every 60 s (every
-    /// 5 minutes in the background), skipping any just checked because it was seen nearby.
+    /// 5 minutes in the background), skipping any just checked because it was seen nearby. In the
+    /// background it wakes once a minute instead of every 15 s, and coming back on screen wakes it.
     async fn housekeeping_loop(self) {
-        let mut tick = 0u64;
         let mut trusted_checked = Instant::now();
+        let mut free_checked: Option<Instant> = None;
+        // The first own-server check comes a full interval after start, as before.
+        let mut server_checked = Instant::now();
         loop {
             let foreground = self.is_foreground();
             let dir = self.save_dir();
-            let free = if foreground || tick.is_multiple_of(4) {
+            let free = if foreground || free_checked.is_none_or(|t| t.elapsed() >= FREE_SPACE_IN_BACKGROUND) {
+                free_checked = Some(Instant::now());
                 tokio::task::spawn_blocking(move || files::free_space(&dir)).await.ok().flatten()
             } else {
                 None
@@ -1768,9 +1789,13 @@ impl Engine {
                     self.emit(EngineEvent::FreeSpace { bytes });
                 }
             }
-            // Your own server: every 30 s while something is wrong, every 5 minutes otherwise.
-            let server_every = if self.st().server_problem.is_some() { 2 } else { 20 };
-            if tick > 0 && tick.is_multiple_of(server_every) && matches!(self.inner.network, Network::Own(_)) {
+            let server_every = if self.st().server_problem.is_some() {
+                SERVER_RECHECK_PROBLEM
+            } else {
+                SERVER_RECHECK
+            };
+            if server_checked.elapsed() >= server_every && matches!(self.inner.network, Network::Own(_)) {
+                server_checked = Instant::now();
                 let e = self.clone();
                 tokio::spawn(async move {
                     e.check_own_server().await;
@@ -1782,8 +1807,15 @@ impl Engine {
                 trusted_checked = Instant::now();
                 self.check_trusted(every);
             }
-            tick += 1;
-            tokio::time::sleep(Duration::from_secs(15)).await;
+            let nap = if self.is_foreground() {
+                HOUSEKEEPING_EVERY
+            } else {
+                HOUSEKEEPING_IN_BACKGROUND
+            };
+            tokio::select! {
+                _ = tokio::time::sleep(nap) => {}
+                _ = self.inner.woke.notified() => {}
+            }
         }
     }
 
@@ -2335,7 +2367,22 @@ impl Engine {
             if let Ok((conn, mut send, mut frames)) = self.open(peer, Intent::Resume { id }, &HelloExt::default()).await {
                 match next_frame::<Answer>(&mut frames, Duration::from_secs(10)).await {
                     Ok(Answer::Accept { files }) => {
-                        self.with_tx(&id, |tx| tx.t.status = TransferStatus::Transferring);
+                        // What the receiver already has counts before "Transferring" shows, so
+                        // the progress never steps back to an older count for a moment.
+                        self.with_tx(&id, |tx| {
+                            if files.len() == tx.t.files.len() {
+                                let have: Vec<u64> = files
+                                    .iter()
+                                    .zip(&tx.t.files)
+                                    .map(|(s, f)| match s {
+                                        FileState::Verified => f.size,
+                                        FileState::Have(n) => (*n).min(f.size),
+                                    })
+                                    .collect();
+                                tx.set_have(&have);
+                            }
+                            tx.t.status = TransferStatus::Transferring;
+                        });
                         self.emit_tx(&id, true);
                         return self.run_session_with(id, conn, send, frames, Some(files), cmd_rx, epoch).await;
                     }

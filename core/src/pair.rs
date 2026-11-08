@@ -1,5 +1,6 @@
 //! Four-word codes: showing one (host) and typing one (joiner). See docs/protocol/nhako-1.md, section 7.
 
+use crate::sync::Locked;
 use std::time::Duration;
 
 use iroh::{EndpointId, endpoint::Connection};
@@ -41,7 +42,7 @@ impl Engine {
         };
         let (stop_tx, stop_rx) = oneshot::channel();
         let task = tokio::spawn(self.clone().host_code(code.clone(), window, stop_rx));
-        if let Some(old) = self.inner.code_task.lock().expect("code task lock").replace(task) {
+        if let Some(old) = self.inner.code_task.locked().replace(task) {
             old.abort();
         }
         self.st().code = Some(HostedCode {

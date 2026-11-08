@@ -10,6 +10,7 @@
 //! Nothing in it is trusted: the engine then connects to X, and iroh checks X's key.
 //! The format is in `docs/protocol/nhako-1.md` ("The beacon").
 
+use crate::sync::Locked;
 use std::{
     collections::BTreeSet,
     io,
@@ -172,7 +173,7 @@ impl Beacon {
     }
 
     pub fn status(&self) -> Status {
-        self.status.lock().expect("beacon status lock").clone()
+        self.status.locked().clone()
     }
 
     /// The next beacon from another device: its message and where it came from.
@@ -190,7 +191,7 @@ impl Beacon {
             if p.id == self.me.id {
                 continue;
             }
-            let mut s = self.status.lock().expect("beacon status lock");
+            let mut s = self.status.locked();
             s.received += 1;
             s.last_heard = Some(Instant::now());
             return Ok((p, from));
@@ -203,7 +204,7 @@ impl Beacon {
             return false;
         }
         let now = lan_adapters();
-        let mut current = self.adapters.lock().expect("adapters lock");
+        let mut current = self.adapters.locked();
         if *current == now {
             return false;
         }
@@ -212,7 +213,7 @@ impl Beacon {
             let _ = sock.leave_multicast_v4(&GROUP, &gone.addr);
         }
         info!(adapters = ?now.iter().map(|a| format!("{} {}/{}", a.name, a.addr, a.prefix)).collect::<Vec<_>>(), "beacon adapters");
-        self.status.lock().expect("beacon status lock").adapters = now.iter().cloned().collect();
+        self.status.locked().adapters = now.iter().cloned().collect();
         *current = now;
         drop(current);
         self.rejoin();
@@ -222,7 +223,7 @@ impl Beacon {
     /// Joins the multicast group on every adapter again. Windows can drop a membership when an
     /// adapter sleeps and wakes with the same address, which the adapter check doesn't see.
     pub fn rejoin(&self) {
-        let adapters: Vec<Adapter> = self.adapters.lock().expect("adapters lock").iter().cloned().collect();
+        let adapters: Vec<Adapter> = self.adapters.locked().iter().cloned().collect();
         let sock = SockRef::from(&self.socket);
         let mut errors = Vec::new();
         for a in &adapters {
@@ -232,7 +233,7 @@ impl Beacon {
                 errors.push(format!("{}: {e}", a.name));
             }
         }
-        self.status.lock().expect("beacon status lock").join_errors = errors;
+        self.status.locked().join_errors = errors;
     }
 
     /// Tells every device on the network this one is here.
@@ -244,7 +245,7 @@ impl Beacon {
             }
             return;
         }
-        let adapters: Vec<Adapter> = self.adapters.lock().expect("adapters lock").iter().cloned().collect();
+        let adapters: Vec<Adapter> = self.adapters.locked().iter().cloned().collect();
         let group = SocketAddr::from((GROUP, self.cfg.port));
         if adapters.is_empty() {
             // Nothing listed (some phones hide their adapters): the system's default route.
@@ -270,7 +271,7 @@ impl Beacon {
 
     async fn send(&self, packet: &[u8], to: SocketAddr) {
         let r = self.socket.send_to(packet, to).await;
-        let mut s = self.status.lock().expect("beacon status lock");
+        let mut s = self.status.locked();
         match r {
             Ok(_) => s.sent += 1,
             Err(e) => {

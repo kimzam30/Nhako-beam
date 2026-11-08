@@ -75,7 +75,7 @@ fun StageCanvas(scene: StageScene, modifier: Modifier, paused: Boolean = false) 
 
 /**
  * The voxel mascot on its own (the splash, empty History, pairing). Where the model can't load,
- * the flat bolt stands in. motion-spec.md section 4.18.
+ * the flat bolt stands in.
  */
 @Composable
 fun Mascot3D(

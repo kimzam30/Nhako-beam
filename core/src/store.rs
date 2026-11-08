@@ -146,12 +146,12 @@ impl Store {
         Ok(store)
     }
 
-    /// Writes `state.json` atomically (write to a temp file, then rename).
+    /// Writes `state.json` atomically (write to a temp file, sync it, then rename).
     pub fn save(&self) -> Result<(), StoreError> {
         let path = self.dir.join("state.json");
         let tmp = self.dir.join("state.json.tmp");
         let json = serde_json::to_vec_pretty(&self.state).expect("state serializes");
-        std::fs::write(&tmp, json).map_err(io_err(&tmp))?;
+        write_synced(&tmp, &json).map_err(io_err(&tmp))?;
         std::fs::rename(&tmp, &path).map_err(io_err(&path))
     }
 
@@ -162,6 +162,15 @@ impl Store {
     pub fn trusted_mut(&mut self, id: &EndpointId) -> Option<&mut TrustedDevice> {
         self.state.trusted.iter_mut().find(|d| &d.id == id)
     }
+}
+
+/// Writes a file and waits until it's on the disk, so a rename after it never leaves an empty
+/// file behind if the power goes (the trust list and settings live in one file).
+pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
 }
 
 /// Writes a new file only this user can read. On Windows the config folder is in the user's own

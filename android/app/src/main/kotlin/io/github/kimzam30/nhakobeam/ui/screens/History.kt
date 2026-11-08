@@ -1,5 +1,5 @@
 // History: every transfer that ended, grouped by day, newest first, and the details sheet for one.
-// The Compose twin of desktop/src/screens/History.svelte. docs/design/screens-and-states.md, section 7.
+// The Compose twin of desktop/src/screens/History.svelte.
 package io.github.kimzam30.nhakobeam.ui.screens
 
 import android.text.format.DateFormat

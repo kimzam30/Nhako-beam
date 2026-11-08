@@ -241,8 +241,8 @@ cd android && ./gradlew testDebugUnitTest
 | [`android/`](android) | The Android app (Kotlin, Jetpack Compose) |
 | [`relay/`](relay) | Your own relay and lookup server (Docker) |
 | [`wake/`](wake) | The optional wake service for phones (Cloudflare Worker, Firebase push) |
-| [`design/`](design) | Design tokens and the sound generator, built for both apps |
-| [`docs/`](docs) | Design system, screens and states, UI copy, motion spec, protocol, brand kit |
+| [`design/`](design) | Design tokens, sounds, the mascot and the room art, each built by its own `build.mjs` for both apps |
+| [`docs/`](docs) | Building, releasing, the protocol and the brand kit |
 | [`scripts/`](scripts) | Local build scripts and the open source licenses list |
 
 ## Project status
@@ -345,15 +345,22 @@ icon size, the Android launcher vectors and the logo lockups here.
 | Yellow | `#FFD23F` | Highlights. Never as text on white |
 | Ink | `#0B1B33` | The wordmark on light backgrounds |
 
-"Light" logos are for light backgrounds, "dark" logos for dark ones. The design system, motion
-spec and UI copy are in [`docs/design/`](docs/design).
+"Light" logos are for light backgrounds, "dark" logos for dark ones.
 
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a pull request, please run the
-[checks](#development). A few things are kept in step across the codebase (the JSON contract, UI
-copy, design tokens, sounds and app behavior on desktop and Android); [CLAUDE.md](CLAUDE.md)
-lists them.
+[checks](#development). A few things are kept in step across the codebase:
+
+- **The JSON contract:** `core/src/types.rs`, `desktop/src/lib/engine/types.ts` and
+  `android/.../model/Contract.kt` change together.
+- **UI text:** `desktop/src/lib/copy.ts` is the only source. Run `node android/tools/shared-assets.mjs`
+  after editing it.
+- **Tokens, sounds, mascot and room:** edit the source in `design/`, then `npm run tokens`,
+  `sounds`, `mascot` or `room` in `desktop/`. The build output is committed.
+- **Behavior:** `desktop/src/lib/state/app.svelte.ts` and `android/.../state/AppState.kt` are twins.
+- **Version:** only through `node scripts/bump-version.mjs <version>`.
+- **Licenses:** run `node scripts/licenses.mjs` after changing dependencies.
 
 ## License
 

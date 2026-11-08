@@ -7,6 +7,7 @@
 //! Calls block (the engine has its own runtime here), so Kotlin calls them off the main thread.
 //! Events arrive on a thread of their own (`nhako-events`) through [`EventListener`].
 
+use nhako_core::sync::Locked;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -117,7 +118,7 @@ impl NhakoEngine {
     /// Starts the engine (once) and returns the snapshot JSON to draw from. `name` is the name
     /// picked during onboarding, saved before the network starts.
     pub fn start(&self, name: Option<String>) -> Result<String, NhakoError> {
-        let _g = self.lifecycle.lock().expect("lifecycle lock");
+        let _g = self.lifecycle.locked();
         if let Some(name) = name.map(|n| clean_name(&n)).filter(|n| !n.is_empty())
             && self.running().is_none()
         {
@@ -146,7 +147,7 @@ impl NhakoEngine {
 
     /// Closes the network properly, so other devices see this one leave right away.
     pub fn stop(&self) {
-        let _g = self.lifecycle.lock().expect("lifecycle lock");
+        let _g = self.lifecycle.locked();
         self.stop_locked();
     }
 
@@ -491,7 +492,7 @@ impl NhakoEngine {
 
 impl NhakoEngine {
     fn running(&self) -> Option<Engine> {
-        self.engine.lock().expect("engine lock").clone()
+        self.engine.locked().clone()
     }
 
     fn engine(&self) -> Result<Engine, NhakoError> {
@@ -510,7 +511,7 @@ impl NhakoEngine {
     }
 
     fn settings<T>(&self, running: impl FnOnce(&Engine) -> T, stored: impl FnOnce(&mut store::Store) -> Result<T, NhakoError>) -> Result<T, NhakoError> {
-        let _g = self.lifecycle.lock().expect("lifecycle lock");
+        let _g = self.lifecycle.locked();
         match self.running() {
             Some(e) => Ok(running(&e)),
             None => stored(&mut self.store()?),
@@ -520,7 +521,7 @@ impl NhakoEngine {
     /// Saves a setting that only takes effect when the engine starts, then restarts it (refused
     /// while transfers are running). Without a running engine, it's written to disk for next time.
     fn save_and_restart(&self, running: impl FnOnce(&Engine) -> Result<(), NhakoError>, stored: impl FnOnce(&mut store::Store)) -> Result<(), NhakoError> {
-        let _g = self.lifecycle.lock().expect("lifecycle lock");
+        let _g = self.lifecycle.locked();
         let Some(engine) = self.running() else {
             let mut s = self.store()?;
             stored(&mut s);
@@ -576,17 +577,17 @@ impl NhakoEngine {
                 }
             }
         });
-        *self.forward.lock().expect("forward lock") = Some(task);
-        *self.engine.lock().expect("engine lock") = Some(engine.clone());
+        *self.forward.locked() = Some(task);
+        *self.engine.locked() = Some(engine.clone());
         Ok(engine)
     }
 
     /// Only with `lifecycle` held.
     fn stop_locked(&self) {
-        if let Some(task) = self.forward.lock().expect("forward lock").take() {
+        if let Some(task) = self.forward.locked().take() {
             task.abort();
         }
-        let engine = self.engine.lock().expect("engine lock").take();
+        let engine = self.engine.locked().take();
         if let Some(e) = engine {
             self.rt.block_on(async {
                 let _ = tokio::time::timeout(Duration::from_secs(4), e.stop()).await;

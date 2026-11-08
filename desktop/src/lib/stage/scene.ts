@@ -3,7 +3,7 @@
 // Loaded only when a stage is shown (`createStage` is imported lazily), so the first paint
 // doesn't wait for it. It draws while something moves and the window is in sight; with reduced
 // motion it draws still poses, only when something changes. Where WebGL draws in software (no
-// GPU), it draws lighter: no smoothing or shadow map, fewer frames. motion-spec.md section 4.18.
+// GPU), it draws lighter: no smoothing or shadow map, fewer frames.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -273,6 +273,8 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   let look: Look = null;
   let transferDevice: string | null = null;
   let raf = 0;
+  // Waits out the gap between calm frames without asking the screen for every frame meanwhile.
+  let nap: ReturnType<typeof setTimeout> | 0 = 0;
   let last = performance.now();
   const born = performance.now();
   let visible = true;
@@ -360,7 +362,12 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     const calm = CALM.has(mood) && !sparks.some((s) => s.m.visible) && !arcs.length;
     const gap = light ? (calm ? 99 : 49) : calm ? 31 : 0;
     if (!reduced && gap && now - lastDrawn < gap) {
-      wake();
+      // A timer for the rest of the gap, then one frame: the screen isn't woken 60 to 144 times
+      // a second only to skip most of them.
+      nap = setTimeout(() => {
+        nap = 0;
+        wake();
+      }, gap - (now - lastDrawn));
       return;
     }
     lastDrawn = now;
@@ -464,7 +471,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
   }
 
   function wake() {
-    if (raf || !visible || paused || document.hidden) return;
+    if (raf || nap || !visible || paused || document.hidden) return;
     raf = requestAnimationFrame(frame);
   }
 
@@ -584,6 +591,7 @@ export async function createStage(canvas: HTMLCanvasElement, opts: StageOptions)
     },
     destroy() {
       cancelAnimationFrame(raf);
+      if (nap) clearTimeout(nap);
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
       // The model's geometry is shared with the cached copy, so only the context goes.

@@ -1,5 +1,5 @@
 //! The tray popover (360 x 520): a compact home next to the tray icon with your devices, what's
-//! moving, and "Open Nhako Beam". docs/design/screens-and-states.md, section 9.1.
+//! moving, and "Open Nhako Beam".
 //!
 //! Windows opens it with a left click on the tray icon. Linux panels don't report tray clicks, so
 //! it's the first item in the tray menu there, and it opens next to the pointer. "Send with Nhako

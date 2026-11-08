@@ -6,59 +6,40 @@
 use std::{
     collections::HashMap,
     num::NonZero,
-    sync::{Mutex, OnceLock, mpsc},
-    time::Duration,
+    sync::mpsc,
+    time::{Duration, Instant},
 };
 
-use rodio::{Source, buffer::SamplesBuffer, mixer::Mixer};
+use rodio::{Source, buffer::SamplesBuffer};
 use tauri::State;
 use tracing::warn;
 
 include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/sounds/build/sounds.rs"));
 
+/// How long the speakers stay open after the last sound. An open stream keeps the audio device
+/// and a thread busy mixing silence, so it closes when the app has been quiet this long.
+const CLOSE_AFTER: Duration = Duration::from_secs(30);
+/// After the speakers fail to open, they're tried again at the next sound after this long.
+const RETRY_AFTER: Duration = Duration::from_secs(60);
+
 pub struct Sounds {
     clips: HashMap<&'static str, SamplesBuffer>,
-    /// The speakers, opened on a thread of their own at start (the stream must stay on it).
-    pending: Mutex<Option<mpsc::Receiver<Option<Mixer>>>>,
-    mixer: OnceLock<Option<Mixer>>,
+    /// To the thread that owns the speakers (the stream must stay on the thread that opened it).
+    tx: Option<mpsc::Sender<(SamplesBuffer, f32)>>,
 }
 
 impl Sounds {
     pub fn new() -> Self {
         let clips = SOUNDS.iter().filter_map(|(name, bytes)| Some((*name, clip(bytes)?))).collect();
-        let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("sounds".into())
-            .spawn(move || match rodio::DeviceSinkBuilder::open_default_sink() {
-                Ok(mut sink) => {
-                    sink.log_on_drop(false);
-                    let _ = tx.send(Some(sink.mixer().clone()));
-                    // Keeps the speakers open for as long as the app runs.
-                    loop {
-                        std::thread::park();
-                    }
-                }
-                Err(e) => {
-                    warn!("no sound: couldn't open the speakers: {e}");
-                    let _ = tx.send(None);
-                }
-            })
-            .ok();
+        let (tx, rx) = mpsc::channel::<(SamplesBuffer, f32)>();
+        let spawned = std::thread::Builder::new().name("sounds".into()).spawn(move || speakers(rx));
+        if let Err(e) = &spawned {
+            warn!("no sound: couldn't start the sound thread: {e}");
+        }
         Self {
             clips,
-            pending: Mutex::new(Some(rx)),
-            mixer: OnceLock::new(),
+            tx: spawned.ok().map(|_| tx),
         }
-    }
-
-    fn mixer(&self) -> Option<&Mixer> {
-        self.mixer
-            .get_or_init(|| {
-                let rx = self.pending.lock().ok()?.take()?;
-                // The first sound (the launch intro) can come before the speakers are open.
-                rx.recv_timeout(Duration::from_millis(600)).ok().flatten()
-            })
-            .as_ref()
     }
 
     /// `volume` is 1 for Loud and less for Soft (Settings > Appearance > Sounds).
@@ -67,8 +48,49 @@ impl Sounds {
             warn!("no sound called {name}");
             return;
         };
-        if let Some(mixer) = self.mixer() {
-            mixer.add(clip.clone().amplify(volume.clamp(0.0, 1.0)));
+        if let Some(tx) = &self.tx {
+            let _ = tx.send((clip.clone(), volume.clamp(0.0, 1.0)));
+        }
+    }
+}
+
+/// Opens the speakers for the first sound, plays everything that comes, and closes them after
+/// `CLOSE_AFTER` of quiet.
+fn speakers(rx: mpsc::Receiver<(SamplesBuffer, f32)>) {
+    let mut sink = None;
+    let mut failed_at: Option<Instant> = None;
+    loop {
+        let next = if sink.is_some() {
+            match rx.recv_timeout(CLOSE_AFTER) {
+                Ok(m) => m,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    sink = None;
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        } else {
+            match rx.recv() {
+                Ok(m) => m,
+                Err(_) => return,
+            }
+        };
+        if sink.is_none() && failed_at.is_none_or(|t| t.elapsed() >= RETRY_AFTER) {
+            match rodio::DeviceSinkBuilder::open_default_sink() {
+                Ok(mut s) => {
+                    s.log_on_drop(false);
+                    sink = Some(s);
+                    failed_at = None;
+                }
+                Err(e) => {
+                    warn!("no sound: couldn't open the speakers: {e}");
+                    failed_at = Some(Instant::now());
+                }
+            }
+        }
+        if let Some(s) = &sink {
+            let (clip, volume) = next;
+            s.mixer().add(clip.amplify(volume));
         }
     }
 }
@@ -120,9 +142,9 @@ mod tests {
     #[test]
     #[ignore = "makes a sound"]
     fn speakers() {
+        assert!(rodio::DeviceSinkBuilder::open_default_sink().is_ok(), "couldn't open the speakers");
         let sounds = Sounds::new();
-        assert!(sounds.mixer().is_some(), "couldn't open the speakers");
         sounds.play("done", 1.0);
-        std::thread::sleep(Duration::from_millis(1400));
+        std::thread::sleep(Duration::from_millis(1600));
     }
 }

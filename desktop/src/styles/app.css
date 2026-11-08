@@ -83,7 +83,7 @@ p {
 }
 
 /* Text fields: focus draws a thin "charge" line along the bottom, left to right
-   (docs/design/motion-spec.md, 4.15). Put the class on the field's box or a wrapper. */
+  . Put the class on the field's box or a wrapper. */
 .charge {
   position: relative;
   display: grid;
@@ -112,4 +112,11 @@ p {
 }
 [data-reduced='true'] .charge:focus-within::after {
   opacity: 1;
+}
+
+/* The window is hidden (see main.ts): nothing animates where nobody can see it. */
+.hidden-app *,
+.hidden-app *::before,
+.hidden-app *::after {
+  animation-play-state: paused !important;
 }

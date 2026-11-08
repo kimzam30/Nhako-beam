@@ -1,6 +1,6 @@
 <script lang="ts">
   // Prototype only: plays every piece of the bolt motion on one page, for review, with a switch
-  // for reduced motion. Opened from Scenarios. Spec: docs/design/motion-spec.md, 4.15.
+  // for reduced motion. Opened from Scenarios.
   import { app } from '../lib/state/app.svelte';
   import { prefs, type MotionPref } from '../lib/state/prefs.svelte';
   import { arcPath, spark, strike } from '../lib/motion/bolt';

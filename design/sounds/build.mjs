@@ -10,7 +10,7 @@
 //   sounds.js, sounds.d.ts   the names, for the Svelte UI
 //   sounds.rs                the names and files, for the desktop app (Rust)
 //   kotlin/NhakoSounds.kt    the names and resources, for the Android app
-// What each sound is for: design/sounds/README.md.
+// Each sound is named for the moment it marks.
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -315,7 +315,7 @@ writeFileSync(
 );
 writeFileSync(
   join(OUT, 'kotlin/NhakoSounds.kt'),
-  `// ${header}\npackage io.github.kimzam30.nhakobeam.design\n\nimport io.github.kimzam30.nhakobeam.R\n\n/** Every sound, with its resource (design/sounds/README.md says what each is for). */\nenum class NhakoSound(val res: Int) {\n${names
+  `// ${header}\npackage io.github.kimzam30.nhakobeam.design\n\nimport io.github.kimzam30.nhakobeam.R\n\n/** Every sound, with its resource. */\nenum class NhakoSound(val res: Int) {\n${names
     .map((n) => `    /** ${SOUNDS[n].use}. */\n    ${pascal(n)}(R.raw.${file(n).replace('.wav', '')}),`)
     .join('\n')}\n}\n`,
 );

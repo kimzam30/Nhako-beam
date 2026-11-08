@@ -22,7 +22,7 @@ import kotlin.math.sqrt
  * files move. The Kotlin twin of desktop/src/lib/stage/scene.ts (which uses three.js); here each
  * frame the faces are placed, lit by a sky fill and one key light, sorted back to front and drawn
  * with one `drawVertices`. No 3D library, so the APK stays the same size and the Robolectric
- * screenshots show exactly what a phone does. motion-spec.md section 4.18.
+ * screenshots show exactly what a phone does.
  */
 class StageScene(
     private val model: MascotModel,
@@ -229,13 +229,13 @@ class StageScene(
             }
             busy = true
             val shown = (arc.points.size * min(1f, a * 3)).toInt().coerceAtLeast(2)
-            val path = Path()
+            val path = arcPath.apply { reset() }
             arc.points.take(shown).forEachIndexed { k, pt ->
                 val pr = camera.project(pt[0], pt[1], pt[2], width, height)
                 if (k == 0) path.moveTo(pr.x, pr.y) else path.lineTo(pr.x, pr.y)
             }
             val alpha = if (a < 0.5f) 1f else 1 - (a - 0.5f) * 2
-            val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; strokeWidth = height * 0.008f }
+            val line = arcPaint.apply { strokeWidth = height * 0.008f }
             line.color = 0xff1a6fe0.toInt(); line.alpha = (alpha * 255).toInt()
             canvas.save(); canvas.translate(1.5f, 2f); canvas.drawPath(path, line); canvas.restore()
             line.color = 0xffffd23f.toInt(); line.alpha = (alpha * 255).toInt()
@@ -267,7 +267,8 @@ class StageScene(
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = height * 0.0035f
         paint.color = ringColor
-        for (f in listOf(0.66f, 1f)) canvas.drawPath(circlePath(data.stage.slotReach * f, width, height), paint)
+        canvas.drawPath(circlePath(data.stage.slotReach * 0.66f, width, height), paint)
+        canvas.drawPath(circlePath(data.stage.slotReach, width, height), paint)
         if (ripplesOn()) {
             val period = if (mood == MascotState.Looking) 2.4f else 3.8f
             for (i in 0..1) {
@@ -281,7 +282,14 @@ class StageScene(
         paint.style = Paint.Style.FILL
     }
 
-    private fun circlePath(r: Float, width: Float, height: Float) = Path().apply {
+    // Reused every frame instead of made new, so drawing makes no garbage.
+    private val arcPath = Path()
+    private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val circle = Path()
+
+    /** A ring on the floor. The path is reused, so draw it before asking for the next one. */
+    private fun circlePath(r: Float, width: Float, height: Float) = circle.apply {
+        reset()
         for (a in 0..72) {
             val t = a / 72f * 2 * PI.toFloat()
             val p = camera.project(cos(t) * r, 0f, sin(t) * r, width, height)
@@ -430,7 +438,7 @@ class StageScene(
                 // Both halves of a face sort as one, by its middle, and a screen sits just in front
                 // of the case it's on, so no half of it slips behind.
                 val depth = projected.sumOf { it.depth.toDouble() }.toFloat() / 4 - if (box.role == "screen") 0.05f else 0f
-                for (tr in listOf(intArrayOf(0, 1, 2), intArrayOf(0, 2, 3))) {
+                for (tr in HALVES) {
                     tri.begin(color, depth)
                     for (c in tr) tri.vertex(projected[c].x, projected[c].y, 0f)
                 }
@@ -441,6 +449,7 @@ class StageScene(
     private class Face(val n: FloatArray, val corners: List<FloatArray>)
 
     private companion object {
+        val HALVES = arrayOf(intArrayOf(0, 1, 2), intArrayOf(0, 2, 3))
         val BOX_FACES = listOf(
             Face(floatArrayOf(0f, 0f, 1f), listOf(floatArrayOf(-1f, -1f, 1f), floatArrayOf(1f, -1f, 1f), floatArrayOf(1f, 1f, 1f), floatArrayOf(-1f, 1f, 1f))),
             Face(floatArrayOf(0f, 0f, -1f), listOf(floatArrayOf(1f, -1f, -1f), floatArrayOf(-1f, -1f, -1f), floatArrayOf(-1f, 1f, -1f), floatArrayOf(1f, 1f, -1f))),
@@ -523,21 +532,27 @@ private class TriangleBuffer {
         if (++corner == 3) count++
     }
 
-    private var order = IntArray(0)
+    private var order = LongArray(0)
     private var outXy = FloatArray(0)
     private var outColor = IntArray(0)
 
     fun sortAndDraw(canvas: Canvas, paint: Paint) {
         if (count == 0) return
-        if (order.size < count) order = IntArray(count * 2)
-        for (i in 0 until count) order[i] = i
-        val d = depth
-        val sorted = order.copyOf(count).sortedByDescending { d[it] }
+        if (order.size < count) order = LongArray(count * 2)
+        // Farthest first, sorted as plain numbers: the depth (flipped so far sorts low, and made
+        // to order like an int) in the high half, the triangle in the low half. No boxing.
+        for (i in 0 until count) {
+            var bits = java.lang.Float.floatToRawIntBits(-depth[i])
+            if (bits < 0) bits = bits xor 0x7fffffff
+            order[i] = (bits.toLong() shl 32) or i.toLong()
+        }
+        order.sort(0, count)
         if (outXy.size < count * 6) {
             outXy = FloatArray(count * 6 * 2)
             outColor = IntArray(count * 3 * 2)
         }
-        sorted.forEachIndexed { k, i ->
+        for (k in 0 until count) {
+            val i = (order[k] and 0xffffffffL).toInt()
             System.arraycopy(xy, i * 6, outXy, k * 6, 6)
             outColor[k * 3] = color[i]
             outColor[k * 3 + 1] = color[i]

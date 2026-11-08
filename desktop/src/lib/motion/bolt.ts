@@ -1,6 +1,6 @@
 // The bolt from the logo, as motion: its shape, the morph into a check, the arc between two
 // points, and the sparks thrown when something commits. "Charge, zap, settle".
-// The Kotlin twin is android/.../ui/components/Bolt.kt. Spec: docs/design/motion-spec.md, 4.15.
+// The Kotlin twin is android/.../ui/components/Bolt.kt.
 import { bolt as tokens, brand } from '../tokens';
 import { prefs } from '../state/prefs.svelte';
 

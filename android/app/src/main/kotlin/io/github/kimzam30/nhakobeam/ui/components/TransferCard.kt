@@ -4,10 +4,8 @@ package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
@@ -94,7 +92,7 @@ fun Beam(progress: Float, intensity: Float, mode: BeamMode, modifier: Modifier =
     val reduced = Nhako.reducedMotion
     val p by animateFloatAsState(progress.coerceIn(0f, 1f), if (reduced) tween(0) else NhakoMotion.smooth.spec(), label = "beam")
     val shimmerMs = (2600 - 1700 * intensity.coerceIn(0f, 1f)).toInt()
-    val shimmer = rememberInfiniteTransition(label = "shimmer").animateFloat(0f, 1f, infiniteRepeatable(tween(shimmerMs, easing = LinearEasing)), label = "s")
+    val shimmer = loopFloat(mode == BeamMode.Moving && !reduced, 0f, 1f, infiniteRepeatable(tween(shimmerMs, easing = LinearEasing)), "shimmer")
     val glow by animateFloatAsState(if (mode == BeamMode.Moving) 0.35f + 0.65f * intensity.coerceIn(0f, 1f) else 0f, tween(NhakoMotion.Duration.slow), label = "glow")
     val fillColor = when (mode) {
         BeamMode.Paused -> c.textTertiary

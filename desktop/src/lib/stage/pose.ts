@@ -1,7 +1,7 @@
 // The mascot's motion, frame by frame: for a state and the time since it began, where the bolt
 // is (hop, lean, turn, squash) and what its face shows. Plain math with no drawing, so both apps
 // move it the same way: the Kotlin twin is android/.../stage/MascotMotion.kt. The states and
-// their timings come from design/mascot/build/mascot.json; motion-spec.md section 4.18.
+// their timings come from design/mascot/build/mascot.json.
 
 import mascot from '../../../../design/mascot/build/mascot.json';
 import { mascot as timing } from '../tokens';

@@ -3,7 +3,7 @@ package io.github.kimzam30.nhakobeam.design
 
 import io.github.kimzam30.nhakobeam.R
 
-/** Every sound, with its resource (design/sounds/README.md says what each is for). */
+/** Every sound, with its resource. */
 enum class NhakoSound(val res: Int) {
     /** Any button, row or device you tap. */
     Tap(R.raw.snd_tap),

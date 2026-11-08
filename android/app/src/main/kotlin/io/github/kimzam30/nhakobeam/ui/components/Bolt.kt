@@ -1,6 +1,6 @@
 // The bolt from the logo, as motion: its shape, the morph into a check, the crack, the arc
 // between two points, and the sparks thrown when something commits. "Charge, zap, settle".
-// The Compose twin of desktop/src/lib/motion/bolt.ts and Bolt.svelte. Spec: motion-spec.md, 4.15.
+// The Compose twin of desktop/src/lib/motion/bolt.ts and Bolt.svelte.
 package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable

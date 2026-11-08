@@ -4,10 +4,8 @@ package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -141,7 +139,7 @@ fun DeviceOrb(
             bump.animateTo(1f, NhakoMotion.bouncy.spec())
         }
     }
-    val waitPulse = rememberInfiniteTransition(label = "wait").animateFloat(0f, 1f, infiniteRepeatable(tween(NhakoMotion.Duration.searchingPulse, easing = LinearEasing)), label = "w")
+    val waitPulse = loopFloat(waiting && !reduced, 0f, 1f, infiniteRepeatable(tween(NhakoMotion.Duration.searchingPulse, easing = LinearEasing)), "wait")
     val shownProgress by animateFloatAsState(progress ?: 0f, NhakoMotion.smooth.spec(), label = "progress")
     val interaction = remember { MutableInteractionSource() }
     val status = when {

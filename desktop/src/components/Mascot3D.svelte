@@ -1,7 +1,6 @@
 <script lang="ts">
   // The voxel mascot on its own (the splash, empty History, pairing). The 3D stage loads after
   // the first paint; until then, and where WebGL isn't there, the flat bolt stands in.
-  // motion-spec.md section 4.18.
   import { onMount } from 'svelte';
   import { prefs } from '../lib/state/prefs.svelte';
   import type { MascotState } from '../lib/stage/pose';

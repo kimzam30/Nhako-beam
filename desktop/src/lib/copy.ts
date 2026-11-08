@@ -1,4 +1,4 @@
-// UI strings. Source: docs/design/ux-copy.md (keep them in sync).
+// UI strings: the only source for both apps (android/tools/shared-assets.mjs makes Copy.kt).
 import { fill } from './format';
 
 export const copy = {

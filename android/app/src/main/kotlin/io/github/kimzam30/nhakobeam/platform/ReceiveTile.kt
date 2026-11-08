@@ -15,7 +15,7 @@ import io.github.kimzam30.nhakobeam.ui.Copy.t
  * The "Receive" Quick Settings tile: one tap keeps this phone ready to receive for 5 minutes
  * without opening the app (nearby devices can find it, requests come as notifications). Tap again
  * to stop. With Always ready to receive on, it shows "Always on" and pauses or resumes that
- * instead. docs/design/screens-and-states.md, section 10.3.
+ * instead.
  */
 class ReceiveTile : TileService() {
     private val nhako get() = application as NhakoApplication

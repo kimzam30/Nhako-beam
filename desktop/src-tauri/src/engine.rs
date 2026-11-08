@@ -4,6 +4,7 @@
 //! Every command is `async`: Tauri runs plain commands on the main thread, outside the async
 //! runtime, and many engine methods start background tasks that need it.
 
+use nhako_core::sync::Locked;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -69,7 +70,7 @@ impl Host {
 
     /// Remembers paths you handed the app yourself (see `offered`).
     pub fn offer(&self, paths: impl IntoIterator<Item = PathBuf>) {
-        let mut offered = self.offered.lock().expect("offered lock");
+        let mut offered = self.offered.locked();
         // Drops that never get staged shouldn't pile up for ever.
         if offered.len() > 10_000 {
             offered.clear();
@@ -84,7 +85,7 @@ impl Host {
             return true;
         }
         for _ in 0..20 {
-            if self.offered.lock().expect("offered lock").remove(path) {
+            if self.offered.locked().remove(path) {
                 return true;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -94,7 +95,7 @@ impl Host {
     }
 
     fn running(&self) -> Option<Engine> {
-        self.engine.lock().expect("engine lock").clone()
+        self.engine.locked().clone()
     }
 
     fn engine(&self) -> Result<Engine, String> {
@@ -121,8 +122,8 @@ impl Host {
     async fn start(&self, app: &AppHandle) -> Result<Engine, String> {
         let engine = Engine::start(EngineConfig::new(&self.config_dir)).await.map_err(|e| e.to_string())?;
         let task = tauri::async_runtime::spawn(forward(app.clone(), engine.clone()));
-        *self.forward.lock().expect("forward lock") = Some(task);
-        *self.engine.lock().expect("engine lock") = Some(engine.clone());
+        *self.forward.locked() = Some(task);
+        *self.engine.locked() = Some(engine.clone());
         Ok(engine)
     }
 
@@ -156,10 +157,10 @@ impl Host {
     }
 
     async fn stop_locked(&self) {
-        if let Some(task) = self.forward.lock().expect("forward lock").take() {
+        if let Some(task) = self.forward.locked().take() {
             task.abort();
         }
-        let engine = self.engine.lock().expect("engine lock").take();
+        let engine = self.engine.locked().take();
         if let Some(e) = engine {
             let _ = tokio::time::timeout(Duration::from_secs(4), e.stop()).await;
         }
@@ -566,7 +567,7 @@ pub async fn pick_save_dir(window: tauri::Window, host: State<'_, Host>, current
 /// a big folder takes a while. Then gives each file an id the page can send by.
 async fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
     let (found, skipped) = tokio::task::spawn_blocking(move || scan(paths)).await.unwrap_or_default();
-    let mut known = host.files.lock().expect("files lock");
+    let mut known = host.files.locked();
     let files = found
         .into_iter()
         .map(|(p, size, folder)| {
@@ -612,7 +613,7 @@ fn scan(paths: Vec<PathBuf>) -> (Vec<(PathBuf, u64, Option<String>)>, usize) {
 
 /// The staged files for these ids, or `None` when one isn't known (any more).
 fn outgoing(host: &Host, ids: &[String]) -> Option<Vec<Outgoing>> {
-    let known = host.files.lock().expect("files lock");
+    let known = host.files.locked();
     ids.iter()
         .map(|id| {
             known.get(id).cloned().map(|(path, folder)| Outgoing {
@@ -627,7 +628,7 @@ fn outgoing(host: &Host, ids: &[String]) -> Option<Vec<Outgoing>> {
 /// Files the engine has taken (sent, or shared with a link) aren't staged any more: the page
 /// lets go of them too, and a retry goes through the engine, which keeps its own paths.
 fn forget(host: &Host, ids: &[String]) {
-    let mut known = host.files.lock().expect("files lock");
+    let mut known = host.files.locked();
     for id in ids {
         known.remove(id);
     }

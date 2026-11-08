@@ -2,7 +2,7 @@
   // The logo bolt as a living icon. `mode`: bolt, check (the bolt morphs into a check), cracked
   // (it splits along its zig and dims), asleep (dim, breathes once when it appears).
   // `strike` drops it in with sparks on mount; bumping `twitch` gives it one small shake.
-  // Twin: android/.../ui/components/Bolt.kt. Spec: docs/design/motion-spec.md, 4.15.
+  // Twin: android/.../ui/components/Bolt.kt.
   import { onMount, untrack } from 'svelte';
   import { brand } from '../lib/tokens';
   import { prefs } from '../lib/state/prefs.svelte';

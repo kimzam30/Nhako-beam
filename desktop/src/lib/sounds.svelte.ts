@@ -1,4 +1,4 @@
-// The app's sounds (design/sounds/README.md). In the desktop app the Rust side plays them
+// The app's sounds (made by design/sounds/build.mjs). In the desktop app the Rust side plays them
 // (src-tauri/src/sound.rs: WebKit keeps a page silent until the first click); the browser
 // prototype plays the same files itself. Every play is logged so tests and testers can see it.
 //

@@ -1,5 +1,5 @@
-// Sizes, speeds, times and file summaries. The same rules as desktop/src/lib/format.ts
-// (docs/design/ux-copy.md): never more than one decimal, "About 2 min left", sentence case.
+// Sizes, speeds, times and file summaries. The same rules as desktop/src/lib/format.ts:
+// never more than one decimal, "About 2 min left", sentence case.
 package io.github.kimzam30.nhakobeam.ui
 
 import io.github.kimzam30.nhakobeam.model.FileItem

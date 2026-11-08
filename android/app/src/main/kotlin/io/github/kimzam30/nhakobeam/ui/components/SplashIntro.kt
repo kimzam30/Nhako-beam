@@ -1,7 +1,6 @@
 // The launch intro: after the system splash screen (res/drawable/splash_bolt.xml), the voxel bolt
 // drops onto its spot on the same brand blue, lands with a squash and blinks, then the blue fades
-// into the app. The Compose twin of desktop/src/components/SplashIntro.svelte. Motion:
-// docs/design/motion-spec.md, section 4.14.
+// into the app. The Compose twin of desktop/src/components/SplashIntro.svelte.
 package io.github.kimzam30.nhakobeam.ui.components
 
 import androidx.compose.animation.core.Animatable

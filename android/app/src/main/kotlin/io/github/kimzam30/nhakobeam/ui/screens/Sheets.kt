@@ -72,6 +72,7 @@ import io.github.kimzam30.nhakobeam.ui.components.FILES_PAGE
 import io.github.kimzam30.nhakobeam.ui.components.FileStack
 import io.github.kimzam30.nhakobeam.ui.components.MoreFiles
 import io.github.kimzam30.nhakobeam.ui.components.NButton
+import io.github.kimzam30.nhakobeam.ui.components.loopFloat
 import io.github.kimzam30.nhakobeam.ui.components.NSheet
 import io.github.kimzam30.nhakobeam.ui.components.NTextArea
 import io.github.kimzam30.nhakobeam.ui.components.NToggle
@@ -522,8 +523,7 @@ private fun DeviceContent(app: AppState, d: Device) {
 private fun TrustPair(app: AppState, deviceId: String, live: Boolean, waiting: Boolean) {
     val c = Nhako.colors
     val reduced = Nhako.reducedMotion
-    val run = androidx.compose.animation.core.rememberInfiniteTransition(label = "charge")
-    val p by run.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(1100, easing = NhakoMotion.Easing.standard)), label = "run")
+    val p by loopFloat(live && !reduced, 0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(1100, easing = NhakoMotion.Easing.standard)), "charge")
     Row(Modifier.fillMaxWidth().padding(vertical = NhakoSpace.s4), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         DeviceOrb(null, 64.dp, self = true, selfName = app.selfName, showName = false)
         Box(

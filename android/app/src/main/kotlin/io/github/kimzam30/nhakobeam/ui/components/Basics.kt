@@ -5,6 +5,9 @@ package io.github.kimzam30.nhakobeam.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.State
+import androidx.compose.animation.core.InfiniteRepeatableSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -235,11 +238,22 @@ fun NIconButton(icon: String, label: String, onClick: () -> Unit, modifier: Modi
     }
 }
 
+/**
+ * An endless animation that runs only while [on]. Off, it holds [from] and asks for no frames,
+ * so a pulse nobody sees (the wrong status, reduced motion) costs nothing. Read `.value` in a
+ * draw block, as with any animation, so only drawing repeats.
+ */
+@Composable
+fun loopFloat(on: Boolean, from: Float, to: Float, spec: InfiniteRepeatableSpec<Float>, label: String): State<Float> {
+    if (!on) return remember(from) { mutableFloatStateOf(from) }
+    return rememberInfiniteTransition(label = label).animateFloat(from, to, spec, label = label)
+}
+
 /** A small spinning arc (loading). Reduced motion shows it still. */
 @Composable
 fun Spinner(color: Color, size: Dp = 18.dp) {
     val reduced = Nhako.reducedMotion
-    val turn = rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "turn")
+    val turn = loopFloat(!reduced, 0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), "spin")
     Canvas(Modifier.size(size)) {
         drawArc(color, if (reduced) 0f else turn.value, 270f, false, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
     }

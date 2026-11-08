@@ -14,9 +14,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -99,8 +97,8 @@ fun QrScanner(onFound: (List<String>) -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 private fun Viewfinder() {
-    val sweep = rememberInfiniteTransition(label = "scan").animateFloat(0.1f, 0.9f, infiniteRepeatable(tween(1800, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "line")
     val reduced = Nhako.reducedMotion
+    val sweep = loopFloat(!reduced, 0.1f, 0.9f, infiniteRepeatable(tween(1800, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), "scan")
     val accent = Nhako.colors.accent
     Canvas(Modifier.fillMaxSize().padding(36.dp)) {
         val corner = 28.dp.toPx()

@@ -43,7 +43,7 @@
   let rim: HTMLElement | undefined = $state();
 
   // Release: a thin yellow rim flashes. A primary action also throws a few sparks from where
-  // it was clicked (docs/design/motion-spec.md, 4.15).
+  // it was clicked.
   function click(e: MouseEvent) {
     flash(rim);
     if (variant === 'primary' && sparks) spark(pointOf(e, e.currentTarget as Element), { count: 4, reach: 28 });

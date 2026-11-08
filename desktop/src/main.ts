@@ -17,4 +17,9 @@ if (import.meta.env.DEV) Object.assign(window, { __nhako: { app, haptics, sounds
 const popover = new URLSearchParams(location.search).get('view') === 'popover';
 // Both windows share one stylesheet, so the popover's own page rules hang off this attribute.
 if (popover) document.documentElement.dataset.view = 'popover';
+// While the window is hidden (in the tray, minimized), every endless CSS animation holds still:
+// the room's rain and breath, pulses and spinners would otherwise keep the CPU and GPU awake.
+const hold = () => document.documentElement.classList.toggle('hidden-app', document.hidden);
+document.addEventListener('visibilitychange', hold);
+hold();
 export default mount(popover ? Popover : App, { target });

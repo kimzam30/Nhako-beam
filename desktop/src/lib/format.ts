@@ -1,4 +1,4 @@
-// Formatting for sizes, speeds, times and file summaries. Rules from docs/design/ux-copy.md:
+// Formatting for sizes, speeds, times and file summaries. Rules:
 // never more than one decimal, "About 2 min left", sentence case.
 import type { FileItem } from './engine/types';
 

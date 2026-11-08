@@ -1,6 +1,7 @@
 //! One transfer session over one connection: the sender pushes files, the receiver writes and
 //! checks them. See docs/protocol/nhako-1.md, sections 5 and 6.
 
+use crate::sync::Locked;
 use std::{
     io::SeekFrom,
     sync::{
@@ -59,7 +60,7 @@ fn mark(marks: &Marks, file: u32, before: u64, pos: u64, hasher: &blake3::Hasher
     if before / MARK_EVERY == pos / MARK_EVERY {
         return;
     }
-    let mut m = marks.lock().expect("marks lock");
+    let mut m = marks.locked();
     m.retain(|c| c.file == file);
     if m.len() >= MARKS_KEPT {
         m.remove(0);
@@ -673,7 +674,7 @@ async fn accept_files(e: Engine, conn: Connection, id: TransferId, mut files: Ve
             let _ = ev.send(DataEv::Io(TransferError::Unknown));
             return;
         };
-        let part_len = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        let part_len = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
         if header.offset > part_len {
             let _ = ev.send(DataEv::Protocol("offset past what we have"));
             return;
@@ -711,37 +712,52 @@ async fn accept_files(e: Engine, conn: Connection, id: TransferId, mut files: Ve
         let mut interrupted = false;
         while pos < f.size {
             let want = (f.size - pos).min(CHUNK as u64) as usize;
-            match s.read(&mut buf[..want]).await {
-                Ok(Some(n)) => {
-                    if let Err(err) = out.write_all(&buf[..n]).await {
-                        let _ = out.flush().await;
-                        let _ = out.set_len(pos).await;
-                        let _ = s.stop(wire::RESET_PAUSED);
-                        if files::is_disk_full(&err) {
-                            live.bytes.store(pos, Ordering::Relaxed);
-                            let _ = ev.send(DataEv::DiskFull(header.file));
-                            interrupted = true;
-                            break;
-                        }
-                        let _ = ev.send(DataEv::Io(io_kind(&err)));
+            // Fill a whole chunk before writing it: the network hands over a few KB at a time, and
+            // one disk write per chunk instead of one per read saves a trip to the I/O threads for
+            // each. Nothing counts as received (hash, save point, progress) until it's on disk.
+            let mut fill = 0usize;
+            let mut ended: Option<Result<(), ReadError>> = None;
+            while fill < want {
+                match s.read(&mut buf[fill..want]).await {
+                    Ok(Some(n)) => fill += n,
+                    Ok(None) => {
+                        let _ = ev.send(DataEv::Protocol("data stream ended early"));
                         return;
                     }
-                    hasher.update(&buf[..n]);
-                    mark(&marks, header.file, pos, pos + n as u64, &hasher);
-                    pos += n as u64;
-                    live.bytes.store(pos, Ordering::Relaxed);
+                    Err(err) => {
+                        ended = Some(Err(err));
+                        break;
+                    }
                 }
-                Ok(None) => {
-                    let _ = ev.send(DataEv::Protocol("data stream ended early"));
+            }
+            if fill > 0 {
+                if let Err(err) = out.write_all(&buf[..fill]).await {
+                    let _ = out.flush().await;
+                    let _ = out.set_len(pos).await;
+                    let _ = s.stop(wire::RESET_PAUSED);
+                    if files::is_disk_full(&err) {
+                        live.bytes.store(pos, Ordering::Relaxed);
+                        let _ = ev.send(DataEv::DiskFull(header.file));
+                        interrupted = true;
+                        break;
+                    }
+                    let _ = ev.send(DataEv::Io(io_kind(&err)));
                     return;
                 }
-                Err(ReadError::Reset(_)) => {
+                hasher.update(&buf[..fill]);
+                mark(&marks, header.file, pos, pos + fill as u64, &hasher);
+                pos += fill as u64;
+                live.bytes.store(pos, Ordering::Relaxed);
+            }
+            match ended {
+                None => {}
+                Some(Err(ReadError::Reset(_))) => {
                     // The sender paused. Keep what we have and wait for the next stream.
                     let _ = out.flush().await;
                     interrupted = true;
                     break;
                 }
-                Err(_) => {
+                Some(_) => {
                     let _ = out.flush().await;
                     let _ = ev.send(DataEv::Conn);
                     return;
@@ -840,7 +856,7 @@ mod tests {
             mark(&marks, 0, pos, pos + chunk.len() as u64, &hasher);
             pos += chunk.len() as u64;
         }
-        let at: Vec<u64> = marks.lock().unwrap().iter().map(|c| c.pos).collect();
+        let at: Vec<u64> = marks.locked().iter().map(|c| c.pos).collect();
         assert_eq!(at, [MARK_EVERY, 2 * MARK_EVERY]);
 
         // Bytes before the 32 MiB mark are never read again: damage there doesn't change the result.

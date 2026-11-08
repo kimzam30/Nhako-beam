@@ -1,6 +1,7 @@
 //! The desktop part around the engine: the tray icon, keeping the app running when its window is
 //! closed (so files can still arrive), and notifications while nobody is looking at the window.
 
+use nhako_core::sync::Locked;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -316,7 +317,7 @@ impl Shell {
             return;
         }
         {
-            let mut q = self.send_queue.lock().expect("send queue lock");
+            let mut q = self.send_queue.locked();
             if q.1 != label {
                 q.0.clear();
             }
@@ -365,7 +366,7 @@ impl Shell {
 #[tauri::command]
 pub fn take_send_paths(window: tauri::WebviewWindow, shell: State<'_, Shell>, host: State<'_, Host>) -> Vec<PathBuf> {
     let paths = {
-        let mut q = shell.send_queue.lock().expect("send queue lock");
+        let mut q = shell.send_queue.locked();
         if q.1 != window.label() {
             return Vec::new();
         }

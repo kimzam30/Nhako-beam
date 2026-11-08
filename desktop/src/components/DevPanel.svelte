@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Prototype only: triggers every state in docs/design/screens-and-states.md without real
+  // Prototype only: triggers every screen state without real
   // devices, and shows which haptic would fire. Not part of the real app.
   import { app, type PlatformMode } from '../lib/state/app.svelte';
   import { haptics } from '../lib/haptics.svelte';

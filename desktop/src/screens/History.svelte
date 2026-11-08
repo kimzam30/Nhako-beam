@@ -1,6 +1,6 @@
 <script lang="ts">
   // History: every transfer that ended, grouped by day, newest first. The engine keeps the list
-  // across restarts (core/src/history.rs). docs/design/screens-and-states.md, section 7.
+  // across restarts (core/src/history.rs).
   import { app } from '../lib/state/app.svelte';
   import type { HistoryEntry } from '../lib/engine/types';
   import { t } from '../lib/copy';

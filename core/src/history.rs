@@ -77,7 +77,7 @@ impl History {
         let tmp = self.path.with_extension("json.tmp");
         let result = serde_json::to_vec(&self.records)
             .map_err(std::io::Error::other)
-            .and_then(|json| std::fs::write(&tmp, json))
+            .and_then(|json| crate::store::write_synced(&tmp, &json))
             .and_then(|_| std::fs::rename(&tmp, &self.path));
         if let Err(e) = result {
             warn!("couldn't save history: {e}");
