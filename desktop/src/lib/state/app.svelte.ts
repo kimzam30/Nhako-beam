@@ -9,6 +9,7 @@ import type {
   Device,
   DiscoveryState,
   Engine,
+  EngineEvent,
   FileItem,
   HistoryEntry,
   IncomingRequest,
@@ -220,6 +221,34 @@ class AppState {
 
   /** The page's `still-app` class pauses every CSS animation (app.css); the 3D bolt listens for
    *  `nhako:still` (stage/scene.ts). */
+  /** News worth seeing wakes the room: a device that appears or comes back, a request, a trust
+   *  ask, a transfer that starts or changes state. Not the engine's routine checks, which change a
+   *  device's route every few seconds, and not progress. The list still updates while it's still. */
+  #isNews(e: EngineEvent): boolean {
+    switch (e.type) {
+      case 'device': {
+        const was = this.devices.find((d) => d.id === e.device.id);
+        return !was || (e.device.reachable && !was.reachable) || e.device.trusted !== was.trusted;
+      }
+      case 'transfer': {
+        const was = this.transfers.find((x) => x.id === e.transfer.id);
+        return !was || was.status !== e.transfer.status;
+      }
+      case 'incoming':
+      case 'incomingWithdrawn':
+      case 'paired':
+      case 'trustAsk':
+      case 'trustWaiting':
+      case 'trustEnded':
+      case 'code':
+      case 'linkShare':
+      case 'update':
+        return true;
+      default:
+        return false;
+    }
+  }
+
   #setStill(on: boolean) {
     if (this.still === on) return;
     this.still = on;
@@ -268,8 +297,7 @@ class AppState {
     this.poke();
 
     this.offEngine = this.engine.on((e) => {
-      // News worth seeing wakes the room. Progress, free space and the like don't.
-      if (e.type !== 'transferProgress' && e.type !== 'freeSpace' && e.type !== 'server' && e.type !== 'history' && e.type !== 'discovery') this.poke();
+      if (this.#isNews(e)) this.poke();
       switch (e.type) {
         case 'discovery':
           this.discovery = e.state;

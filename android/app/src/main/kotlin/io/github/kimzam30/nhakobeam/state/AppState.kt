@@ -113,7 +113,7 @@ const val STILL_AFTER_MS = 30_000L
 /** Transfers that keep the room awake: anything on its way, not one paused. */
 private val MOVING = setOf(TransferStatus.Waiting, TransferStatus.Connecting, TransferStatus.Transferring, TransferStatus.Reconnecting)
 
-class AppState(val engine: Engine, val prefs: Prefs, private val scope: CoroutineScope) {
+class AppState(val engine: Engine, val prefs: Prefs, private val scope: CoroutineScope, private val stillAfterMs: Long = STILL_AFTER_MS) {
     var platform: PlatformHooks = object : PlatformHooks {}
     /** Called after each engine event has been applied (notifications, the transfer service). */
     var afterEvent: (EngineEvent) -> Unit = {}
@@ -239,9 +239,22 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
         still = false
         stillJob?.cancel()
         stillJob = scope.launch {
-            do delay(STILL_AFTER_MS) while (transfers.any { it.status in MOVING })
+            do delay(stillAfterMs) while (transfers.any { it.status in MOVING })
             still = true
         }
+    }
+
+    /**
+     * News worth seeing wakes the room: a device that appears or comes back, a request, a trust
+     * ask, a transfer that starts or changes state. Not the engine's routine checks, which change a
+     * device's route every few seconds, and not progress. The list still updates while it's still.
+     */
+    private fun isNews(e: EngineEvent): Boolean = when (e) {
+        is EngineEvent.DeviceChanged -> device(e.device.id).let { was -> was == null || (e.device.reachable && !was.reachable) || e.device.trusted != was.trusted }
+        is EngineEvent.TransferChanged -> transfers.find { it.id == e.transfer.id }.let { was -> was == null || was.status != e.transfer.status }
+        is EngineEvent.Incoming, is EngineEvent.IncomingWithdrawn, is EngineEvent.Paired, is EngineEvent.TrustAsk, is EngineEvent.TrustWaiting,
+        is EngineEvent.TrustEnded, is EngineEvent.Code, is EngineEvent.LinkShareChanged, is EngineEvent.Update -> true
+        else -> false
     }
 
     /** Listens to the engine, reads the saved settings and, once onboarded, starts the engine. */
@@ -280,8 +293,7 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
     }
 
     fun onEvent(e: EngineEvent) {
-        // News worth seeing wakes the room. Progress, free space and the like don't.
-        if (e !is EngineEvent.TransferProgress && e !is EngineEvent.FreeSpace && e !is EngineEvent.Server && e !is EngineEvent.History && e !is EngineEvent.Discovery) poke()
+        if (isNews(e)) poke()
         when (e) {
             is EngineEvent.Discovery -> discovery = e.state
             is EngineEvent.DeviceChanged -> {

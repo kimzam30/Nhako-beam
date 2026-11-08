@@ -245,6 +245,17 @@ class FakeEngine : Engine {
 
     // ---------- For tests and previews ----------
 
+    /** A stranger on the network shows up. */
+    fun simNewDevice(): String {
+        val d = Device("d-new-${++seq}", "Guest phone", DeviceKind.Phone, OsPlatform.Android, reachable = true, route = Route.Nearby, nearby = true, fingerprint = "1A2B 3C4D")
+        devices = devices + d
+        emit(EngineEvent.DeviceChanged(d))
+        return d.id
+    }
+
+    /** The engine's routine check: a device's route changes, nothing you'd notice. */
+    fun simRouteChange(id: String) = update(id) { it.copy(route = if (it.route == Route.Nearby) Route.Direct else Route.Nearby) }
+
     fun file(name: String, size: Long, mime: String) = FileItem("f${++seq}", name, size, mime)
 
     fun photos() = listOf(
