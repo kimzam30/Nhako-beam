@@ -79,6 +79,10 @@ pub struct FileItem {
     /// Missing for files sent on their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// A small preview (a `data:image/jpeg;base64,` URL), on an incoming request's photos and
+    /// videos when the sender added one, and on files staged to send when the app made one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -653,6 +657,7 @@ mod tests {
             size: 1,
             mime: "image/jpeg".into(),
             folder: Some("Photos/2024".into()),
+            thumb: None,
         };
         assert_eq!(
             serde_json::to_string(&f).unwrap(),

@@ -564,12 +564,14 @@ fn outgoing(files: &[PathBuf]) -> Result<Vec<Outgoing>> {
                 name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
                 path,
                 folder: Some(folder),
+                thumb: None,
             }));
         } else {
             out.push(Outgoing {
                 name: f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
                 path: f.clone(),
                 folder: None,
+                thumb: None,
             });
         }
     }

@@ -111,8 +111,10 @@ struct Record { kind: u16, body: Vec<u8> }   // body is the record's own postcar
 | 1 | `Folders { dirs: Vec<String>, of: Vec<u32> }` | `Offer` | The folder each file goes in: `of[i]` is 0 for none, otherwise `dirs[of[i] - 1]`, with `/` between folder names, starting with the sent folder's own name (`Trip`, `Trip/day 2`). Each folder is listed once, so an offer of thousands of files stays far under a frame. |
 | 2 | `String` | `Offer` | This is text (a note, a link, a clipboard), not a file. The offer still lists exactly one file, the same text as UTF-8, named `Text.txt` or `Link.txt`. |
 | 3 | `[u8; 32]` | `Ping` | A trust ask (below): the commitment to the asker's random number. |
+| 4 | `Vec<Thumb { file: u32, w: u16, h: u16, jpeg: Vec<u8> }>` | `Offer` | Previews of up to 4 of the offered photos or videos (added in 1.1): file `file`'s picture as a JPEG of at most 160 px on its long side and 32 KiB. The receiver drops any that's bigger, has no size, or doesn't start with `FF D8 FF` and end with `FF D9`, and never decodes them itself: it hands them to the app as `data:image/jpeg;base64,` URLs on the request's files, and the app's platform decoder draws them. They go on the request only, never on the transfer or History. Not sent with text. |
 
 - A Phase 8 to 13 build reads the hello, then the wake token, and ignores the rest: it saves a sent folder's files straight in its save folder, and text as a `.txt` file. Nothing breaks.
+- A 1.0 build skips previews (kind 4) like any kind it doesn't know, and shows the files' icons.
 - A newer build reading an older hello finds no records. A record of a kind it doesn't know is skipped on its own; the others still count. So more kinds can be added later without a version bump.
 - An empty extension is still left out entirely.
 

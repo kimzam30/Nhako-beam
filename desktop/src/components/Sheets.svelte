@@ -3,6 +3,7 @@
   import { arrangeRoom, roomMax, roomOrder } from '../lib/stage/room';
   import { app } from '../lib/state/app.svelte';
   import { canTrust, sendGroups } from '../lib/state/sendList';
+  import { MAX_DEVICES } from '../lib/state/groups';
   import { message } from '../lib/engine/tauri';
   import type { LinkVisitor, RedeemResult } from '../lib/engine/types';
   import { TEXT_MAX } from '../lib/engine/types';
@@ -20,6 +21,7 @@
   import DeviceOrb from './DeviceOrb.svelte';
   import Mascot3D from './Mascot3D.svelte';
   import FileStack from './FileStack.svelte';
+  import Previews from './Previews.svelte';
   import Icon from './Icon.svelte';
   import QrCode from './QrCode.svelte';
   import QrScanner from './QrScanner.svelte';
@@ -106,6 +108,20 @@
   }
 
   // ---------- Trust ----------
+  // Send to several: tick devices, then one button sends to all. With none ticked a tap sends.
+  let picked = $state<string[]>([]);
+  $effect(() => {
+    if (app.sheet?.kind !== 'send') picked = [];
+  });
+  function pick(id: string) {
+    if (picked.includes(id)) picked = picked.filter((x) => x !== id);
+    else if (picked.length < MAX_DEVICES) picked = [...picked, id];
+    else app.toast(t('send.many.max', { count: MAX_DEVICES }));
+  }
+  const pickLabel = $derived(
+    picked.length === 0 ? t('send.many.none') : picked.length === 1 ? t('send.many.one', { device: app.deviceName(picked[0]!) }) : t('send.many.go', { count: picked.length }),
+  );
+
   // A reinstalled device asking to be trusted: replace its old entry (the default) or keep both.
   let replaceOld = $state(true);
   $effect(() => {
@@ -319,14 +335,17 @@
         <FileStack files={app.staged} size={40} />
         <span>{app.stagedSummary} · {formatBytes(app.staged.reduce((n, f) => n + f.size, 0))}</span>
       </div>
+      <!-- The same previews the other device will see. -->
+      <Previews files={app.staged} size={52} list={false} />
     {/if}
     {#each [{ label: t('send.choose.trusted'), list: trusted }, { label: t('send.choose.nearby'), list: nearby }] as group}
       {#if group.list.length}
         <h3 class="group">{group.label}</h3>
         <ul class="list">
           {#each group.list as d, i (d.id)}
-            <li class="send-li" in:springIn={{ delay: stagger(i), y: 8 }}>
-              <button class="row" disabled={!d.reachable && !d.wakeable} onclick={() => app.sendTo(d.id)} data-testid="send-row-{d.id}">
+            {@const on = picked.includes(d.id)}
+            <li class="send-li" class:picked={on} in:springIn={{ delay: stagger(i), y: 8 }}>
+              <button class="row" disabled={!d.reachable && !d.wakeable} onclick={() => (picked.length ? pick(d.id) : app.sendTo(d.id))} data-testid="send-row-{d.id}">
                 <DeviceOrb device={d} size={40} showName={false} />
                 <span class="name">{d.name}</span>
                 {#if d.route}<ConnectionBadge route={d.route} />{:else}<span class="muted small">{t(d.wakeable ? 'home.orb.asleep' : 'home.orb.offline')}</span>{/if}
@@ -334,11 +353,15 @@
               {#if canTrust(d)}
                 <Button variant="ghost" size="sm" icon="handshake" testid="send-trust-{d.id}" onclick={() => app.askTrust(d.id)}>{t('send.choose.trust')}</Button>
               {/if}
+              <button class="pick" class:on aria-pressed={on} disabled={!d.reachable && !d.wakeable} aria-label={t(on ? 'send.many.unpick' : 'send.many.pick', { device: d.name })} data-testid="send-pick-{d.id}" onclick={() => pick(d.id)}>
+                <span>{#if on}<Icon name="check" size={13} weight="bold" />{/if}</span>
+              </button>
             </li>
           {/each}
         </ul>
       {/if}
     {/each}
+    <Button full disabled={!picked.length} testid="send-many" onclick={() => app.sendToMany(picked)}>{pickLabel}</Button>
     <Button variant="ghost" icon="qr-code" full testid="use-code" onclick={() => (app.sheet = { kind: 'showCode' })}>{t('send.choose.useCode')}</Button>
     <button class="row link-row" disabled={!app.onLan} onclick={() => app.shareLink()} data-testid="share-link">
       <span class="row-icon"><Icon name="link-simple" size={22} /></span>
@@ -694,6 +717,49 @@
   .send-li .row {
     flex: 1;
     min-width: 0;
+  }
+  .send-li {
+    border-radius: var(--radius-md);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+  .send-li.picked {
+    background: var(--color-accent-subtle);
+  }
+  .pick {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-full);
+  }
+  .pick:disabled {
+    opacity: 0.4;
+  }
+  .pick span {
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-full);
+    display: grid;
+    place-items: center;
+    box-shadow: inset 0 0 0 2px var(--color-text-tertiary);
+    color: var(--color-on-accent);
+    transition:
+      background-color var(--duration-fast),
+      box-shadow var(--duration-fast),
+      transform var(--spring-bouncy-duration) var(--spring-bouncy);
+  }
+  .pick.on span {
+    background: var(--color-accent);
+    box-shadow: none;
+    transform: scale(1.08);
+  }
+  .pick:active span {
+    transform: scale(0.86);
+  }
+  .pick:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
   }
   .compose {
     position: relative;

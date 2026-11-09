@@ -85,6 +85,8 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
 
     /** FileItem id -> the URI it came from. */
     private val sources = ConcurrentHashMap<String, Uri>()
+    /** Previews of staged photos and videos, by file id, sent with the request. */
+    private val thumbs = ConcurrentHashMap<String, io.github.kimzam30.nhakobeam.core.SendThumb>()
     /** Transfer id -> handles kept open while it runs. */
     private val openFiles = ConcurrentHashMap<String, List<ParcelFileDescriptor>>()
     /** Copies of shared files that came as a stream, not a file (see [send]); deleted when done. */
@@ -141,10 +143,20 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
 
     override suspend fun stage(uris: List<String>): Staged = withContext(Dispatchers.IO) {
         var skipped = 0
+        var previews = 0
         val files = uris.mapNotNull { raw ->
             val uri = Uri.parse(raw)
             val item = runCatching { describe(uri) }.getOrNull()
             if (item == null) skipped++ else sources[item.id] = uri
+            // A preview of the first few photos and videos, for Send to and the other device.
+            if (item != null && previews < Thumbs.MAX) {
+                Thumbs.make(context.contentResolver, uri, item.mime)?.let { t ->
+                    previews++
+                    if (thumbs.size > 64) thumbs.clear()
+                    thumbs[item.id] = t
+                    return@mapNotNull item.copy(thumb = Thumbs.dataUrl(t))
+                }
+            }
             item
         }
         Staged(files, skipped)
@@ -236,19 +248,19 @@ class RealEngine(private val context: Context, private val scope: CoroutineScope
 
     /** The engine's view of [files], opening each one (into [handles]) or copying it (into [copyDir]). */
     private fun toSend(files: List<FileItem>, handles: MutableList<ParcelFileDescriptor>, copyDir: File): List<SendFile> = files.map { item ->
-        folderSources[item.id]?.let { (uri, folder) -> return@map SendFile(path = uri.toString(), name = item.name, folder = folder) }
+        folderSources[item.id]?.let { (uri, folder) -> return@map SendFile(path = uri.toString(), name = item.name, folder = folder, thumb = null) }
         val uri = sources[item.id] ?: throw EngineException("${item.name} can't be found any more. Add it again.")
         val pfd = context.contentResolver.openFileDescriptor(uri, "r")
             ?: throw EngineException("Couldn't open ${item.name}.")
         if (pfd.statSize >= 0) {
             handles += pfd
-            SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name, folder = null)
+            SendFile(path = "/proc/self/fd/${pfd.fd}", name = item.name, folder = null, thumb = thumbs[item.id])
         } else {
             pfd.close()
             val copy = File(copyDir, "${handles.size}-${item.name.replace('/', '_')}").also { it.parentFile?.mkdirs() }
             context.contentResolver.openInputStream(uri)?.use { input -> copy.outputStream().use { input.copyTo(it) } }
                 ?: throw EngineException("Couldn't open ${item.name}.")
-            SendFile(path = copy.path, name = item.name, folder = null)
+            SendFile(path = copy.path, name = item.name, folder = null, thumb = thumbs[item.id])
         }
     }
 

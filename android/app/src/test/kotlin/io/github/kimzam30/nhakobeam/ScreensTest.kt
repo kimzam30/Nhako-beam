@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performScrollTo
 import io.github.kimzam30.nhakobeam.ui.Copy.t
+import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.kimzam30.nhakobeam.engine.FakeEngine
 import io.github.kimzam30.nhakobeam.model.Connection
@@ -109,12 +110,45 @@ class ScreensTest {
         shot("03-home-dark")
     }
 
+    @Test fun sendToSeveralDevices() {
+        show { stage(fake.photos()) }
+        compose.runOnIdle { app.sheet = Sheet.Send }
+        compose.mainClock.advanceTimeBy(1200)
+        compose.onNodeWithContentDescription(t("send.many.pick", "device" to "Aisyah's laptop")).performClick()
+        compose.onNodeWithContentDescription(t("send.many.pick", "device" to "Work phone")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText(t("send.many.go", "count" to 2)).assertExists()
+        shot("05b-send-picked")
+        compose.onNodeWithText(t("send.many.go", "count" to 2)).performClick()
+        compose.mainClock.advanceTimeBy(2500)
+        compose.onNodeWithText(t("group.hint")).assertExists()
+        shot("05c-group-card")
+    }
+
     @Test fun stagedAndSendSheet() {
         show { stage(fake.photos()) }
         shot("04-home-staged")
         compose.runOnIdle { app.sheet = Sheet.Send }
         compose.mainClock.advanceTimeBy(1200)
         shot("05-send-sheet")
+    }
+
+    @Test fun incomingWithPreviews() {
+        show { fake.simIncoming("d-aisyah", fake.withThumbs(fake.mixed())) }
+        compose.mainClock.advanceTimeBy(1200)
+        compose.onNodeWithText(t("preview.show", "count" to 4)).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        shot("06b-incoming-previews")
+    }
+
+    @Test fun aStrangersPreviewsAreBlurred() {
+        show { fake.simIncoming("d-studio", fake.withThumbs(fake.photos())) }
+        compose.mainClock.advanceTimeBy(1200)
+        compose.onNodeWithText(t("preview.blurred")).assertExists()
+        shot("06c-incoming-stranger")
+        compose.onNodeWithText(t("preview.blurred")).performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText(t("preview.blurred")).assertDoesNotExist()
     }
 
     @Test fun incomingRequest() {

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icon set</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-6) 0 0; }
+  .seg { font: inherit; font-size: var(--type-footnote-size); font-weight: 600; min-height: 36px; padding: 0 14px; border-radius: var(--radius-full);
+    border: 1px solid var(--color-separator); background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; }
+  .seg[aria-pressed="true"] { background: var(--color-text-primary); color: var(--color-canvas); border-color: transparent; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+  .tile { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-2) var(--space-4);
+    background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--elevation-1); color: var(--color-text-primary); }
+  .tile .pair { display: flex; align-items: center; gap: 14px; height: 32px; }
+  .tile .ph { color: var(--color-text-tertiary); display: none; }
+  [data-compare="on"] .tile .ph { display: block; }
+  .tile .ph svg { width: var(--s); height: var(--s); display: block; }
+  .tile code { font: 500 11px/14px var(--font-mono); color: var(--color-text-secondary); text-align: center; overflow-wrap: anywhere; }
+  .tile.unused code::after { content: " · desktop dev only"; color: var(--color-text-tertiary); }
+
+  .px3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+  .px3 figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .px3 .cell { position: relative; width: 72px; height: 72px; color: var(--color-text-primary); background: var(--color-surface-raised); border-radius: 8px; }
+  .px3 .cell::after { content: ""; position: absolute; inset: 6px; border: 1px dashed var(--color-danger); border-radius: 2px; opacity: 0; pointer-events: none; }
+  [data-spec="on"] .px3 .cell::after { opacity: .7; }
+  .px3 .cell svg { position: absolute; inset: 0; }
+
+  /* In context: Android home bottom bar, then actives */
+  .bar-mock { display: grid; gap: 12px; max-width: 420px; padding: var(--space-5); background: var(--color-canvas); border-radius: var(--radius-lg); box-shadow: inset 0 0 0 1px var(--color-separator); }
+  .bar-mock .top { display: flex; gap: 10px; }
+  .big-btn { flex: 1; height: 56px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 650; font-size: 18px; }
+  .big-btn.primary { background: var(--color-accent); color: var(--color-on-accent); }
+  .big-btn.quiet { background: var(--color-fill); color: var(--color-text-primary); height: 52px; font-size: 16px; }
+  .rnd { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--color-surface-raised); box-shadow: var(--elevation-2); color: var(--color-text-primary); flex: none; }
+  .actives { display: flex; flex-wrap: wrap; gap: var(--space-6); align-items: flex-start; }
+  .segmented { display: inline-flex; padding: 4px; gap: 4px; border-radius: var(--radius-full); background: var(--color-fill); }
+  .segmented span { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: var(--radius-full); font-weight: 600; font-size: var(--type-footnote-size); color: var(--color-text-secondary); }
+  .segmented span.on { background: var(--color-surface-raised); color: var(--color-text-primary); box-shadow: var(--elevation-1); }
+  .devpick { display: grid; gap: 6px; width: 280px; }
+  .devpick div { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 10px; border-radius: var(--radius-md); font-weight: 600; }
+  .devpick .ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--color-fill); color: var(--color-text-primary); }
+  .devpick .on { background: var(--color-surface-raised); box-shadow: var(--elevation-1); }
+  .devpick .on .ic { background: var(--color-accent-subtle); color: var(--color-accent); }
+  [data-theme="dark"] .devpick .on .ic { color: var(--color-accent-text); }
+  .swatch { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .swatch i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px var(--color-separator); }
+  .ok { color: var(--color-success); font-weight: 600; }
+  .warn { color: var(--color-warning); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The full icon set, style B</h1>
+  <p class="lede muted">All 70 icons both apps use, under the app's own names so they drop in one for one. They're grouped by job and drawn on the 24 grid with the rules from the icon-style page. Switch the size to see the 1 px navy offset come and go: it shows at 20 and 24 px and is left off at 16 px.</p>
+
+  <div class="controls" role="group" aria-label="Icon size">
+    <button class="seg" data-size="24" aria-pressed="true">24 px</button>
+    <button class="seg" data-size="20">20 px</button>
+    <button class="seg" data-size="16">16 px</button>
+    <button class="seg" id="compare" aria-pressed="false">Compare with today</button>
+  </div>
+  <div id="groups"></div>
+
+  <h2>At 3x, the Flip's real pixels</h2>
+  <p class="muted lede">Each icon drawn at 72 × 72 pixels, which is 24 dp on the Flip5 (480 dpi). Turn on Spec overlay for the 20 dp live area.</p>
+  <div class="px3" id="px3"></div>
+
+  <h2>On blue, and the active state</h2>
+  <p class="muted lede">In light theme the accent blue is the same hex as the brand navy (#1A6FE0), so a navy offset vanishes on any blue surface or blue icon. On those, the offset uses the deeper navy #0B3E85, as you decided. Active icons turn accent on the soft accent circle.</p>
+  <div class="actives">
+    <div class="bar-mock" id="barMock"></div>
+    <div style="display:grid;gap:var(--space-5)">
+      <div class="segmented" id="segmented"></div>
+      <div class="devpick" id="devpick"></div>
+    </div>
+  </div>
+  <table class="spec" id="offsetSpec"></table>
+
+  <h2>Not drawn</h2>
+  <p class="muted lede"><span class="mono">android/tools/shared-assets.mjs</span> also lists camera, camera-slash, flashlight and arrow-left, but no screen uses them, so I left them out. Tell me if they're for something coming.</p>
+
+  <div class="ask"><strong>Your call:</strong> anything to redraw? Name the icon and what reads wrong. When the set is right, the next phase is wiring it into both apps once Phase 5 lands.</div>
+</main>
+
+<script type="module">
+  import { mountBar } from './shared/draft.js';
+  import { SET, NAMES, iconB, OFFSET } from './shared/icons-b.js';
+  import { contrast } from './shared/assets.js';
+  mountBar();
+
+  const UNUSED_IN_APP = ['flask', 'wave-sine']; // DevPanel only
+  const base = '../../desktop/node_modules/@phosphor-icons/core/assets/duotone/';
+  const ph = Object.fromEntries(await Promise.all(NAMES.map(async (n) => {
+    try { const r = await fetch(`${base}${n}-duotone.svg`); return [n, r.ok ? await r.text() : '']; } catch { return [n, '']; }
+  })));
+
+  let size = 24;
+  const groups = [...new Set(NAMES.map((n) => SET[n].group))];
+  function render() {
+    document.getElementById('groups').innerHTML = groups.map((g) => {
+      const names = NAMES.filter((n) => SET[n].group === g);
+      return `<h2>${g} <span class="caption">${names.length}</span></h2><div class="grid">${names.map((n) => `
+        <div class="tile${UNUSED_IN_APP.includes(n) ? ' unused' : ''}"><div class="pair">${iconB(n, size, { label: n })}<span class="ph" style="--s:${size}px">${ph[n]}</span></div><code>${n}</code></div>`).join('')}</div>`;
+    }).join('');
+  }
+  render();
+  document.querySelectorAll('.seg[data-size]').forEach((b) => b.addEventListener('click', () => {
+    size = +b.dataset.size;
+    document.querySelectorAll('.seg[data-size]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    render();
+  }));
+  const cmp = document.getElementById('compare');
+  cmp.addEventListener('click', () => {
+    const on = cmp.getAttribute('aria-pressed') !== 'true';
+    cmp.setAttribute('aria-pressed', String(on));
+    document.documentElement.dataset.compare = on ? 'on' : 'off';
+  });
+
+  document.getElementById('px3').innerHTML = NAMES.map((n) =>
+    `<figure><div class="cell">${iconB(n, 24).replace('width="24" height="24"', 'width="72" height="72"').replace(/translate\(1 1\)/, 'translate(.3333 .3333)')}</div><figcaption class="caption">${n}</figcaption></figure>`).join('');
+
+  // Android home bottom bar with the new icons (deep offset on the blue button)
+  document.getElementById('barMock').innerHTML = `
+    <div class="top"><span class="big-btn primary" data-hit>${iconB('paper-plane-tilt', 24, { deep: true })}Send files</span>
+      <span class="rnd" data-hit>${iconB('folder-simple', 24)}</span><span class="rnd" data-hit>${iconB('text-aa', 24)}</span><span class="rnd" data-hit>${iconB('clipboard-text', 24)}</span></div>
+    <div class="top"><span class="big-btn quiet" data-hit>${iconB('qr-code', 20)}Your code</span><span class="big-btn quiet" data-hit>${iconB('download-simple', 20)}Scan code</span></div>`;
+  document.getElementById('segmented').innerHTML =
+    `<span>${iconB('sun', 20)}Light</span><span>${iconB('moon', 20)}Dark</span><span class="on">${iconB('circle-half', 20, { deep: true })}System</span>`;
+  document.getElementById('devpick').innerHTML = [['laptop', "Aisyah's laptop", true], ['device-mobile', 'Work phone', false], ['desktop-tower', 'Studio PC', false]]
+    .map(([n, label, on]) => `<div class="${on ? 'on' : ''}" data-hit><span class="ic">${iconB(n, 24, { deep: on })}</span>${label}</div>`).join('');
+
+  // Offset visibility: offset against the icon and the surface it sits on (decorative, so measured, not required)
+  const sw = (c) => `<span class="swatch"><i style="background:${c}"></i>${c}</span>`;
+  const row = (where, icon, surface, off) => {
+    const a = contrast(off, icon), b = contrast(off, surface);
+    const seen = Math.min(a, b);
+    return `<tr><td>${where}</td><td>${sw(icon)}</td><td>${sw(surface)}</td><td>${sw(off)}</td><td class="tabular">${a.toFixed(2)} / ${b.toFixed(2)}</td><td class="${seen >= 1.5 ? 'ok' : 'warn'}">${seen >= 1.5 ? 'visible' : 'faint'}</td></tr>`;
+  };
+  document.getElementById('offsetSpec').innerHTML = `
+    <tr><th>Where</th><th>Icon</th><th>Surface</th><th>Offset</th><th>vs icon / surface</th><th></th></tr>
+    ${row('Send files button, navy offset', '#FFFFFF', '#1A6FE0', OFFSET.navy)}
+    ${row('Send files button, deep navy', '#FFFFFF', '#1A6FE0', OFFSET.deep)}
+    ${row('Active, light, navy offset', '#1A6FE0', '#E6F1FF', OFFSET.navy)}
+    ${row('Active, light, deep navy', '#1A6FE0', '#E6F1FF', OFFSET.deep)}
+    ${row('Active, dark, deep navy', '#7DB8FF', '#12263F', OFFSET.deep)}
+    ${row('Active, dark, navy offset', '#7DB8FF', '#12263F', OFFSET.navy)}
+    ${row('Plain, light card', '#121418', '#FFFFFF', OFFSET.navy)}
+    ${row('Plain, dark card', '#F1F2F4', '#1E2126', OFFSET.navy)}`;
+</script>
+</body>
+</html>

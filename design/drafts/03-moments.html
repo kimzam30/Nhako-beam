@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion moments</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .moment { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: var(--space-8); align-items: start; margin-top: var(--space-6); }
+  .moment > * { min-width: 0; }
+  @media (max-width: 760px) { .moment { grid-template-columns: 1fr; } }
+  .stagebox { position: relative; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); overflow: hidden; }
+  .stagebox canvas { display: block; width: 100%; aspect-ratio: 1; }
+  .stagebox .now { position: absolute; left: var(--space-5); bottom: var(--space-4); font-size: var(--type-footnote-size); font-weight: 600; color: var(--color-text-secondary); }
+  .fallback { padding: var(--space-6); color: var(--color-text-secondary); font-size: var(--type-footnote-size); }
+  .moods { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+  .mood { font: inherit; font-size: var(--type-footnote-size); font-weight: 600; min-height: 36px; padding: 0 14px; border-radius: var(--radius-full);
+    border: 1px solid var(--color-separator); background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; }
+  .mood[aria-pressed="true"] { background: var(--color-accent); border-color: transparent; color: var(--color-on-accent); }
+  .mood .new { margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--color-accent-text); }
+  .mood[aria-pressed="true"] .new { color: var(--color-on-accent); }
+
+  /* Timeline strips: one block per step, widths are true to the milliseconds */
+  .timeline { display: flex; height: 40px; border-radius: var(--radius-sm); overflow: hidden; margin: var(--space-3) 0 var(--space-2); font-size: 11px; line-height: 13px; }
+  .timeline > div { display: flex; flex-direction: column; justify-content: center; padding: 0 8px; color: var(--color-text-primary); border-right: 2px solid var(--color-canvas); min-width: 0; }
+  .timeline b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .timeline span { color: var(--color-text-primary); white-space: nowrap; }
+
+  /* Splash in a Flip5 frame, 360 x 880 dp at 0.6 */
+  .flip { position: relative; width: 216px; height: 528px; border-radius: 26px; overflow: hidden; background: var(--color-canvas);
+    box-shadow: 0 0 0 5px var(--color-text-primary), var(--elevation-3); }
+  .flip .blue { position: absolute; inset: 0; background: var(--brand-blue); }
+  .flip .blue.out { opacity: 0; transition: opacity 240ms var(--ease-exit); }
+  .flip canvas { position: absolute; left: 50%; top: 50%; width: 173px; height: 173px; transform: translate(-50%, -50%); }
+  .flip .home { position: absolute; inset: 0; padding: 30px 16px; font-weight: 700; font-size: 16px; }
+
+  /* Transfer card like TransferCard, with the Beam */
+  .tcard { background: var(--color-surface-raised); border-radius: var(--radius-lg); box-shadow: var(--elevation-2); padding: var(--space-5); max-width: 420px; }
+  .tcard header { display: flex; gap: var(--space-4); align-items: center; }
+  .tcard .badge { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent-text); flex: none; }
+  .tcard h3 { margin: 0; }
+  .beam { position: relative; height: 6px; margin: var(--space-6) 0 var(--space-3); border-radius: 3px; background: var(--color-beam-track); }
+  .beam .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--color-beam-core);
+    box-shadow: 0 0 10px var(--color-beam-glow); transition: width 430ms var(--spring-smooth), background-color var(--duration-base) var(--ease-standard); }
+  .beam .shine { position: absolute; top: 0; bottom: 0; width: 18px; border-radius: 3px; background: rgb(255 255 255 / .45); animation: shine var(--shine, 1800ms) linear infinite; }
+  @keyframes shine { from { left: -18px; } to { left: 100%; } }
+  .beam .rider { position: absolute; top: 50%; width: 16px; height: 16px; transform: translate(-50%, -54%); transition: left 430ms var(--spring-smooth); }
+  .beam[data-mode="paused"] .fill { background: var(--color-text-tertiary); box-shadow: none; }
+  .beam[data-mode="reconnecting"] .fill { background: var(--color-warning); box-shadow: none; animation: breathe 1600ms ease-in-out infinite; }
+  .beam[data-mode="done"] .fill { background: var(--color-success); box-shadow: none; }
+  .beam[data-mode="failed"] .fill { background: var(--color-danger); box-shadow: none; }
+  .beam:not([data-mode="moving"]) .shine { display: none; }
+  .beam[data-mode="failed"] { animation: shake 330ms var(--ease-standard); }
+  @keyframes breathe { 50% { opacity: .45; } }
+  @keyframes shake { 20% { transform: translateX(-8px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }
+  .stats { display: flex; gap: var(--space-4); align-items: baseline; font-variant-numeric: tabular-nums; }
+  .stats .pct { font-size: var(--type-headline-size); font-weight: 650; }
+  .modes { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-5); }
+
+  /* Charge loader: a bolt that fills from the bottom, replacing the 270° arc spinner */
+  .charge { display: inline-block; width: var(--s, 18px); height: var(--s, 18px); }
+  .charge .level { animation: charge 900ms steps(9, end) infinite; transform-origin: 0 100%; transform-box: fill-box; }
+  @keyframes charge { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .arc { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 900ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 22px; border-radius: var(--radius-full);
+    background: var(--color-accent); color: var(--color-on-accent); font-weight: 600; min-width: 200px; }
+  .btn.secondary { background: var(--color-fill); color: var(--color-text-primary); }
+
+  /* Android 16 Live Update notification mock (ProgressStyle) */
+  .shade { width: 360px; max-width: 100%; min-width: 0; padding: 12px; border-radius: 28px; background: #1B1C20; color: #E4E5EA; font-size: 14px; }
+  .notif { background: #2A2B30; border-radius: 22px; padding: 14px 16px 16px; }
+  .notif .top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #B9BBC4; }
+  .notif .top svg { width: 16px; height: 16px; }
+  .notif .title { font-weight: 600; font-size: 15px; margin: 8px 0 2px; color: #F1F2F4; }
+  .notif .sub { color: #B9BBC4; font-size: 13px; }
+  .np { position: relative; display: flex; gap: 3px; height: 6px; margin: 16px 0 12px; }
+  .np .seg { position: relative; height: 6px; border-radius: 3px; background: #4DA0FF33; overflow: hidden; }
+  .np .seg i { position: absolute; inset: 0 auto 0 0; background: #4DA0FF; border-radius: 3px; }
+  .np .tracker { position: absolute; top: 50%; width: 24px; height: 24px; transform: translate(-50%, -50%); }
+  .notif .actions { display: flex; gap: 8px; }
+  .notif .actions span { padding: 8px 14px; border-radius: 999px; background: #3A3C43; font-size: 13px; font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px 0 6px; border-radius: 999px; background: #1A6FE0; color: #fff; font: 600 12px/1 var(--font-sans); }
+  .chip svg { width: 14px; height: 14px; }
+
+  .endings { display: grid; gap: var(--space-3); max-width: 520px; margin-top: var(--space-5); }
+  .ending { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); background: var(--color-surface-raised); border-radius: var(--radius-md); box-shadow: var(--elevation-1); }
+  .ending .dot { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .ending .act { margin-left: auto; font-weight: 600; font-size: var(--type-footnote-size); color: var(--color-accent-text); }
+
+  [data-reduced="on"] .beam .shine, [data-reduced="on"] .beam[data-mode] .fill, [data-reduced="on"] .beam[data-mode="failed"] { animation: none; }
+  [data-reduced="on"] .charge .level { animation: none; transform: scaleY(.6); }
+  [data-reduced="on"] .arc { animation: none; }
+  [data-reduced="on"] .beam .fill, [data-reduced="on"] .beam .rider { transition: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Motion moments</h1>
+  <p class="lede muted">Each moment runs live with the real 3D bolt from the app. Moods marked <b>new</b> are my proposals, added in this page only. The timings come from the tokens: UI motion stays at or under 400 ms, and only the bolt is allowed to take longer. Switch Reduced motion in the bar to see the still version of everything.</p>
+
+  <h2>Splash and app start</h2>
+  <div class="moment">
+    <div>
+      <div class="flip" id="flip"><div class="home">Ready to beam</div><div class="blue" id="blue"></div><canvas id="introCanvas"></canvas></div>
+      <p style="margin-top:var(--space-5)"><button class="replay" id="replayIntro">Replay start</button></p>
+    </div>
+    <div>
+      <p class="muted">Today the system splash shows the bolt on blue, then SplashIntro drops the 3D bolt into the same spot and fades the blue away. I keep that and tighten the hand-over. The bolt lands where the splash bolt was, measured in the brand-blue page (inside the 192 dp circle).</p>
+      <div class="timeline" aria-label="Start timeline, 1140 ms">
+        <div style="flex:420;background:var(--color-accent-subtle)"><b>Drop</b><span>0–420 ms, gravity</span></div>
+        <div style="flex:480;background:color-mix(in srgb,var(--brand-yellow) 30%,var(--color-surface))"><b>Land, squash, blink</b><span>420–900 · sound "intro" at 420</span></div>
+        <div style="flex:240;background:var(--color-fill)"><b>Fade blue</b><span>900–1140, exit ease</span></div>
+      </div>
+      <table class="spec">
+        <tr><th>Total</th><td class="tabular">1140 ms, cold start only (ACTION_MAIN). Warm starts skip it.</td></tr>
+        <tr><th>Reduced motion</th><td>No drop. The bolt is already standing, and the blue fades in 200 ms.</td></tr>
+        <tr><th>No WebGL</th><td>The flat Bolt.svelte strike stands in after 450 ms, same timeline.</td></tr>
+        <tr><th>Change from today</th><td>Splash and 3D bolt move to #2F8FFF together, so the blue no longer shifts at hand-over.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h2>Searching and waiting</h2>
+  <div class="moment">
+    <div class="stagebox"><canvas id="waitCanvas"></canvas><span class="now" id="waitNow"></span></div>
+    <div>
+      <div class="moods" id="waitMoods"></div>
+      <p class="muted" id="waitSpec"></p>
+      <h3 style="margin-top:var(--space-6)">Loading inside buttons</h3>
+      <p class="muted small">The 270° arc spinner is replaced by a bolt that charges from the bottom in 9 steps over 900 ms. Steps instead of a smooth fill make it read as charging, and they are cheap to draw.</p>
+      <div class="row" style="align-items:center">
+        <span class="btn"><span class="charge" id="charge1"></span>Connecting</span>
+        <span class="btn secondary"><span class="arc"></span>Today</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Transfer progress</h2>
+  <div class="moment">
+    <div class="stagebox"><canvas id="sendCanvas"></canvas><span class="now" id="sendNow">Sending</span></div>
+    <div>
+      <div class="tcard">
+        <header><span class="badge" id="tIcon"></span><div><h3 id="tTitle">Sending to Aisyah's laptop</h3><div class="muted small">3 photos and 1 video · 832 MB</div></div></header>
+        <div class="beam" id="beam" data-mode="moving"><div class="fill" id="fill"></div><div class="shine" id="shine"></div><div class="rider" id="rider"></div></div>
+        <div class="stats"><span class="pct" id="pct">0%</span><span class="muted small" id="speed">39.7 MB/s</span><span class="muted small" id="eta">About 20 sec left</span></div>
+      </div>
+      <div class="modes" id="beamModes"></div>
+      <table class="spec">
+        <tr><th>Track</th><td class="tabular">6 dp Android, 8 px desktop, radius 3. Fill follows progress on the smooth spring (430 ms).</td></tr>
+        <tr><th>Rider</th><td class="tabular">The flat bolt, 16 px, centred on the fill's edge, 1 px navy offset. At 100% it morphs into the check (360 ms).</td></tr>
+        <tr><th>Shine</th><td class="tabular">An 18 px light block runs along the fill. Every 2600 ms when slow, down to 900 ms at full speed. No gradient.</td></tr>
+        <tr><th>States</th><td>Paused grey, reconnecting breathes amber 1600 ms, failed red plus a 330 ms shake, done green.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3 style="margin-top:var(--space-8)">Android notification (Live Update, Android 16)</h3>
+  <p class="muted lede small">Both test devices run Android 16 or later (Flip: API 37, Tab: API 36), so the notification can use ProgressStyle. Each file is a segment sized by its bytes, and our bolt is the tracker icon riding the bar. The status bar shows a chip with the percent while it runs. On older Android it falls back to today's plain bar.</p>
+  <div class="row" style="align-items:flex-start">
+    <div class="shade">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px 12px"><span class="tabular" style="font-weight:600">12:45</span><span class="chip" id="chip"></span></div>
+      <div class="notif">
+        <div class="top"><span id="nIcon"></span>Nhako Beam · now</div>
+        <div class="title" id="nTitle">Sending to Aisyah's laptop</div>
+        <div class="sub tabular" id="nSub">0% · 39.7 MB/s</div>
+        <div class="np" id="np"></div>
+        <div class="actions"><span>Pause</span><span>Cancel</span></div>
+      </div>
+    </div>
+    <table class="spec" style="max-width:420px">
+      <tr><th>Segments</th><td class="tabular">3 photos (4.1, 5.2, 6.6 MB) and 1 video (816 MB), widths true to bytes. Tiny files get a 6 dp minimum so they stay visible.</td></tr>
+      <tr><th>Tracker</th><td class="tabular">Our bolt, 24 dp, white with the navy offset for contrast on the blue fill.</td></tr>
+      <tr><th>Updates</th><td class="tabular">At most once a second, or on each 1% step, whichever is slower (the system rate-limits faster updates).</td></tr>
+    </table>
+  </div>
+
+  <h2>Finish and fail</h2>
+  <div class="moment">
+    <div class="stagebox"><canvas id="endCanvas"></canvas><span class="now" id="endNow"></span></div>
+    <div>
+      <div class="moods" id="endMoods"></div>
+      <p class="muted" id="endSpec"></p>
+      <div class="endings" id="endings"></div>
+    </div>
+  </div>
+
+  <div class="ask"><strong>Your call:</strong> are the new moods right (searching, waiting, waking, trust, cancelled, not allowed)? And do you want the charging bolt in place of the spinner, and the Live Update notification?</div>
+</main>
+
+<script type="module">
+  import { mountBar, isReduced } from './shared/draft.js';
+  import { icon } from './shared/icons.js';
+  import { stage, NEW_MOODS } from './shared/mascot.js';
+  mountBar();
+
+  // Flat bolt from bolt.ts (1024 box), yellow with the navy offset.
+  const BOLT = [[676.16, 161.6], [829.76, 244.16], [608.96, 464.96], [743.36, 503.36], [194.24, 862.4], [436.16, 574.4], [301.76, 536]]
+    .map(([x, y]) => `${x},${y}`).join(' ');
+  const flatBolt = (px, fillC = '#FFD23F', off = '#1A6FE0') => {
+    const o = 1024 / px; // 1 device px
+    return `<svg viewBox="0 0 1024 1024" width="${px}" height="${px}" aria-hidden="true" style="display:block;overflow:visible">
+      <polygon points="${BOLT}" transform="translate(${o} ${o})" fill="${off}" stroke="${off}" stroke-width="40" stroke-linejoin="round"/>
+      <polygon points="${BOLT}" fill="${fillC}" stroke="${fillC}" stroke-width="40" stroke-linejoin="round"/></svg>`;
+  };
+  const chargeBolt = (px) => `<svg viewBox="0 0 1024 1024" width="${px}" height="${px}" aria-hidden="true">
+    <defs><clipPath id="cb"><polygon points="${BOLT}"/></clipPath></defs>
+    <polygon points="${BOLT}" fill="currentColor" opacity=".3" stroke="currentColor" stroke-width="40" stroke-linejoin="round"/>
+    <g clip-path="url(#cb)"><rect class="level" x="150" y="140" width="720" height="760" fill="currentColor"/></g></svg>`;
+  document.getElementById('charge1').innerHTML = chargeBolt(18);
+
+  const stages = [];
+  async function mount(id, mood, opts = {}) {
+    const c = document.getElementById(id);
+    try {
+      const s = await stage(c, { mood, reduced: isReduced(), size: c.clientWidth, ...opts });
+      stages.push(s); return s;
+    } catch (e) {
+      c.replaceWith(Object.assign(document.createElement('p'), { className: 'fallback', textContent: e.message }));
+      return null;
+    }
+  }
+  window.addEventListener('draftchange', () => stages.forEach((s) => s.setReduced(isReduced())));
+
+  // Splash
+  let intro = null;
+  async function playIntro() {
+    const blue = document.getElementById('blue');
+    blue.classList.remove('out');
+    if (intro) { stages.splice(stages.indexOf(intro), 1); intro.destroy(); }
+    const old = document.getElementById('introCanvas');
+    const c = old.cloneNode(); old.replaceWith(c);
+    intro = await mount('introCanvas', 'idle', { intro: true, size: 173 });
+    setTimeout(() => blue.classList.add('out'), isReduced() ? 0 : 900);
+  }
+  document.getElementById('replayIntro').addEventListener('click', playIntro);
+  playIntro();
+
+  // Mood pickers
+  function picker(boxId, canvasId, nowId, specId, moods) {
+    const box = document.getElementById(boxId);
+    let s = null;
+    const pick = (id) => {
+      const m = moods[id];
+      s?.setMood(id);
+      box.querySelectorAll('.mood').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
+      document.getElementById(nowId).textContent = m.label;
+      document.getElementById(specId).textContent = m.spec;
+    };
+    box.innerHTML = Object.entries(moods).map(([id, m]) =>
+      `<button class="mood" data-id="${id}">${m.label}${NEW_MOODS[id] ? '<span class="new">new</span>' : ''}</button>`).join('');
+    box.addEventListener('click', (e) => { const b = e.target.closest('.mood'); if (b) pick(b.dataset.id); });
+    mount(canvasId, Object.keys(moods)[0]).then((st) => { s = st; pick(Object.keys(moods)[0]); });
+    pick(Object.keys(moods)[0]);
+  }
+  const N = NEW_MOODS;
+  picker('waitMoods', 'waitCanvas', 'waitNow', 'waitSpec', {
+    searching: N.searching,
+    waiting: N.waiting,
+    waking: N.waking,
+    trust: N.trust,
+    loading: { label: 'Starting up', spec: 'Existing: spins once every 1400 ms while the engine starts.' },
+  });
+  picker('endMoods', 'endCanvas', 'endNow', 'endSpec', {
+    done: { label: 'Done', spec: 'Existing: a 900 ms jump with a full turn and a burst of 18 sparks, then a 2600 ms happy face.' },
+    failed: { label: 'Failed', spec: 'Existing: X eyes, a crack, a wobble that settles over 1100 ms, held for 3200 ms.' },
+    cancelled: N.cancelled,
+    refused: N.refused,
+    offline: { label: 'Off wifi', spec: 'Existing: half-closed eyes, dimmed to 55%, a slow 5200 ms breath. Stays until the network is back.' },
+  });
+
+  // Transfer card
+  const send = await mount('sendCanvas', 'sending');
+  document.getElementById('tIcon').innerHTML = icon('send', 'A', 20);
+  const beam = document.getElementById('beam'), fill = document.getElementById('fill'), rider = document.getElementById('rider');
+  const shine = document.getElementById('shine');
+  let p = 0, mode = 'moving', speed = 39.7;
+  const render = () => {
+    fill.style.width = `${p}%`; rider.style.left = `${p}%`;
+    rider.innerHTML = mode === 'done' ? icon('check', 'B', 16) : flatBolt(16);
+    rider.style.color = 'var(--color-success)';
+    document.getElementById('pct').textContent = `${Math.round(p)}%`;
+    document.getElementById('speed').textContent = mode === 'moving' ? `${speed.toFixed(1)} MB/s` : mode === 'paused' ? 'Paused' : mode === 'reconnecting' ? 'Reconnecting' : '';
+    document.getElementById('eta').textContent = mode === 'moving' ? `About ${Math.max(1, Math.round((100 - p) / 4))} sec left` : mode === 'done' ? 'Sent' : mode === 'failed' ? 'Lost the connection' : '';
+    shine.style.setProperty('--shine', `${Math.round(2600 - 1700 * Math.min(1, speed / 60))}ms`);
+    beam.dataset.mode = mode;
+    // notification
+    const segs = [4.1, 5.2, 6.6, 816], total = segs.reduce((a, b) => a + b);
+    let left = p / 100 * total;
+    document.getElementById('np').innerHTML = segs.map((b) => {
+      const f = Math.max(0, Math.min(1, left / b)); left -= b;
+      return `<div class="seg" style="flex:${Math.max(b / total * 100, 2.2)}"><i style="width:${f * 100}%"></i></div>`;
+    }).join('') + `<div class="tracker" style="left:${p}%">${flatBolt(24, '#FFFFFF')}</div>`;
+    document.getElementById('nSub').textContent = mode === 'done' ? 'Sent · 832 MB' : `${Math.round(p)}% · ${mode === 'moving' ? speed.toFixed(1) + ' MB/s' : mode}`;
+    document.getElementById('chip').innerHTML = `${flatBolt(14, '#FFFFFF', '#0B3E85')}${mode === 'done' ? 'Sent' : Math.round(p) + '%'}`;
+  };
+  document.getElementById('nIcon').innerHTML = flatBolt(16, '#FFFFFF', '#0B3E85');
+  const MODES = { moving: 'Moving', paused: 'Paused', reconnecting: 'Reconnecting', failed: 'Failed', done: 'Done' };
+  document.getElementById('beamModes').innerHTML = Object.entries(MODES).map(([k, v]) => `<button class="mood" data-m="${k}">${v}</button>`).join('') + '<button class="replay" data-m="replay">Replay</button>';
+  document.getElementById('beamModes').addEventListener('click', (e) => {
+    const m = e.target.closest('button')?.dataset.m; if (!m) return;
+    if (m === 'replay') { p = 0; mode = 'moving'; }
+    else { mode = m; if (m === 'done') p = 100; }
+    beam.style.animation = 'none'; void beam.offsetWidth; beam.style.animation = '';
+    send?.setMood(mode === 'done' ? 'done' : mode === 'failed' ? 'failed' : mode === 'paused' ? 'idle' : 'sending');
+    document.getElementById('sendNow').textContent = MODES[mode];
+    document.querySelectorAll('#beamModes .mood').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === mode)));
+    render();
+  });
+  setInterval(() => {
+    if (mode !== 'moving') return;
+    speed = 30 + 25 * Math.abs(Math.sin(Date.now() / 3000));
+    p = Math.min(100, p + 0.9 + speed / 40);
+    if (p >= 100) { mode = 'done'; send?.setMood('done'); document.getElementById('sendNow').textContent = 'Done'; }
+    render();
+  }, 400);
+  render();
+
+  // Ending rows with the A icons; titles, hints and actions are the app's own strings (desktop/src/lib/copy.ts).
+  const ends = [
+    ['check', 'var(--color-success-subtle)', 'var(--color-success)', 'Sent to Studio PC', '4 photos · 15.9 MB', 'Open'],
+    ['close', 'var(--color-danger-subtle)', 'var(--color-danger)', 'Transfer stopped', 'Picks up where it left off', 'Try again'],
+    ['pause', 'var(--color-fill)', 'var(--color-text-secondary)', 'You cancelled this transfer', '4 photos · 15.9 MB', ''],
+    ['close', 'var(--color-warning-subtle)', 'var(--color-warning)', 'Work phone only takes files from its own devices', 'Pair with a code first, then send again.', 'Pair with a code'],
+  ];
+  document.getElementById('endings').innerHTML = ends.map(([n, bg, fg, t, sub, act]) => `
+    <div class="ending"><span class="dot" style="background:${bg};color:${fg}">${icon(n, 'A', 20)}</span>
+      <div><div style="font-weight:600">${t}</div><div class="muted small">${sub}</div></div><span class="act">${act}</span></div>`).join('');
+</script>
+</body>
+</html>

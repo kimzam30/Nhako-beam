@@ -12,6 +12,7 @@ mod filemenu;
 mod popover;
 mod shell;
 mod sound;
+mod thumbs;
 
 use std::path::Path;
 
@@ -102,6 +103,7 @@ pub fn run() {
             engine::set_update_check,
             engine::pick_save_dir,
             engine::send,
+            engine::send_many,
             engine::accept,
             engine::decline,
             engine::pause,

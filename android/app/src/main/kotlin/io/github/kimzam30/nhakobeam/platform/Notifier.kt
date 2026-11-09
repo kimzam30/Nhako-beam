@@ -86,8 +86,11 @@ class Notifier(private val context: Context) {
 
     // ---------- Requests ----------
 
-    fun showRequest(r: IncomingRequest, deviceName: String) {
+    /** [preview]: shows the first photo's preview, for one of your devices (a stranger's stays in the app, blurred). */
+    fun showRequest(r: IncomingRequest, deviceName: String, preview: Boolean = false) {
+        val thumb = if (preview && r.text == null) firstThumb(r) else null
         val n = NotificationCompat.Builder(context, CHANNEL_REQUESTS)
+            .also { b -> thumb?.let { b.setLargeIcon(it) } }
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(ACCENT)
             .setContentTitle(t("notify.request.title", "device" to deviceName, "what" to what(r.files, r.text)))
@@ -100,6 +103,13 @@ class Notifier(private val context: Context) {
             .addAction(action(ActionReceiver.ACCEPT, r.id, t("incoming.accept")))
             .build()
         post(requestId(r.id), n)
+    }
+
+    private fun firstThumb(r: IncomingRequest): android.graphics.Bitmap? {
+        val url = r.files.firstOrNull { it.thumb != null }?.thumb ?: return null
+        val bytes = runCatching { android.util.Base64.decode(url.removePrefix("data:image/jpeg;base64,"), android.util.Base64.DEFAULT) }.getOrNull() ?: return null
+        if (bytes.size > 32 * 1024) return null
+        return runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
     }
 
     /** "a link", "some text", "the folder Trip", or the files' summary. */

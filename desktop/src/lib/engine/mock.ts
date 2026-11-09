@@ -17,6 +17,7 @@ import type {
   RedeemResult,
   Route,
   SelfInfo,
+  SentTo,
   ServerCheck,
   ServerProblem,
   Transfer,
@@ -158,7 +159,56 @@ function seedHistory(now: number): HistoryEntry[] {
 let fileSeq = 0;
 const f = (name: string, size: number, mime: string): FileItem => ({ id: `f${++fileSeq}`, name, size, mime });
 
+/** A made-up photo for the pretend engine's previews: sky, sun and hills in one of a few palettes.
+ *  Only in a browser (the unit tests have no canvas). */
+function sampleThumb(i: number): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 120;
+  const g = c.getContext('2d');
+  if (!g) return undefined;
+  const palettes: [string, string, string][] = [
+    ['#3F86F0', '#FFD23F', '#14794A'],
+    ['#F0A63C', '#FFF1C4', '#975800'],
+    ['#12263F', '#E8EEF8', '#2B3A55'],
+    ['#7DB8FF', '#FFFFFF', '#4CC487'],
+  ];
+  const [sky, sun, land] = palettes[i % 4]!;
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 160, 120);
+  g.fillStyle = sun;
+  g.beginPath();
+  g.arc(112, 34, 14, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = land;
+  g.beginPath();
+  g.moveTo(0, 96);
+  g.lineTo(52, 60);
+  g.lineTo(92, 92);
+  g.lineTo(120, 74);
+  g.lineTo(160, 98);
+  g.lineTo(160, 120);
+  g.lineTo(0, 120);
+  g.fill();
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
+/** Previews on the first few photos the desktop could read (not HEIC), as a real sender adds them. */
+function withThumbs(files: FileItem[]): FileItem[] {
+  let n = 0;
+  return files.map((x) => {
+    if (n >= 4 || !['image/jpeg', 'image/png', 'image/webp'].includes(x.mime)) return x;
+    const thumb = sampleThumb(n++);
+    return thumb ? { ...x, thumb } : x;
+  });
+}
+
 export function sampleFiles(kind: SampleKind): FileItem[] {
+  return withThumbs(sampleFilesBare(kind));
+}
+
+function sampleFilesBare(kind: SampleKind): FileItem[] {
   switch (kind) {
     case 'photos':
       return [
@@ -327,6 +377,10 @@ export class MockEngine implements Engine {
 
   async send(deviceId: string, files: FileItem[]): Promise<string> {
     return this.sendNow(deviceId, files);
+  }
+
+  async sendMany(deviceIds: string[], files: FileItem[]): Promise<SentTo[]> {
+    return deviceIds.map((deviceId) => (this.devices.has(deviceId) ? { deviceId, id: this.sendNow(deviceId, files) } : { deviceId, error: "That device isn't known any more." }));
   }
 
   async sendText(deviceId: string, text: string): Promise<string> {

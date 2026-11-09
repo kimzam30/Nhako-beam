@@ -4,6 +4,7 @@
 //! Every command is `async`: Tauri runs plain commands on the main thread, outside the async
 //! runtime, and many engine methods start background tasks that need it.
 
+use crate::thumbs;
 use nhako_core::sync::Locked;
 use std::{
     collections::{HashMap, HashSet},
@@ -20,6 +21,7 @@ use nhako_core::{
     Snapshot, Transfer, TransferDirection, TransferStatus, VisitorState, WhoCanSend, check_server as check, engine_limits, files,
     store::{self, Store},
     text,
+    wire::Thumb,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, async_runtime::JoinHandle};
@@ -45,6 +47,8 @@ pub struct Host {
     /// Files the window picked or dropped: the app only sees ids, the engine needs paths (and,
     /// for a file inside a folder being sent, the folder it's in).
     files: Mutex<HashMap<String, (PathBuf, Option<String>)>>,
+    /// Previews of staged photos, by the same ids, sent with the request.
+    thumbs: Mutex<HashMap<String, Thumb>>,
     file_seq: AtomicU64,
     /// Paths you handed the app yourself (the file dialog, a drop, "Send with Nhako Beam") and a
     /// save folder you chose, not yet used. The window can only send or save to these, so a
@@ -62,6 +66,7 @@ impl Host {
             forward: Mutex::new(None),
             lifecycle: tokio::sync::Mutex::new(()),
             files: Mutex::new(HashMap::new()),
+            thumbs: Mutex::new(HashMap::new()),
             file_seq: AtomicU64::new(0),
             offered: Mutex::new(HashSet::new()),
             any_path: std::env::var_os("NHAKO_TEST_ANY_PATH").is_some_and(|v| v == "1"),
@@ -566,20 +571,46 @@ pub async fn pick_save_dir(window: tauri::Window, host: State<'_, Host>, current
 /// Reads what the paths are (files, or folders and everything inside), off the async threads:
 /// a big folder takes a while. Then gives each file an id the page can send by.
 async fn stage(host: &Host, paths: Vec<PathBuf>) -> Picked {
-    let (found, skipped) = tokio::task::spawn_blocking(move || scan(paths)).await.unwrap_or_default();
+    // Previews of the first few photos too, while still off the async threads.
+    let (found, skipped, previews) = tokio::task::spawn_blocking(move || {
+        let (found, skipped) = scan(paths);
+        let named: Vec<(String, String)> = found
+            .iter()
+            .map(|(p, _, _)| {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+                let mime = files::mime_for(&name);
+                (name, mime)
+            })
+            .collect();
+        let list: Vec<(&std::path::Path, &str, u64)> = found
+            .iter()
+            .zip(&named)
+            .map(|((p, size, _), (_, mime))| (p.as_path(), mime.as_str(), *size))
+            .collect();
+        let previews: HashMap<usize, Thumb> = thumbs::make(&list).into_iter().collect();
+        (found.into_iter().zip(named).collect::<Vec<_>>(), skipped, previews)
+    })
+    .await
+    .unwrap_or_default();
     let mut known = host.files.locked();
+    let mut kept = host.thumbs.locked();
     let files = found
         .into_iter()
-        .map(|(p, size, folder)| {
+        .enumerate()
+        .map(|(i, ((p, size, folder), (name, mime)))| {
             let id = format!("p{}", host.file_seq.fetch_add(1, Ordering::Relaxed));
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
             known.insert(id.clone(), (p, folder.clone()));
+            let thumb = previews.get(&i).map(|t| {
+                kept.insert(id.clone(), t.clone());
+                thumbs::data_url(t)
+            });
             FileItem {
                 id,
-                mime: files::mime_for(&name),
+                mime,
                 name,
                 size,
                 folder,
+                thumb,
             }
         })
         .collect();
@@ -614,12 +645,14 @@ fn scan(paths: Vec<PathBuf>) -> (Vec<(PathBuf, u64, Option<String>)>, usize) {
 /// The staged files for these ids, or `None` when one isn't known (any more).
 fn outgoing(host: &Host, ids: &[String]) -> Option<Vec<Outgoing>> {
     let known = host.files.locked();
+    let thumbs = host.thumbs.locked();
     ids.iter()
         .map(|id| {
             known.get(id).cloned().map(|(path, folder)| Outgoing {
                 name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()),
                 path,
                 folder,
+                thumb: thumbs.get(id).cloned(),
             })
         })
         .collect()
@@ -629,8 +662,10 @@ fn outgoing(host: &Host, ids: &[String]) -> Option<Vec<Outgoing>> {
 /// lets go of them too, and a retry goes through the engine, which keeps its own paths.
 fn forget(host: &Host, ids: &[String]) {
     let mut known = host.files.locked();
+    let mut thumbs = host.thumbs.locked();
     for id in ids {
         known.remove(id);
+        thumbs.remove(id);
     }
 }
 
@@ -644,6 +679,46 @@ pub async fn send(host: State<'_, Host>, device_id: String, file_ids: Vec<String
     })?;
     forget(&host, &file_ids);
     Ok(id)
+}
+
+/// One device's part of a send to several: its transfer id, or why it didn't start.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentTo {
+    device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Sends the same staged files to several devices, side by side. One device failing to start
+/// doesn't stop the others. The files stay staged until every device has been given them.
+#[tauri::command]
+pub async fn send_many(host: State<'_, Host>, device_ids: Vec<String>, file_ids: Vec<String>) -> Result<Vec<SentTo>, String> {
+    let out = outgoing(&host, &file_ids).ok_or("Some of those files can't be found any more. Add them again.")?;
+    let engine = host.engine()?;
+    let sent = device_ids
+        .into_iter()
+        .map(|device_id| match engine.send_files(&device_id, &out) {
+            Ok(id) => SentTo {
+                device_id,
+                id: Some(id),
+                error: None,
+            },
+            Err(e) => SentTo {
+                device_id,
+                id: None,
+                error: Some(match e {
+                    nhako_core::EngineError::File { path, .. } => format!("Couldn't read {}. It may have been moved or deleted.", display_name(&path)),
+                    nhako_core::EngineError::UnknownDevice => "That device isn't known any more.".into(),
+                    other => other.to_string(),
+                }),
+            },
+        })
+        .collect();
+    forget(&host, &file_ids);
+    Ok(sent)
 }
 
 /// Sends text: a note, a link, a clipboard. Returns the transfer id.
@@ -989,6 +1064,7 @@ mod tests {
                 size: 1,
                 mime: "video/mp4".into(),
                 folder: None,
+                thumb: None,
             }],
             total_bytes: 1,
             received_at: 0,

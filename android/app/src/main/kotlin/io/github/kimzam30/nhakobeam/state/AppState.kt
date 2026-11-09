@@ -42,6 +42,8 @@ import io.github.kimzam30.nhakobeam.ui.summarizeFiles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 /** In order of depth: going to a later one slides forward, an earlier one back. */
@@ -740,6 +742,55 @@ class AppState(val engine: Engine, val prefs: Prefs, private val scope: Coroutin
             }
         }
     }
+
+    /** Sends to several devices at once, side by side (Send to with more than one picked). The
+     *  transfers make one card on Home. One device not starting doesn't stop the others. */
+    fun sendToMany(deviceIds: List<String>) {
+        val ids = deviceIds.distinct().take(MAX_DEVICES)
+        if (ids.size == 1) return sendTo(ids[0])
+        if (ids.isEmpty() || !hasStaged) return
+        val files = staged.toList()
+        val text = stagedText
+        staged = emptyList()
+        stagedText = null
+        ids.forEach(::bump)
+        if (sheet == Sheet.Send) sheet = null
+        sound(NhakoSound.Send)
+        sending++
+        scope.launch {
+            try {
+                val sent = ids.map { id ->
+                    async {
+                        id to runCatching { if (text != null) engine.sendText(id, text) else engine.send(id, files) }
+                    }
+                }.awaitAll()
+                val ok = sent.mapNotNull { it.second.getOrNull() }
+                if (ok.size > 1) groups = groups + ("g${++groupSeq}" to ok)
+                for ((id, r) in sent) r.exceptionOrNull()?.let { toast("${deviceName(id)}: ${it.message ?: t("send.failed")}", ToastTone.Danger) }
+                // Nothing started anywhere: put the files back so nothing is lost.
+                if (ok.isEmpty() && !hasStaged) {
+                    if (text != null) stagedText = text else staged = files
+                }
+            } finally {
+                sending--
+            }
+        }
+    }
+
+    /** Sends to several devices: transfer ids by group, for Home's one card per group. */
+    var groups by mutableStateOf(mapOf<String, List<String>>())
+        private set
+    private var groupSeq = 0
+
+    /** Cancels every part of a group that's still going. */
+    fun cancelGroup(groupId: String) {
+        for (id in groups[groupId].orEmpty()) {
+            val x = transfers.find { it.id == id } ?: continue
+            if (x.status in MOVING || x.status == TransferStatus.Paused) engine.cancel(id)
+        }
+    }
+
+    fun dismissGroup(groupId: String) = groups[groupId].orEmpty().forEach(::dismissTransfer)
 
     // ---------- Receiving ----------
 

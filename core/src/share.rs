@@ -180,6 +180,7 @@ impl Engine {
                     name,
                     size: meta.len(),
                     folder,
+                    thumb: None,
                 },
                 zip_name,
                 modified: meta.modified().ok(),
@@ -1098,6 +1099,7 @@ mod tests {
                     size: body.len() as u64,
                     mime: String::new(),
                     folder: folder.map(String::from),
+                    thumb: None,
                 },
                 modified: Some(std::time::SystemTime::now()),
             });
@@ -1154,6 +1156,7 @@ mod tests {
                     size,
                     mime: String::new(),
                     folder: None,
+                    thumb: None,
                 },
                 modified: None,
             })

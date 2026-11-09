@@ -81,6 +81,33 @@ pub struct HelloExt {
     /// With a `Ping`: asks the other device to trust this one, and this one it (Phase 14). It's
     /// the commitment to the asker's random number (`codekeys::trust_commit`). See [`TrustMsg`].
     pub trust: Option<[u8; 32]>,
+    /// With an `Offer`: small previews of a few photos or videos (1.1). Builds without them show
+    /// the files' icons.
+    pub thumbs: Option<Vec<Thumb>>,
+}
+
+/// Previews in one offer, at most.
+pub const THUMBS_MAX: usize = 4;
+/// One preview's JPEG, at most.
+pub const THUMB_BYTES_MAX: usize = 32 * 1024;
+
+/// A small JPEG preview of offered file `file` (at most 160 px on its long side, see
+/// [`THUMB_BYTES_MAX`]). The receiver never decodes it itself: it checks it looks like a JPEG and
+/// hands it to the app, which decodes it with the platform's own decoder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thumb {
+    pub file: u32,
+    pub w: u16,
+    pub h: u16,
+    pub jpeg: Vec<u8>,
+}
+
+impl Thumb {
+    /// Small enough, and starts and ends the way every JPEG does.
+    pub fn looks_valid(&self) -> bool {
+        let j = &self.jpeg;
+        j.len() >= 4 && j.len() <= THUMB_BYTES_MAX && j[..3] == [0xFF, 0xD8, 0xFF] && j[j.len() - 2..] == [0xFF, 0xD9] && self.w > 0 && self.h > 0
+    }
 }
 
 /// Which folder each offered file goes in, relative to where received files are saved, with `/`
@@ -135,6 +162,7 @@ mod record {
     pub const FOLDERS: u16 = 1;
     pub const TEXT: u16 = 2;
     pub const TRUST: u16 = 3;
+    pub const THUMBS: u16 = 4;
 }
 
 impl HelloExt {
@@ -156,6 +184,12 @@ impl HelloExt {
             out.push(Record {
                 kind: record::TRUST,
                 body: postcard::to_stdvec(c)?,
+            });
+        }
+        if let Some(t) = &self.thumbs {
+            out.push(Record {
+                kind: record::THUMBS,
+                body: postcard::to_stdvec(t)?,
             });
         }
         Ok(out)
@@ -184,6 +218,7 @@ impl HelloExt {
                 record::FOLDERS => ext.folders = postcard::from_bytes(&r.body).ok(),
                 record::TEXT => ext.text = postcard::from_bytes(&r.body).ok(),
                 record::TRUST => ext.trust = postcard::from_bytes(&r.body).ok(),
+                record::THUMBS => ext.thumbs = postcard::from_bytes(&r.body).ok(),
                 _ => {}
             }
         }
@@ -439,6 +474,12 @@ mod tests {
             }),
             text: Some("https://example.com".into()),
             trust: Some([9; 32]),
+            thumbs: Some(vec![Thumb {
+                file: 2,
+                w: 160,
+                h: 120,
+                jpeg: vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 0xFF, 0xD9],
+            }]),
         };
         let bytes = encode_hello(&hello, &ext).unwrap();
         assert_eq!(decode_hello::<ClientHello>(&bytes).unwrap(), (hello.clone(), ext.clone()));
@@ -467,6 +508,58 @@ mod tests {
         assert_eq!(ext.folders.as_ref().unwrap().of(0), None);
         assert_eq!(ext.folders.as_ref().unwrap().of(2), Some("Photos/2024"));
         assert_eq!(ext.folders.as_ref().unwrap().of(7), None);
+    }
+
+    /// A 1.0 build knows kinds 1 to 3: it skips previews (kind 4) like any unknown record, and
+    /// still reads the text that came with them.
+    #[test]
+    fn a_build_without_previews_skips_them() {
+        let hello = ClientHello {
+            version: VERSION,
+            info: DeviceInfo {
+                name: "Laptop".into(),
+                kind: DeviceKind::Laptop,
+                os: OsPlatform::Linux,
+            },
+            intent: Intent::Ping,
+        };
+        let thumb = Thumb {
+            file: 0,
+            w: 10,
+            h: 10,
+            jpeg: vec![0xFF, 0xD8, 0xFF, 1, 0xFF, 0xD9],
+        };
+        let ext = HelloExt {
+            text: Some("hi".into()),
+            thumbs: Some(vec![thumb.clone()]),
+            ..HelloExt::default()
+        };
+        let bytes = encode_hello(&hello, &ext).unwrap();
+        let (_, rest) = postcard::take_from_bytes::<ClientHello>(&bytes).unwrap();
+        let (_, rest) = postcard::take_from_bytes::<ExtV1>(rest).unwrap();
+        let records: Vec<Record> = postcard::from_bytes(rest).unwrap();
+        let known_to_1_0 = |k: u16| [record::FOLDERS, record::TEXT, record::TRUST].contains(&k);
+        assert_eq!(
+            records.iter().filter(|r| !known_to_1_0(r.kind)).map(|r| r.kind).collect::<Vec<_>>(),
+            vec![record::THUMBS]
+        );
+        assert!(records.iter().any(|r| r.kind == record::TEXT));
+
+        assert!(thumb.looks_valid());
+        let big = Thumb {
+            jpeg: [vec![0xFF, 0xD8, 0xFF], vec![0; THUMB_BYTES_MAX], vec![0xFF, 0xD9]].concat(),
+            ..thumb.clone()
+        };
+        assert!(!big.looks_valid(), "too big");
+        assert!(
+            !Thumb {
+                jpeg: b"<svg/>".to_vec(),
+                ..thumb.clone()
+            }
+            .looks_valid(),
+            "not a JPEG"
+        );
+        assert!(!Thumb { w: 0, ..thumb }.looks_valid(), "no size");
     }
 
     #[test]

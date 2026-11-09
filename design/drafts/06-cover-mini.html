@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cover screen</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .covers { display: flex; gap: var(--space-8); flex-wrap: wrap; margin-top: var(--space-6); overflow-x: auto; padding: 8px; }
+  @media (max-width: 420px) { .covers { flex-wrap: nowrap; } }
+  .covers figure { margin: 0; }
+  .covers figcaption { margin-top: var(--space-4); }
+  /* Flip5 cover screen, measured: 374 x 360 dp (748 x 720 px at 2.0x).
+     Camera cutout: bottom right, 184.5 x 33 dp. 1 CSS px = 1 dp. Corner radius is approximate. */
+  .cover { position: relative; width: 374px; height: 360px; border-radius: 40px; overflow: hidden; background: #000; color: #F1F2F4;
+    box-shadow: 0 0 0 8px #2B2D33, var(--elevation-3); font-family: var(--font-sans); }
+  .cover .cut { position: absolute; right: 0; bottom: 0; width: 184.5px; height: 33px; background: #000; border-top-left-radius: 16px;
+    box-shadow: inset 0 0 0 1px #2B2D33; display: flex; align-items: center; justify-content: space-evenly; z-index: 2; }
+  .cover .cut i { width: 22px; height: 22px; border-radius: 50%; background: #0b0c0f; box-shadow: inset 0 0 0 6px #1a2233, 0 0 0 2px #2B2D33; }
+  .cover .safe { position: absolute; inset: 16px 16px 49px 16px; outline: 1px dashed var(--color-danger); opacity: 0; pointer-events: none; z-index: 3; }
+  [data-spec="on"] .cover .safe { opacity: 1; }
+  .cover .in { position: absolute; inset: 16px 16px 49px 16px; display: grid; grid-template-columns: 112px 1fr; grid-template-rows: 1fr auto; column-gap: 14px; row-gap: 14px; }
+  .cover canvas { grid-row: 1; width: 112px; height: 112px; align-self: center; }
+  .cover .txt { align-self: center; min-width: 0; }
+  .cover .who { font-size: 13px; line-height: 18px; color: #A6ACB8; }
+  .cover .what { font-size: 19px; line-height: 24px; font-weight: 650; letter-spacing: -0.012em; text-wrap: balance; }
+  .cover .meta { font-size: 13px; line-height: 18px; color: #A6ACB8; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .cover .actions { grid-column: 1 / -1; display: flex; gap: 12px; }
+  .cover .b { flex: 1; height: 48px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 650; font-size: 16px; }
+  .cover .b.yes { background: #1A6FE0; color: #fff; }
+  .cover .b.no { background: #262A31; color: #F1F2F4; }
+  .cover .pct { font-size: 40px; line-height: 44px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .cover .beam { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: #4DA0FF24; position: relative; align-self: end; margin-bottom: 21px; }
+  .cover .beam i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: #4DA0FF; box-shadow: 0 0 10px #4DA0FF4D; }
+  .cover .beam span { position: absolute; top: 50%; transform: translate(-50%, -54%); }
+  .notes { max-width: 72ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Flip5 cover screen</h1>
+  <p class="lede muted">A small view for the outer screen with only what you need while the phone is closed: say yes or no to a request, watch it come in, and open it when it lands. Drawn at true size from the device's own numbers. Turn on Spec overlay to see the safe area.</p>
+
+  <div class="covers" id="covers"></div>
+
+  <h2>Measured layout</h2>
+  <table class="spec notes">
+    <tr><th>Screen</th><td class="tabular">374 × 360 dp, landscape (748 × 720 px at 320 dpi), read with adb from the Flip</td></tr>
+    <tr><th>Camera cutout</th><td class="tabular">Bottom right, 184.5 × 33 dp (px 379–748 × 654–720). The system reports a 33 dp bottom inset.</td></tr>
+    <tr><th>Safe area</th><td class="tabular">16 dp on the top and sides, 33 + 16 = 49 dp at the bottom: 342 × 295 dp for content</td></tr>
+    <tr><th>Buttons</th><td class="tabular">Two of (342 − 12) / 2 = 165 × 48 dp, bottom edge at 311 dp, 16 dp clear of the cutout</td></tr>
+    <tr><th>Bolt</th><td class="tabular">112 dp, the same 3D model and moods as the main screen</td></tr>
+    <tr><th>Corners</th><td>Drawn at 40 dp. The real corner radius isn't reported over adb, so the 16 dp margin is there to cover it.</td></tr>
+    <tr><th>Not here</th><td>Settings, history, picking files and codes stay on the main screen. Tapping anything else says "Open the phone to continue" (new copy, yours to change).</td></tr>
+  </table>
+  <div class="ask"><strong>Your call:</strong> show the cover view only while a request or transfer is live, or also an idle "Ready to beam" view when the app is open on the cover screen?</div>
+</main>
+
+<script type="module">
+  import { mountBar, isReduced } from './shared/draft.js';
+  import { icon } from './shared/icons.js';
+  import { stage } from './shared/mascot.js';
+  mountBar();
+
+  const BOLT = [[676.16, 161.6], [829.76, 244.16], [608.96, 464.96], [743.36, 503.36], [194.24, 862.4], [436.16, 574.4], [301.76, 536]].map((p) => p.join(',')).join(' ');
+  const flatBolt = (px) => `<svg viewBox="0 0 1024 1024" width="${px}" height="${px}" aria-hidden="true" style="display:block;overflow:visible"><polygon points="${BOLT}" transform="translate(${1024 / px} ${1024 / px})" fill="#1A6FE0" stroke="#1A6FE0" stroke-width="40" stroke-linejoin="round"/><polygon points="${BOLT}" fill="#FFD23F" stroke="#FFD23F" stroke-width="40" stroke-linejoin="round"/></svg>`;
+  const cover = (mood, inner, caption) => `<figure><div class="cover specable" data-theme="dark"><div class="in"><canvas data-mood="${mood}" width="112" height="112"></canvas>${inner}</div>
+    <div class="cut"><i></i><i></i></div><div class="safe"></div></div><figcaption class="caption">${caption}</figcaption></figure>`;
+
+  document.getElementById('covers').innerHTML = [
+    cover('happy', `<div class="txt"><div class="who">Aisyah's laptop wants to send you</div><div class="what">3 photos and 1 video</div><div class="meta">832 MB</div></div>
+      <div class="actions"><span class="b no" data-hit data-measure="165 × 48">${icon('close', 'A', 20)}Decline</span><span class="b yes" data-hit>${icon('check', 'A', 20)}Accept</span></div>`,
+      'Request · mood: happy (found)'),
+    cover('receiving', `<div class="txt"><div class="who">Receiving from Aisyah's laptop</div><div class="pct">42%</div><div class="meta">64.2 MB/s · About 10 sec left</div></div>
+      <div class="beam"><i style="width:42%"></i><span style="left:42%">${flatBolt(16)}</span></div>`,
+      'Receiving · mood: receiving'),
+    cover('done', `<div class="txt"><div class="who">Received from Aisyah's laptop</div><div class="what">3 photos and 1 video</div><div class="meta">832 MB · in Download</div></div>
+      <div class="actions"><span class="b yes" data-hit>Open</span></div>`,
+      'Done · mood: done, then Open'),
+  ].join('');
+
+  const stages = [];
+  for (const c of document.querySelectorAll('.cover canvas')) {
+    try { stages.push(await stage(c, { mood: c.dataset.mood, reduced: isReduced(), size: 112 })); }
+    catch (e) { c.replaceWith(Object.assign(document.createElement('span'), { className: 'caption', textContent: '3D bolt needs the dev server' })); }
+  }
+  window.addEventListener('draftchange', () => stages.forEach((s) => s.setReduced(isReduced())));
+</script>
+</body>
+</html>

@@ -68,6 +68,9 @@ data class FileItem(
     val mime: String = "application/octet-stream",
     /** The folder it's in, inside a folder that was sent ("Photos/2024"). Null for files sent on their own. */
     val folder: String? = null,
+    /** A small preview (a `data:image/jpeg;base64,` URL): on an incoming request's photos and
+     *  videos when the sender added one, and on files staged to send when the app made one. */
+    val thumb: String? = null,
 )
 
 /** The longest text sent as text, in bytes of UTF-8. Longer text goes as a file. */

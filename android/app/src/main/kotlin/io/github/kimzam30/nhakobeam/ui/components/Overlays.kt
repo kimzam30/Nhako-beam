@@ -272,6 +272,8 @@ fun IncomingCard(app: AppState, request: IncomingRequest, modifier: Modifier = M
                     }
                     FileStack(request.files, 40.dp, text = text)
                 }
+                // What's coming, before you say yes. A stranger's stays blurred until tapped.
+                if (text == null) Previews(request.files, blurred = device?.trusted != true)
                 // Read it before deciding: the whole point of text arriving in the request.
                 if (text != null) {
                     BasicText(

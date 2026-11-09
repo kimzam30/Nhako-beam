@@ -1055,6 +1055,55 @@ test.describe('folders, text and trust (phase 14)', () => {
     await expect(page.getByTestId('sheet-trust-ask')).toHaveCount(0);
   });
 
+  test('send to several devices: tick, send to all, one card on Home', async ({ page }) => {
+    await ready(page, { speed: 0.2 });
+    await sim(page, 'stage-mixed');
+    await closePanel(page);
+    await page.evaluate(() => ((window as any).__nhako.app.sheet = { kind: 'send' }));
+    const go = page.getByTestId('send-many');
+    await expect(go).toBeDisabled();
+    await page.getByTestId('send-pick-d-aisyah').click();
+    await expect(go).toHaveText("Send to Aisyah's laptop");
+    // Once picking, a tap on a row ticks it instead of sending.
+    await page.getByTestId('send-row-d-phone').click();
+    await expect(page.getByTestId('send-pick-d-phone')).toHaveAttribute('aria-pressed', 'true');
+    await expect(go).toHaveText('Send to 2 devices');
+    await go.click();
+    await expect(page.getByTestId('sheet-send')).toHaveCount(0);
+    const card = page.locator('[data-testid^="group-"]').first();
+    await expect(card).toContainText('to 2 devices');
+    await expect(card.locator('[data-testid^="group-row-"]')).toHaveCount(2);
+    await card.getByTestId('group-cancel').click();
+    await expect(card.locator('[data-status="cancelled"]')).toHaveCount(2);
+  });
+
+  test('previews: what is coming shows before accepting, and a stranger stays blurred until tapped', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'in-aisyah');
+    await closePanel(page);
+    const card = page.getByTestId('incoming-card');
+    await expect(card.getByTestId('previews').locator('img')).toHaveCount(3);
+    await expect(card.getByTestId('previews-reveal')).toHaveCount(0);
+    await card.getByTestId('previews-list').click();
+    await expect(card.getByText('Wedding highlights final final.mp4')).toBeVisible();
+    await card.getByTestId('decline').click();
+    await sim(page, 'in-studio');
+    await closePanel(page);
+    const stranger = page.getByTestId('incoming-card');
+    await expect(stranger.getByTestId('previews-reveal')).toBeVisible();
+    await stranger.getByTestId('previews-reveal').click();
+    await expect(stranger.getByTestId('previews-reveal')).toHaveCount(0);
+    await expect(stranger.getByText('+1')).toBeVisible();
+  });
+
+  test('previews: Send to shows the same ones the other device will see', async ({ page }) => {
+    await ready(page);
+    await sim(page, 'stage-photos');
+    await closePanel(page);
+    await page.evaluate(() => ((window as any).__nhako.app.sheet = { kind: 'send' }));
+    await expect(page.getByTestId('sheet-send').getByTestId('previews').locator('img')).toHaveCount(3);
+  });
+
   test('a reinstalled device: Replace is picked, and the old entry goes', async ({ page }) => {
     await ready(page);
     await sim(page, 'trust-reinstall');

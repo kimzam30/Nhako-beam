@@ -16,6 +16,7 @@
   import ConnectionBadge from './ConnectionBadge.svelte';
   import DeviceOrb from './DeviceOrb.svelte';
   import FileStack from './FileStack.svelte';
+  import Previews from './Previews.svelte';
   import Icon from './Icon.svelte';
   import Toggle from './Toggle.svelte';
   import { springIn } from '../lib/motion/transitions';
@@ -217,6 +218,11 @@
     </div>
     <span class="files"><FileStack files={request.files} text={request.text ?? null} size={48} /></span>
   </div>
+
+  {#if !isText}
+    <!-- What's coming, before you say yes. A stranger's stays blurred until tapped. -->
+    <Previews files={request.files} blurred={!device?.trusted} />
+  {/if}
 
   {#if isText}
     <!-- Read it before deciding: the whole point of text arriving in the request. -->

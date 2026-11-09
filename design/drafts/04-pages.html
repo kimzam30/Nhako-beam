@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pages and overlays</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .frames { display: flex; gap: var(--space-8); overflow-x: auto; padding: var(--space-3) var(--space-1) var(--space-6); scroll-snap-type: x proximity; }
+  .frames > figure { margin: 0; flex: none; scroll-snap-align: start; }
+  .frames figcaption { margin-top: var(--space-4); }
+  /* 1 CSS px = 1 dp. Flip5 main screen measured: 360 x 880 dp. Status bar 32 dp, gesture bar 24 dp. */
+  .phone { position: relative; width: 360px; height: 880px; border-radius: 34px; overflow: hidden; background: var(--color-canvas); color: var(--color-text-primary);
+    box-shadow: 0 0 0 6px var(--color-text-primary), var(--elevation-3); display: flex; flex-direction: column; }
+  .phone .status { height: 32px; flex: none; display: flex; align-items: center; padding: 0 22px; font: 600 13px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
+  .phone .gesture { height: 24px; flex: none; display: grid; place-items: center; }
+  .phone .gesture::after { content: ""; width: 108px; height: 4px; border-radius: 2px; background: var(--color-text-primary); opacity: .35; }
+  .phone .body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: var(--space-5); gap: var(--space-5); position: relative; }
+  .title1 { font-size: var(--type-title1-size); line-height: var(--type-title1-line); font-weight: 700; letter-spacing: var(--type-title1-tracking); margin: 0; text-wrap: balance; }
+  .title2 { font-size: var(--type-title2-size); line-height: var(--type-title2-line); font-weight: 650; letter-spacing: var(--type-title2-tracking); margin: 0; text-wrap: balance; }
+  .bodytext { color: var(--color-text-secondary); margin: 0; }
+  .grow { flex: 1; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 10px; height: 48px; border-radius: var(--radius-full); font-weight: 600; font-size: var(--type-headline-size); flex: none; }
+  .btn.primary { background: var(--color-accent); color: var(--color-on-accent); }
+  .btn.quiet { background: var(--color-fill); color: var(--color-text-primary); }
+  .btn.text { background: none; color: var(--color-accent-text); }
+  .stage { display: block; margin: 0 auto; }
+  .card { background: var(--color-surface-raised); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-6) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); align-items: center; text-align: center; }
+  .dots { display: flex; gap: 6px; justify-content: center; padding-top: var(--space-2); }
+  .dots i { height: 6px; width: 6px; border-radius: 3px; background: var(--color-fill-pressed); transition: width var(--spring-snappy-duration) var(--spring-snappy), background-color var(--duration-fast) var(--ease-standard); }
+  .dots i.on { width: 22px; background: var(--color-accent); }
+  .points { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+  .points li { display: flex; gap: var(--space-4); align-items: center; font-weight: 500; }
+  .points .ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent-text); flex: none; }
+  .field { height: 52px; border-radius: var(--radius-md); background: var(--color-surface-raised); box-shadow: inset 0 0 0 1px var(--color-separator); display: flex; align-items: center; padding: 0 16px; position: relative; }
+  .field::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px; border-radius: 1px; background: var(--color-accent); }
+  .caret { width: 2px; height: 22px; background: var(--color-accent); margin-left: 1px; animation: blink 1060ms steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .illus { display: grid; place-items: center; height: 220px; border-radius: var(--radius-xl); background: var(--color-accent-subtle); color: var(--color-accent-text); gap: var(--space-4); position: relative; }
+  .devicepair { display: flex; align-items: center; gap: 22px; }
+  .devicepair .dev { width: 72px; height: 72px; border-radius: 50%; background: var(--color-surface-raised); display: grid; place-items: center; box-shadow: var(--elevation-2); color: var(--color-accent-text); }
+  .zig { width: 54px; height: 16px; color: var(--brand-navy); }
+  .mininotif { width: 260px; background: var(--color-surface-raised); border-radius: 18px; padding: 12px 14px; box-shadow: var(--elevation-2); color: var(--color-text-primary); font-size: 13px; text-align: left; }
+  .mininotif b { display: block; font-size: 14px; margin: 4px 0 10px; }
+  .mininotif .bar { height: 6px; border-radius: 3px; background: var(--color-beam-track); position: relative; }
+  .mininotif .bar i { position: absolute; inset: 0 40% 0 0; border-radius: 3px; background: var(--color-beam-core); }
+  .mininotif .bar span { position: absolute; left: 60%; top: 50%; transform: translate(-50%, -54%); }
+
+  /* Overlays */
+  .banner { display: flex; gap: var(--space-4); align-items: flex-start; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md);
+    background: var(--color-warning-subtle); color: var(--color-text-primary); font-size: var(--type-callout-size); line-height: var(--type-callout-line); }
+  .banner .ic { color: var(--color-warning); flex: none; margin-top: 1px; }
+  .banner .fix { margin: -14px -12px -14px auto; padding: 0 12px; min-height: 48px; min-width: 48px; display: inline-flex; align-items: center; font-weight: 600; color: var(--color-accent-text); white-space: nowrap; align-self: center; }
+  .toast { position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); display: flex; align-items: center; gap: var(--space-3);
+    min-height: 48px; padding: 0 18px 0 14px; border-radius: var(--radius-full); background: var(--color-text-primary); color: var(--color-canvas);
+    box-shadow: var(--elevation-3); font-weight: 600; font-size: var(--type-callout-size); white-space: nowrap; overflow: hidden; }
+  .toast .ic { color: var(--color-success); }
+  [data-theme="dark"] .toast .ic { color: #14794A; }
+  .toast .time { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: currentColor; opacity: .3; transform-origin: left; animation: drain 4000ms linear forwards; }
+  @keyframes drain { to { transform: scaleX(0); } }
+  .scrim { position: absolute; inset: 0; background: var(--color-scrim); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-surface); border-radius: var(--radius-xl) var(--radius-xl) 0 0; padding: 10px var(--space-5) 24px; box-shadow: var(--elevation-4); }
+  .sheet .handle { width: 36px; height: 4px; border-radius: 2px; background: var(--color-fill-pressed); margin: 0 auto var(--space-5); }
+  .devrow { display: flex; align-items: center; gap: var(--space-4); min-height: 64px; padding: 0 var(--space-2); border-radius: var(--radius-md); }
+  .devrow .ic { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent-text); flex: none; }
+  .devrow .tag { margin-left: auto; font-size: var(--type-caption-size); color: var(--color-text-tertiary); }
+  .enter-toast { animation: toastIn var(--spring-settle-duration) var(--spring-settle) both; }
+  @keyframes toastIn { from { transform: translate(-50%, 24px); opacity: 0; } }
+  .enter-sheet { animation: sheetIn var(--spring-smooth-duration) var(--spring-smooth) both; }
+  @keyframes sheetIn { from { transform: translateY(100%); } }
+  .enter-scrim { animation: fade var(--duration-base) var(--ease-standard) both; }
+  @keyframes fade { from { opacity: 0; } }
+  .enter-banner { animation: bannerIn var(--duration-base) var(--ease-enter) both; }
+  @keyframes bannerIn { from { opacity: 0; transform: translateY(-8px); } }
+  [data-reduced="on"] .enter-toast, [data-reduced="on"] .enter-sheet, [data-reduced="on"] .enter-banner { animation: fade 150ms linear both; }
+  [data-reduced="on"] .toast .time, [data-reduced="on"] .caret { animation: none; }
+  [data-reduced="on"] .toast .time { display: none; }
+
+  /* Tablet and desktop, scaled down: their real dp/px are in the captions */
+  .scaled { position: relative; overflow: hidden; border-radius: 18px; box-shadow: 0 0 0 4px var(--color-text-primary), var(--elevation-3); }
+  .scaled > .inner { transform-origin: 0 0; position: absolute; left: 0; top: 0; background: var(--color-canvas); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-5); padding: var(--space-8); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pages and overlays</h1>
+  <p class="lede muted">Empty states, onboarding, and the toasts, banners and sheets, in the Flip5 main screen at true size (1 px here = 1 dp, 360 × 880). The text is the app's own copy. The icons use style A until you pick one on the icon page. The bolt is the real 3D model.</p>
+
+  <h2>Empty states</h2>
+  <p class="muted lede">Today they show a card or a sleeping bolt. I give each one a mood that says what is going on: still searching, nothing yet, or no Wi-Fi.</p>
+  <div class="frames" id="empties"></div>
+  <h3 style="margin-top:var(--space-6)">The same empty home on the tablet and desktop</h3>
+  <p class="muted small">Content keeps the 560 max width from the tokens and centres. Tab S9 FE measured at 823 × 1317 dp (1440 × 2304 px, 280 dpi). Desktop window default 1080 × 760, minimum 360 × 560.</p>
+  <div class="frames" id="big"></div>
+
+  <h2>Onboarding</h2>
+  <p class="muted lede">Five steps, as today. Step dots stretch from 6 to 22 dp on the snappy spring. Steps slide 24 dp on the gentle spring. Nearby and Notify are Android only.</p>
+  <div class="frames" id="onboarding"></div>
+
+  <h2>Toasts, banners and sheets</h2>
+  <p class="muted lede">The banner drops 8 dp and fades in 220 ms. The toast rises 24 dp on the settle spring (430 ms, 1.5% overshoot) and drains its 2 dp timer over 4 s. The sheet slides up on the smooth spring (430 ms) over a 220 ms scrim. They all leave on the exit ease in 150 ms.</p>
+  <p><button class="replay" id="replayOverlays">Replay overlays</button></p>
+  <div class="frames" id="overlays"></div>
+
+  <div class="ask"><strong>Your call:</strong> do the moods fit each empty state? Anything in onboarding you want said or shown differently?</div>
+</main>
+
+<script type="module">
+  import { mountBar, isReduced } from './shared/draft.js';
+  import { icon } from './shared/icons.js';
+  import { stage } from './shared/mascot.js';
+  mountBar();
+
+  const BOLT = [[676.16, 161.6], [829.76, 244.16], [608.96, 464.96], [743.36, 503.36], [194.24, 862.4], [436.16, 574.4], [301.76, 536]].map((p) => p.join(',')).join(' ');
+  const flatBolt = (px, f = '#FFD23F', o = '#1A6FE0') => `<svg viewBox="0 0 1024 1024" width="${px}" height="${px}" aria-hidden="true" style="display:block;overflow:visible"><polygon points="${BOLT}" transform="translate(${1024 / px} ${1024 / px})" fill="${o}" stroke="${o}" stroke-width="40" stroke-linejoin="round"/><polygon points="${BOLT}" fill="${f}" stroke="${f}" stroke-width="40" stroke-linejoin="round"/></svg>`;
+  const zig = `<svg class="zig" viewBox="0 0 54 16" aria-hidden="true"><path d="M2 8h12l5-6 8 12 8-12 5 6h12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const phone = (inner, caption, cls = '') =>
+    `<figure><div class="phone specable ${cls}"><div class="status">12:45</div><div class="body">${inner}</div><div class="gesture"></div></div><figcaption class="caption">${caption}</figcaption></figure>`;
+  const mascot = (mood, size) => `<canvas class="stage" data-mood="${mood}" width="${size}" height="${size}" style="width:${size}px;height:${size}px"></canvas>`;
+
+  document.getElementById('empties').innerHTML = [
+    phone(`<h1 class="title1">Looking for devices</h1><div class="grow"></div>
+      <div class="card">${mascot('searching', 168)}<h2 class="title2" style="font-size:var(--type-headline-size);line-height:var(--type-headline-line)">No devices nearby</h2>
+      <p class="bodytext">Make sure the other device has Nhako Beam open and is on the same Wi-Fi. Or use a code.</p></div>
+      <div class="grow"></div><div class="btn quiet" data-hit>Use a code</div>`, 'Home · nothing nearby · mood: searching (new)'),
+    phone(`<h1 class="title1">History</h1><div class="grow"></div>
+      ${mascot('asleep', 168)}<p class="bodytext" style="text-align:center;max-width:26ch;margin:0 auto">Files you send and receive will show up here.</p><div class="grow"></div>`,
+      'History · empty · mood: asleep (today)'),
+    phone(`<h1 class="title1">Ready to beam</h1>
+      <div class="banner enter-banner"><span class="ic">${icon('close', 'A', 20)}</span><span>You're on mobile data. Only your own devices show up here.</span></div>
+      <div class="grow"></div><div class="card">${mascot('offline', 168)}<h2 class="title2" style="font-size:var(--type-headline-size);line-height:var(--type-headline-line)">You're not on Wi-Fi</h2>
+      <p class="bodytext">Nearby devices show up on the same Wi-Fi. Away from it you can still reach your own devices: pair one with a code, or trust it next time you're together.</p></div>
+      <div class="grow"></div><div class="btn primary" data-hit>Use a code</div>`, 'Home · no Wi-Fi · mood: offline (today)'),
+  ].join('');
+
+  // Tablet and desktop, scaled
+  const big = (w, h, scale, caption) => `<figure style="margin:0"><div class="scaled specable" style="width:${w * scale}px;height:${h * scale}px">
+    <div class="inner" style="width:${w}px;height:${h}px;transform:scale(${scale})"><div style="width:100%;max-width:560px;display:flex;flex-direction:column;gap:var(--space-5)">
+    <div class="card">${mascot('searching', 200)}<h2 class="title2">No devices nearby</h2><p class="bodytext">Make sure the other device has Nhako Beam open and is on the same Wi-Fi. Or use a code.</p>
+    <div class="btn quiet" style="width:100%" data-hit>Use a code</div></div></div></div></div><figcaption class="caption" style="margin-top:12px">${caption}</figcaption></figure>`;
+  document.getElementById('big').innerHTML =
+    big(823, 1317, 0.36, 'Tab S9 FE · 823 × 1317 dp, shown at 36%') + big(1080, 760, 0.42, 'Desktop · 1080 × 760, shown at 42%') + big(360, 560, 0.6, 'Desktop minimum · 360 × 560, shown at 60%');
+
+  const dots = (n, total) => `<div class="dots" aria-label="Step ${n + 1} of ${total}">${Array.from({ length: total }, (_, i) => `<i class="${i === n ? 'on' : ''}"></i>`).join('')}</div>`;
+  document.getElementById('onboarding').innerHTML = [
+    phone(`${dots(0, 5)}${mascot('idle', 200)}<h1 class="title1">Send anything, straight to your devices</h1>
+      <p class="bodytext">No cloud, no size limits, no account. Files go directly from one device to another.</p>
+      <ul class="points"><li><span class="ic">${icon('check', 'A', 20)}</span>End to end encrypted</li><li><span class="ic">${icon('send', 'A', 20)}</span>Fast on the same Wi-Fi</li><li><span class="ic">${icon('receive', 'A', 20)}</span>Works across networks too</li></ul>
+      <div class="grow"></div><div class="btn primary" data-hit>Get started</div>`, 'Welcome · mood: idle, then happy on Get started'),
+    phone(`${dots(1, 5)}<h1 class="title1">Name this device</h1><p class="bodytext">This is what others see when they send you files.</p>
+      <div class="field" data-hit>Hakim's phone<span class="caret"></span></div><div class="grow"></div><div class="btn primary" data-hit>Continue</div>`, 'Name · the charge underline from app.css'),
+    phone(`${dots(2, 5)}<div class="illus"><div class="devicepair"><span class="dev">${icon('phone', 'A', 32)}</span>${zig}<span class="dev">${icon('laptop', 'A', 32)}</span></div></div>
+      <h1 class="title1">Find devices nearby</h1><p class="bodytext">Lets Nhako Beam see your other devices on the same Wi-Fi, so you don't need a code.</p>
+      <div class="grow"></div><div class="btn primary" data-hit>Allow</div><div class="btn text" data-hit>Not now</div>`, 'Nearby (Android) · the two devices, joined by a beam'),
+    phone(`${dots(3, 5)}<div class="illus"><div class="mininotif"><span class="muted">Nhako Beam · now</span><b>Receiving from Aisyah's laptop</b><div class="bar"><i></i><span>${flatBolt(18, '#FFFFFF')}</span></div></div></div>
+      <h1 class="title1">Show transfer progress</h1><p class="bodytext">So you can see transfers and accept files while the app is in the background.</p>
+      <div class="grow"></div><div class="btn primary" data-hit>Allow</div><div class="btn text" data-hit>Not now</div>`, 'Notify (Android) · shows the real Live Update it unlocks'),
+    phone(`${dots(4, 5)}<div class="illus">${icon('receive', 'A', 64)}</div>
+      <h1 class="title1">Where should files go?</h1><p class="bodytext">Files you receive go to your Download folder, where your Files and Gallery apps can find them.</p>
+      <div class="grow"></div><div class="btn primary" data-hit>Start beaming</div>`, 'Save · Android wording'),
+  ].join('');
+
+  const overlays = () => {
+    document.getElementById('overlays').innerHTML = [
+      phone(`<h1 class="title1">Ready to beam</h1>
+        <div class="banner enter-banner"><span class="ic">${icon('close', 'A', 20)}</span><span>Can't look for nearby devices. Check that local network access is allowed.</span><span class="fix" data-hit>Fix this</span></div>
+        <div class="grow"></div>
+        <div class="toast enter-toast" data-hit data-measure="48 dp"><span class="ic">${icon('check', 'B', 20)}</span>Sent to Studio PC<span class="time"></span></div>`,
+        'Banner and toast'),
+      phone(`<h1 class="title1">Ready to beam</h1><div class="grow"></div>
+        <div class="scrim enter-scrim"></div>
+        <div class="sheet enter-sheet"><div class="handle"></div><h2 class="title2" style="margin-bottom:var(--space-4)">Send to</h2>
+          <div class="devrow" data-hit><span class="ic">${icon('laptop', 'A', 24)}</span><div><b>Aisyah's laptop</b><div class="muted small">Nearby</div></div></div>
+          <div class="devrow" data-hit><span class="ic">${icon('phone', 'A', 24)}</span><div><b>Work phone</b><div class="muted small">Nearby</div></div></div>
+          <div class="devrow" data-hit><span class="ic">${icon('laptop', 'A', 24)}</span><div><b>Studio PC</b><div class="muted small">Your device</div></div></div>
+          <div class="btn quiet" style="margin-top:var(--space-4)" data-hit>Send with a code</div></div>`,
+        'Send sheet'),
+    ].join('');
+  };
+  overlays();
+  document.getElementById('replayOverlays').addEventListener('click', overlays);
+
+  // Real 3D bolts
+  const stages = [];
+  for (const c of document.querySelectorAll('canvas.stage')) {
+    try { stages.push(await stage(c, { mood: c.dataset.mood, reduced: isReduced(), size: +c.width })); }
+    catch (e) { c.replaceWith(Object.assign(document.createElement('p'), { className: 'caption', textContent: e.message })); break; }
+  }
+  window.addEventListener('draftchange', () => stages.forEach((s) => s.setReduced(isReduced())));
+</script>
+</body>
+</html>

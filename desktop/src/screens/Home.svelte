@@ -15,6 +15,8 @@
   import { arrangeRoom } from '../lib/stage/room';
   import { prefs } from '../lib/state/prefs.svelte';
   import TransferCard from '../components/TransferCard.svelte';
+  import GroupCard from '../components/GroupCard.svelte';
+  import { activityItems } from '../lib/state/groups';
   import { homeStatus } from '../lib/state/status';
 
   let fileInput: HTMLInputElement | undefined = $state();
@@ -22,6 +24,7 @@
   let pendingTarget: string | null = null;
 
   const expanded = $derived(app.layout === 'expanded');
+  let panelShown = $state(0);
   // The stage fills the space the column leaves under the actions; the camera fits the islands
   // to it (Radar.svelte), so it never pushes the page wider or taller.
   let wrapWidth = $state(0);
@@ -42,7 +45,8 @@
       deviceName: (id) => app.deviceName(id),
     }),
   );
-  const transfers = $derived(app.visibleTransfers);
+  // A send to several devices is one card (GroupCard), the rest one card each.
+  const transfers = $derived(activityItems(app.visibleTransfers, app.groups));
   const compactTransfers = $derived(transfers.slice(0, 2));
 
   async function pickFiles(target: string | null = null) {
@@ -150,7 +154,7 @@
 <input bind:this={fileInput} type="file" multiple hidden onchange={onFiles} data-testid="file-input" />
 <input bind:this={folderInput} type="file" webkitdirectory multiple hidden onchange={onFiles} data-testid="folder-input" />
 
-<div class="home" class:expanded data-testid="home">
+<div class="home" class:expanded data-testid="home" style:--panel-shown="{panelShown}px">
   <main class="main" bind:clientWidth={wrapWidth} bind:clientHeight={wrapHeight}>
     {#if wrapWidth && wrapHeight}
       <Room width={wrapWidth} height={wrapHeight} {layout} onpick={onPick} />
@@ -259,7 +263,7 @@
     {#if !app.isAndroid && !staging && !nothingNearby && away > 0.5}
       <p class="drop-hint" data-testid="home-drop-hint"><Icon name="download-simple" size={16} />{t('home.dropHint')}</p>
     {/if}
-    <HomePanel {staging} bubbles={layout.rest} bind:away onfiles={() => pickFiles()} onfolder={() => pickFolders()} onpick={onPick}>
+    <HomePanel {staging} bubbles={layout.rest} bind:away bind:shown={panelShown} onfiles={() => pickFiles()} onfolder={() => pickFolders()} onpick={onPick}>
       {#snippet above()}
         {#if nothingNearby && !app.onLan && app.discovery !== 'offline'}
           <!-- On mobile data: nearby can't work, so say why and offer the way that does. -->
@@ -278,9 +282,14 @@
         {/if}
     {#if !expanded && compactTransfers.length}
       <div class="compact-activity">
-        {#each compactTransfers as tr (tr.id)}
+        {#each compactTransfers as item (item.kind === 'group' ? item.id : item.transfer.id)}
           <div animate:springFlip in:springIn={{ y: 24 }} out:quickOut={{ y: 12 }}>
-            <TransferCard transfer={tr} ondetails={() => (app.sheet = { kind: 'transfer', id: tr.id })} />
+            {#if item.kind === 'group'}
+              <GroupCard id={item.id} transfers={item.transfers} />
+            {:else}
+              {@const tr = item.transfer}
+              <TransferCard transfer={tr} ondetails={() => (app.sheet = { kind: 'transfer', id: tr.id })} />
+            {/if}
           </div>
         {/each}
       </div>
@@ -291,9 +300,14 @@
 
   {#if expanded && transfers.length}
     <aside class="activity" aria-label={t('home.activity')}>
-      {#each transfers as tr (tr.id)}
+      {#each transfers as item (item.kind === 'group' ? item.id : item.transfer.id)}
         <div animate:springFlip in:springIn={{ y: 16 }} out:quickOut={{ x: 24, y: 0 }}>
-          <TransferCard transfer={tr} ondetails={() => (app.sheet = { kind: 'transfer', id: tr.id })} />
+          {#if item.kind === 'group'}
+            <GroupCard id={item.id} transfers={item.transfers} />
+          {:else}
+            {@const tr = item.transfer}
+            <TransferCard transfer={tr} ondetails={() => (app.sheet = { kind: 'transfer', id: tr.id })} />
+          {/if}
         </div>
       {/each}
     </aside>
@@ -538,6 +552,7 @@
     position: absolute;
     right: var(--space-5);
     bottom: var(--space-5);
+    transition: bottom var(--duration-fast) var(--ease-standard);
     z-index: 1;
     width: 340px;
     max-height: calc(100vh - 120px);
@@ -545,5 +560,12 @@
     flex-direction: column;
     gap: var(--space-3);
     overflow-y: auto;
+  }
+  /* Below 1240 px the centred 520 px panel reaches under the 340 px column: sit above it. */
+  @media (max-width: 1239.98px) {
+    .activity {
+      bottom: calc(var(--panel-shown, 0px) + var(--space-3));
+      max-height: calc(100vh - 120px - var(--panel-shown, 0px));
+    }
   }
 </style>

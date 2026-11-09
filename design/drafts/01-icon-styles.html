@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icon styles</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .styles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: var(--space-6); margin-top: var(--space-7); }
+  .style { display: flex; flex-direction: column; gap: var(--space-5); }
+  .style header { display: flex; align-items: baseline; gap: var(--space-3); }
+  .stylename { margin: 0; font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: 600; letter-spacing: var(--type-headline-tracking); }
+  .letter { font-size: var(--type-title1-size); line-height: var(--type-title1-line); font-weight: 700; color: var(--color-accent-text); }
+  .strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); }
+  .strip.on-canvas { background: var(--color-canvas); color: var(--color-text-primary); }
+  .strip.on-surface { background: var(--color-surface-raised); color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-separator); }
+  .strip.on-accent { background: var(--color-accent); color: var(--color-on-accent); }
+  .strip.tint { background: var(--color-canvas); color: var(--color-accent); }
+  .sizes { display: grid; grid-template-columns: 44px 1fr; align-items: center; row-gap: var(--space-3); }
+  .sizes .caption { font-variant-numeric: tabular-nums; }
+
+  /* in context: the round actions and main button from the Android home */
+  .context { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+  .primary {
+    display: inline-flex; align-items: center; gap: var(--space-3); height: 48px; padding: 0 var(--space-6) 0 var(--space-5);
+    border-radius: var(--radius-full); background: var(--color-accent); color: var(--color-on-accent);
+    font-weight: 600; font-size: var(--type-headline-size);
+  }
+  .round {
+    width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--color-surface-raised); color: var(--color-text-primary); box-shadow: var(--elevation-2);
+  }
+  .round.active { background: var(--color-accent-subtle); color: var(--color-accent-text); }
+
+  /* 8x zoom on the 24 grid */
+  .zooms { display: grid; grid-template-columns: repeat(3, 192px); overflow-x: auto; gap: var(--space-6); margin-top: var(--space-5); }
+  .zoom { position: relative; width: 192px; height: 192px; color: var(--color-text-primary);
+    background-color: var(--color-surface-raised);
+    background-image:
+      linear-gradient(to right, var(--color-separator) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-separator) 1px, transparent 1px);
+    background-size: 8px 8px; border-radius: var(--radius-sm); }
+  .zoom::before { /* live area: 2..22 on the 24 grid */
+    content: ""; position: absolute; inset: 16px; border: 1px dashed var(--color-danger); border-radius: 2px; pointer-events: none; }
+  .zoom svg { position: absolute; inset: 0; }
+  .today { color: var(--color-text-secondary); }
+  .today .strip { color: var(--color-text-primary); }
+  .ph { display: block; width: var(--s); height: var(--s); }
+  .ph svg { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pick an icon style</h1>
+  <p class="lede muted">The same 8 icons drawn three ways on a 24 grid. They are shown on the app's real canvas, card and accent colors, at the three sizes the apps use (24, 20, 16). Switch Dark in the bar to check both themes. Once you pick, I draw all of the about 60 icons, plus the file types, in that style.</p>
+
+  <section class="styles" id="styles"></section>
+
+  <h2>Today, for comparison</h2>
+  <p class="muted lede">The Phosphor duotone icons the apps ship now, at the same sizes.</p>
+  <div class="panel today"><div class="sizes" id="today"></div></div>
+
+  <h2>Up close</h2>
+  <p class="muted lede">Send, Done and Settings at 8x. Each grid square is 1 px at 24 px. The dashed box is the 20 px live area: drawings stay inside it so every icon reads the same size.</p>
+  <div class="zooms" id="zooms"></div>
+
+  <h2>The rules every icon follows</h2>
+  <table class="spec">
+    <tr><th>Grid</th><td>24 × 24, live area 20 × 20 (2 px padding). Round shapes may reach 1 px further to look the same size as square ones.</td></tr>
+    <tr><th>Stroke (A, C)</th><td><span class="tabular">16 px → 1.5 px, 20 px → 1.75 px, 24 px → 2 px</span>. Stroke is set per size so lines stay crisp, not scaled.</td></tr>
+    <tr><th>Corners</th><td>Round caps and joins, 1 px corner radius on boxes, 2 px on device outlines.</td></tr>
+    <tr><th>Navy offset (B)</th><td>Exactly 1 device px down and right, from 20 px up. At 16 px it is dropped because it would blur into a smudge.</td></tr>
+    <tr><th>Active state</th><td>A and C switch to their solid shape (B without the offset) when selected, like Fill in the app today.</td></tr>
+    <tr><th>Color</th><td>One color, from the text or accent token. Contrast is checked against canvas, card and accent at 3 : 1 or more (WCAG 1.4.11).</td></tr>
+    <tr><th>Placement</th><td>Icons sit on whole pixels at 1x, 2x and 3x. Hit areas stay 48 dp on Android, 32 px with a mouse.</td></tr>
+  </table>
+
+  <div class="ask"><strong>Your call:</strong> A, B or C? A mix is possible too, for example B for the main buttons and A everywhere else.</div>
+</main>
+
+<script type="module">
+  import { mountBar } from './shared/draft.js';
+  import { ICONS, STYLES, icon } from './shared/icons.js';
+  mountBar();
+
+  const names = Object.keys(ICONS);
+  const row = (style, size, cls) =>
+    `<div class="strip ${cls}">${names.map((n) => icon(n, style, size)).join('')}</div>`;
+
+  document.getElementById('styles').innerHTML = Object.entries(STYLES).map(([k, s]) => `
+    <article class="panel style" aria-label="Style ${k}">
+      <header><span class="letter">${k}</span><h2 class="stylename">${s.name}</h2></header>
+      <p class="muted small" style="margin:0">${s.note}</p>
+      <div class="sizes">
+        <span class="caption">24 px</span>${row(k, 24, 'on-canvas')}
+        <span class="caption">20 px</span>${row(k, 20, 'on-surface')}
+        <span class="caption">16 px</span>${row(k, 16, 'on-surface')}
+        <span class="caption">accent</span>${row(k, 20, 'on-accent')}
+        <span class="caption">tinted</span>${row(k, 20, 'tint')}
+      </div>
+      <div class="context">
+        <span class="primary" data-hit>${icon('send', k, 24)}Send files</span>
+        <span class="round" data-hit data-measure="48 dp">${icon('pause', k, 24)}</span>
+        <span class="round active" data-hit>${icon('settings', k === 'B' ? 'B' : k, 24)}</span>
+        <span class="round" data-hit>${icon('close', k, 20)}</span>
+      </div>
+    </article>`).join('');
+
+  document.getElementById('zooms').innerHTML = ['send', 'check', 'settings'].flatMap((n) =>
+    Object.keys(STYLES).map((k) => `
+      <figure style="margin:0">
+        <div class="zoom">${icon(n, k, 24).replace('width="24" height="24"', 'width="192" height="192"')}</div>
+        <figcaption class="caption" style="margin-top:8px">${k} · ${ICONS[n].label}</figcaption>
+      </figure>`)).join('');
+
+  // Today's Phosphor icons, read from the app's own package so the comparison is exact.
+  const PH = { send: 'paper-plane-tilt', receive: 'download-simple', laptop: 'laptop', phone: 'device-mobile',
+    check: 'check', close: 'x', pause: 'pause', settings: 'gear-six' };
+  const base = '../../desktop/node_modules/@phosphor-icons/core/assets/duotone/';
+  const svgs = await Promise.all(names.map((n) => fetch(`${base}${PH[n]}-duotone.svg`).then((r) => r.text())));
+  const phRow = (size, cls) => `<div class="strip ${cls}">${svgs.map((s) => `<span class="ph" style="--s:${size}px">${s}</span>`).join('')}</div>`;
+  document.getElementById('today').innerHTML =
+    `<span class="caption">24 px</span>${phRow(24, 'on-canvas')}<span class="caption">20 px</span>${phRow(20, 'on-surface')}<span class="caption">16 px</span>${phRow(16, 'on-surface')}`;
+</script>
+</body>
+</html>

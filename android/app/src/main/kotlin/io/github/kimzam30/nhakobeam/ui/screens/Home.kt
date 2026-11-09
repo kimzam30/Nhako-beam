@@ -104,7 +104,8 @@ import io.github.kimzam30.nhakobeam.ui.theme.style
 fun HomeScreen(app: AppState) {
     val c = Nhako.colors
     val nothingNearby = app.discovery != DiscoveryState.Searching && app.reachable.isEmpty() && app.started
-    val transfers = app.visibleTransfers.take(2)
+    // A send to several devices is one card (GroupCard), the rest one card each.
+    val transfers = io.github.kimzam30.nhakobeam.state.activityItems(app.visibleTransfers, app.groups).take(2)
 
     fun pick(deviceId: String) {
         val d = app.device(deviceId) ?: return
@@ -215,10 +216,13 @@ fun HomeScreen(app: AppState) {
                     }
                 }
             }
-            for (tr in transfers) {
-                androidx.compose.runtime.key(tr.id) {
+            for (item in transfers) {
+                androidx.compose.runtime.key(item.key) {
                     AnimatedVisibility(true, enter = scaleIn(NhakoMotion.smooth.spec(), initialScale = NhakoMotion.Scale.enterFrom) + fadeIn()) {
-                        TransferCard(app, tr, onDetails = { app.sheet = Sheet.TransferDetails(tr.id) })
+                        when (item) {
+                            is io.github.kimzam30.nhakobeam.state.ActivityItem.Group -> io.github.kimzam30.nhakobeam.ui.components.GroupCard(app, item.id, item.transfers)
+                            is io.github.kimzam30.nhakobeam.state.ActivityItem.One -> TransferCard(app, item.transfer, onDetails = { app.sheet = Sheet.TransferDetails(item.transfer.id) })
+                        }
                     }
                 }
             }

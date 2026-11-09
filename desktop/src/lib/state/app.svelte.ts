@@ -16,6 +16,7 @@ import type {
   LinkShare,
   PairingCode,
   PairVia,
+  SentTo,
   ServerProblem,
   Snapshot,
   Transfer,
@@ -25,6 +26,7 @@ import type {
   WhoCanSend,
 } from '../engine/types';
 import { TEXT_MAX } from '../engine/types';
+import { MAX_DEVICES } from './groups';
 import * as shell from '../shell';
 import { playHaptic } from '../haptics.svelte';
 import { playSound } from '../sounds.svelte';
@@ -841,6 +843,60 @@ class AppState {
       if (!this.staged.length) this.staged = sending;
       this.toast(message(e) || t('send.failed'), 'danger');
     });
+  }
+
+  /** Sends to several devices at once, side by side (Send to with more than one picked). The
+   *  transfers make one card on Home. One device not starting doesn't stop the others. */
+  sendToMany(deviceIds: string[]): void {
+    const ids = [...new Set(deviceIds)].slice(0, MAX_DEVICES);
+    if (ids.length === 1) return this.sendTo(ids[0]!);
+    if (!ids.length || !this.hasStaged) return;
+    const files = [...this.staged];
+    const text = this.stagedText;
+    this.staged = [];
+    this.stagedText = null;
+    for (const id of ids) this.bump(id);
+    if (this.sheet?.kind === 'send') this.sheet = null;
+    playSound('send');
+    const started: Promise<SentTo[]> =
+      text !== null
+        ? Promise.all(ids.map((deviceId) => this.engine.sendText(deviceId, text).then((id): SentTo => ({ deviceId, id }), (e): SentTo => ({ deviceId, error: message(e) || t('send.failed') }))))
+        : this.engine.sendMany(ids, files);
+    started.then(
+      (sent) => {
+        const ok = sent.filter((x) => x.id).map((x) => x.id!);
+        if (ok.length > 1) this.groups = { ...this.groups, [`g${++this.groupSeq}`]: ok };
+        for (const x of sent) if (x.error) this.toast(`${this.deviceName(x.deviceId)}: ${x.error}`, 'danger');
+        // Nothing started anywhere: put the files back so nothing is lost.
+        if (!ok.length && !this.hasStaged) {
+          if (text !== null) this.stagedText = text;
+          else this.staged = files;
+        }
+      },
+      (e) => {
+        if (!this.hasStaged) {
+          if (text !== null) this.stagedText = text;
+          else this.staged = files;
+        }
+        this.toast(message(e) || t('send.failed'), 'danger');
+      },
+    );
+  }
+
+  /** Sends to several devices: transfer ids by group, for Home's one card per group. */
+  groups = $state<Record<string, string[]>>({});
+  private groupSeq = 0;
+
+  /** Cancels every part of a group that's still going. */
+  cancelGroup(groupId: string): void {
+    for (const id of this.groups[groupId] ?? []) {
+      const x = this.transfers.find((tr) => tr.id === id);
+      if (x && ACTIVE.has(x.status)) this.engine.cancel(id);
+    }
+  }
+
+  dismissGroup(groupId: string): void {
+    for (const id of this.groups[groupId] ?? []) this.dismissTransfer(id);
   }
 
   sendTextTo(deviceId: string, text: string): void {

@@ -174,7 +174,7 @@ class Background(private val context: Context, private val app: AppState, privat
     fun onEvent(e: EngineEvent) {
         when (e) {
             is EngineEvent.Incoming -> if (!foreground) {
-                notifier.showRequest(e.request, app.deviceName(e.request.deviceId))
+                notifier.showRequest(e.request, app.deviceName(e.request.deviceId), preview = app.device(e.request.deviceId)?.trusted == true)
                 postedRequests += e.request.id
             }
             is EngineEvent.TransferChanged -> onTransfer(e)

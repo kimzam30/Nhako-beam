@@ -258,6 +258,35 @@ class FakeEngine : Engine {
 
     fun file(name: String, size: Long, mime: String) = FileItem("f${++seq}", name, size, mime)
 
+    /** A made-up photo for previews: sky, sun and hills in one of a few palettes, as the desktop prototype draws. */
+    fun sampleThumb(i: Int): String? = runCatching {
+        val (sky, sun, land) = listOf(
+            Triple(0xFF3F86F0.toInt(), 0xFFFFD23F.toInt(), 0xFF14794A.toInt()),
+            Triple(0xFFF0A63C.toInt(), 0xFFFFF1C4.toInt(), 0xFF975800.toInt()),
+            Triple(0xFF12263F.toInt(), 0xFFE8EEF8.toInt(), 0xFF2B3A55.toInt()),
+            Triple(0xFF7DB8FF.toInt(), 0xFFFFFFFF.toInt(), 0xFF4CC487.toInt()),
+        )[i % 4]
+        val bmp = android.graphics.Bitmap.createBitmap(160, 120, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        canvas.drawColor(sky)
+        paint.color = sun
+        canvas.drawCircle(112f, 34f, 14f, paint)
+        paint.color = land
+        canvas.drawPath(android.graphics.Path().apply {
+            moveTo(0f, 96f); lineTo(52f, 60f); lineTo(92f, 92f); lineTo(120f, 74f); lineTo(160f, 98f); lineTo(160f, 120f); lineTo(0f, 120f); close()
+        }, paint)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out)
+        "data:image/jpeg;base64," + android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+    }.getOrNull()
+
+    /** Previews on the first few photos and videos, as a phone sender adds them. */
+    fun withThumbs(files: List<FileItem>): List<FileItem> {
+        var n = 0
+        return files.map { f -> if (n < 4 && (f.mime.startsWith("image/") || f.mime.startsWith("video/"))) f.copy(thumb = sampleThumb(n++)) else f }
+    }
+
     fun photos() = listOf(
         file("IMG_2041.jpg", 4_200_000, "image/jpeg"),
         file("IMG_2042.jpg", 3_900_000, "image/jpeg"),

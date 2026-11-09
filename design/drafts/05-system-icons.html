@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System icons</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .masks { display: flex; gap: var(--space-7); flex-wrap: wrap; align-items: flex-end; }
+  .masks figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+  /* 108 dp canvas shown at 1.5x = 162 px; the visible 72 dp = 108 px */
+  .adaptive { position: relative; width: 162px; height: 162px; }
+  .adaptive .layer { position: absolute; inset: 0; }
+  .adaptive .layer svg { width: 162px; height: 162px; display: block; image-rendering: pixelated; }
+  .adaptive .clip { position: absolute; inset: 27px; overflow: hidden; }
+  .adaptive .clip > div { position: absolute; inset: -27px; }
+  .adaptive .ghost { position: absolute; inset: 0; opacity: .14; }
+  .adaptive .safe { position: absolute; left: 31.5px; top: 31.5px; width: 99px; height: 99px; border-radius: 50%;
+    border: 1px dashed var(--color-danger); opacity: 0; }
+  .adaptive .edge { position: absolute; inset: 27px; border: 1px dashed var(--color-text-tertiary); opacity: 0; }
+  [data-spec="on"] .adaptive .safe, [data-spec="on"] .adaptive .edge { opacity: 1; }
+  [data-spec="on"] .adaptive .ghost { opacity: .3; }
+
+  .themed { display: flex; gap: var(--space-6); flex-wrap: wrap; }
+  .home { width: 300px; padding: var(--space-6); border-radius: var(--radius-lg); display: flex; gap: var(--space-5); justify-content: center; }
+  .home figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; }
+  .home .tile { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; position: relative; }
+  .home .tile svg { position: absolute; left: -18px; top: -18px; width: 108px; height: 108px; image-rendering: pixelated; }
+
+  .statusbar { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 12px; width: 300px; font: 600 14px/1 var(--font-sans); }
+  .statusbar svg { width: 24px; height: 24px; display: block; }
+  .px { display: flex; gap: var(--space-6); align-items: flex-end; flex-wrap: wrap; }
+  .px figure { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  canvas.pixels { image-rendering: pixelated; background: #1E2126; border-radius: 6px; display: block; }
+
+  .trays { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-6); }
+  .panelbar { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 10px; }
+  .panelbar figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; font: 500 10px/12px var(--font-mono); opacity: .9; }
+  .panelbar canvas { display: block; }
+  .verdict { font-variant-numeric: tabular-nums; }
+  .ok { color: var(--color-success); font-weight: 600; }
+  .bad { color: var(--color-danger); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Launcher, notification and tray icons</h1>
+  <p class="lede muted">These are the app's real files, read from the repo, on the new #2F8FFF. Every size below is measured against the platform's own rules. Turn on Spec overlay to see the safe zones.</p>
+
+  <h2>Android launcher (adaptive icon)</h2>
+  <p class="muted lede">The launcher crops the 108 dp canvas to 72 dp in whatever shape the phone uses. Everything that matters has to sit inside the 66 dp safe circle. The faint layer shows what is cropped away.</p>
+  <div class="masks" id="masks"></div>
+  <table class="spec" id="launcherSpec"></table>
+  <div class="ask"><strong>Your call:</strong> keep the bleed, fit the square, or fit the circle?</div>
+
+  <h2>Themed icon (Android 13 and up)</h2>
+  <p class="muted lede">When the owner turns on themed icons, the launcher uses the one-color drawable and tints it from the wallpaper. The colors here are typical examples. The shape is the real file.</p>
+  <div class="themed" id="themed"></div>
+
+  <h2>Notification icon</h2>
+  <p class="muted lede">The status bar icon is white only, 24 dp, with a 20 dp live area. On the Flip5 (480 dpi, 3x) it is 72 × 72 real pixels.</p>
+  <div class="row">
+    <div class="statusbar" style="background:#000;color:#fff" id="sbDark"></div>
+    <div class="statusbar" style="background:#F4F5F7;color:#121418" id="sbLight"></div>
+  </div>
+  <div class="px" id="notifyPx" style="margin-top:var(--space-6)"></div>
+  <table class="spec" id="notifySpec"></table>
+
+  <h2>Desktop tray, taskbar and app list</h2>
+  <p class="muted lede">The pixel bolt is drawn on a 48 grid. It only stays crisp at 48 px and whole multiples of it (96, 144, 192). At 16, 22, 24 and 32 px the art falls between pixels and the face turns to mush, which is what Windows and Linux panels show today. Below the pixel art, I propose a flat bolt for 32 px and under, using the same shape the app animates (Bolt.svelte), yellow with the navy offset on #2F8FFF.</p>
+  <div class="trays" id="trays"></div>
+  <table class="spec">
+    <tr><th>Windows .ico</th><td class="verdict">16, 24, 32 flat · 48, 256 pixel art</td></tr>
+    <tr><th>Windows tray</th><td class="verdict">16 px at 100%, 20 at 125%, 24 at 150%, 32 at 200% scaling: flat at all of them</td></tr>
+    <tr><th>Linux (hicolor)</th><td class="verdict">16, 22, 24, 32 flat · 48, 64*, 128*, 256* pixel art (*nearest whole multiple, drawn at 48 then scaled by 2 or 4 with no smoothing; 64 gets a 4 px blue border)</td></tr>
+    <tr><th>Linux tray</th><td class="verdict">22 and 24 px flat, colored. GNOME prefers one-color "symbolic" tray icons; I can add one if you want it.</td></tr>
+  </table>
+  <div class="ask"><strong>Your call:</strong> OK with a flat bolt at 32 px and under, and the pixel bolt at 48 and up?</div>
+</main>
+
+<script type="module">
+  import { mountBar } from './shared/draft.js';
+  import { text, vectorToSvg, reach } from './shared/assets.js';
+  mountBar();
+
+  const NEW = '#2F8FFF';
+  const RES = 'android/app/src/main/res/drawable/';
+  const fg = vectorToSvg(await text(RES + 'ic_launcher_foreground.xml'));
+  const mono = await text(RES + 'ic_launcher_monochrome.xml');
+  const notify = vectorToSvg(await text(RES + 'ic_notify.xml'));
+
+  // Launcher in four mask shapes, three placements. 1 dp = 1.5 px here.
+  // Measured from the file's own rectangles: art spans x 19-96, y 13.75-96 dp; the yellow body reaches 50.8 dp
+  // from the centre, the face 31.5 dp. Visible crop is 18-90 dp.
+  const shapes = { Circle: '50%', Squircle: '32%', 'Rounded square': '18%', Teardrop: '50% 50% 50% 12%' };
+  const FIT_SQUARE = +(36 / 40.25).toFixed(3); // furthest edge 54-13.75 = 40.25 dp must become 36
+  const FIT_CIRCLE = +(33 / 50.8).toFixed(3);  // yellow body inside the 33 dp safe circle
+  const rows = [['Now (shipped)', 1], [`Fit the 72 dp square · scale ${FIT_SQUARE}`, FIT_SQUARE], [`Fit the 66 dp circle · scale ${FIT_CIRCLE}`, FIT_CIRCLE]];
+  document.getElementById('masks').innerHTML = rows.map(([title, sc]) => `
+    <div style="width:100%"><h3 style="margin:var(--space-5) 0 var(--space-3)">${title}</h3><div class="masks">${
+    Object.entries(shapes).map(([name, r]) => `
+    <figure>
+      <div class="adaptive">
+        <div class="ghost" style="background:${NEW}"><div class="layer" style="transform:scale(${sc})">${fg}</div></div>
+        <div class="clip" style="border-radius:${r}"><div style="background:${NEW}"><div class="layer" style="transform:scale(${sc})">${fg}</div></div></div>
+        <div class="edge"></div><div class="safe"></div>
+      </div>
+      <figcaption class="caption">${name}</figcaption>
+    </figure>`).join('')}</div></div>`).join('');
+  const fgReach = await reach(fg, 108, 54, 54);
+  const monoSvg = vectorToSvg(mono);
+  const monoReach = await reach(monoSvg, 108, 54, 54);
+  const verdict = (v, lim) => `<span class="${v <= lim ? 'ok' : 'bad'}">${v.toFixed(1)} dp</span> from the centre, limit ${lim} dp`;
+  document.getElementById('launcherSpec').innerHTML = `
+    <tr><th>Canvas</th><td>108 × 108 dp, visible 72 dp, safe circle 66 dp (radius 33)</td></tr>
+    <tr><th>Foreground (color)</th><td class="verdict">${verdict(fgReach, 33)}. The art runs to 96 dp, past the 90 dp crop, so every launcher cuts the bolt's outline and tail. The face reaches 31.5 dp, so it is always safe.</td></tr>
+    <tr><th>Fit options</th><td class="verdict">Scale ${FIT_SQUARE}: nothing is cut on square-ish masks, round masks still trim the tips. Scale ${FIT_CIRCLE}: nothing is ever cut, but the bolt gets small. Today's bleed is a valid look too, since the face stays inside.</td></tr>
+    <tr><th>Monochrome</th><td class="verdict">${verdict(monoReach, 33)}</td></tr>
+    <tr><th>Background</th><td>#3F86F0 → #2F8FFF, in <span class="mono">res/values/themes.xml</span></td></tr>`;
+
+  // Themed icon examples
+  const tint = (fgc) => monoSvg.replace(/fill="#?[0-9A-Fa-f]{6,8}"/g, `fill="${fgc}"`);
+  document.getElementById('themed').innerHTML = [
+    ['Light wallpaper', '#E8EEF8', '#D6E3FF', '#0A2B5C'],
+    ['Dark wallpaper', '#14171C', '#2C3A52', '#B9CCF2'],
+  ].map(([n, page, bg, ink]) => `
+    <div class="home" style="background:${page}">
+      <figure style="color:${ink}"><div class="tile" style="background:${bg}">${tint(ink)}</div><span style="color:${page === '#14171C' ? '#E6E9EF' : '#22262C'}">Nhako Beam</span></figure>
+      <figure><div class="tile" style="background:${NEW}">${fg}</div><span style="color:${page === '#14171C' ? '#E6E9EF' : '#22262C'}">Full color</span></figure>
+    </div>`).join('');
+
+  // Status bar
+  const bar = (color) => `<span class="tabular">12:45</span>${notify.replace(/fill="#FFFFFF"/g, `fill="${color}"`).replace(/stroke="#FFFFFF"/g, `stroke="${color}"`)}`;
+  document.getElementById('sbDark').innerHTML = bar('#FFFFFF');
+  document.getElementById('sbLight').innerHTML = bar('#121418');
+
+  // Rasterise to real device pixels at 1x/2x/3x, show each at 4 screen px per device px.
+  async function raster(svg, px, smooth = true) {
+    const img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', `<svg width="${px}" height="${px}" `));
+    await img.decode();
+    const c = document.createElement('canvas'); c.width = c.height = px;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = smooth; g.drawImage(img, 0, 0, px, px);
+    return c;
+  }
+  const px = document.getElementById('notifyPx');
+  for (const [d, label] of [[24, '1x · 24 px'], [48, '2x · 48 px'], [72, '3x · 72 px, Flip5']]) {
+    const c = await raster(notify, d);
+    c.className = 'pixels'; c.style.width = c.style.height = `${d * 4}px`;
+    const f = document.createElement('figure'); f.append(c);
+    f.insertAdjacentHTML('beforeend', `<figcaption class="caption">${label}</figcaption>`); px.append(f);
+  }
+  const nReach = await reach(notify, 640, 320, 320);
+  const holder = document.createElement('div'); holder.innerHTML = notify; holder.style.cssText = 'position:absolute;left:-9999px';
+  document.body.append(holder);
+  const b = holder.querySelector('path').getBBox(); const m = holder.querySelector('g').transform.baseVal.consolidate()?.matrix;
+  holder.remove();
+  const k = 24 / 640, x1 = (b.x + (m?.e ?? 0)) * k, y1 = (b.y + (m?.f ?? 0)) * k, x2 = x1 + b.width * k, y2 = y1 + b.height * k;
+  const inLive = x1 >= 2 && y1 >= 2 && x2 <= 22 && y2 <= 22;
+  document.getElementById('notifySpec').innerHTML = `
+    <tr><th>Drawn area</th><td class="verdict">${x1.toFixed(1)}–${x2.toFixed(1)} × ${y1.toFixed(1)}–${y2.toFixed(1)} dp (path box, before its 12-unit stroke), live area 2–22: <span class="${inLive ? 'ok' : 'bad'}">${inLive ? 'inside' : 'outside'}</span></td></tr>
+    <tr><th>Furthest pixel</th><td class="verdict">${(nReach * 24 / 640).toFixed(1)} dp from the centre</td></tr>
+    <tr><th>Proposal</th><td>Keep this bolt, which is already the flat brand shape. ${inLive ? '' : `Scale it to ${(9.8 / ((y2 - y1) / 2)).toFixed(2)} around the centre so it spans ${(12 - 9.8).toFixed(1)}–${(12 + 9.8).toFixed(1)} dp and fits the live area with its stroke.`}</td></tr>`;
+
+  // Tray: pixel art downscaled vs the flat bolt, on light and dark panels.
+  const fav = (await text('desktop/public/favicon.svg')).replace('fill="#3f86f0"', `fill="${NEW}"`);
+  const BOLT = [[676.16, 161.6], [829.76, 244.16], [608.96, 464.96], [743.36, 503.36], [194.24, 862.4], [436.16, 574.4], [301.76, 536]];
+  const pts = BOLT.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const flat = (s) => {
+    const off = (1024 / s) * Math.max(1, Math.round(s / 16)); // whole device px: 1 px at 16-31, 2 px at 32
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="225" fill="${NEW}"/>
+      <polygon points="${pts}" transform="translate(${off} ${off})" fill="#1A6FE0" stroke="#1A6FE0" stroke-width="40" stroke-linejoin="round"/>
+      <polygon points="${pts}" fill="#FFD23F" stroke="#FFD23F" stroke-width="40" stroke-linejoin="round"/></svg>`;
+  };
+  const trays = document.getElementById('trays');
+  for (const [name, bg, fgc] of [['Light panel', '#E9EBEF', '#121418'], ['Dark panel', '#1E2126', '#F1F2F4']]) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<h3>${name}</h3><p class="caption" style="margin:0 0 6px">Pixel bolt today, shown at 1x then enlarged 3x so the blur is visible</p><div class="panelbar" style="background:${bg};color:${fgc}" data-row="pixel"></div>
+      <p class="caption" style="margin:12px 0 6px">Flat bolt proposal</p><div class="panelbar" style="background:${bg};color:${fgc}" data-row="flat"></div>`;
+    trays.append(wrap);
+    for (const s of [16, 22, 24, 32]) {
+      for (const [row, svg] of [['pixel', fav], ['flat', flat(s)]]) {
+        const c = await raster(svg, s);
+        c.style.width = c.style.height = `${s * 3}px`; c.style.imageRendering = 'pixelated';
+        const f = document.createElement('figure'); f.append(c);
+        f.insertAdjacentHTML('beforeend', `<span>${s}</span>`);
+        wrap.querySelector(`[data-row="${row}"]`).append(f);
+      }
+    }
+  }
+</script>
+</body>
+</html>

@@ -385,6 +385,7 @@ fn folder_to_send(root: &Path) -> Vec<Outgoing> {
             name: path.file_name().unwrap().to_string_lossy().into_owned(),
             path,
             folder: Some(folder),
+            thumb: None,
         })
         .collect()
 }
@@ -401,6 +402,46 @@ impl Node {
 
 /// A folder keeps its shape on the other side, in a new folder of its own when the name is taken,
 /// and a cancelled one leaves nothing behind.
+/// Previews ride with the request: the receiver sees them before accepting, as data URLs, and only
+/// for valid JPEGs. The transfer (and so History) never keeps them.
+#[tokio::test(flavor = "multi_thread")]
+async fn previews_come_with_the_request_only() {
+    let mem = MemoryLookup::new();
+    let a = Node::new(&mem, "Laptop", None).await;
+    let mut b = Node::new(&mem, "Phone", None).await;
+    let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9];
+    let thumb = |jpeg: Vec<u8>| {
+        Some(nhako_core::wire::Thumb {
+            file: 99,
+            w: 160,
+            h: 120,
+            jpeg,
+        })
+    };
+    let out: Vec<Outgoing> = ["a.jpg", "b.jpg", "c.txt"]
+        .iter()
+        .zip([thumb(jpeg.clone()), thumb(b"<svg/>".to_vec()), None])
+        .map(|(name, thumb)| Outgoing {
+            path: make_file(&a.dir.join("out"), name, 1000),
+            name: (*name).into(),
+            folder: None,
+            thumb,
+        })
+        .collect();
+    let id = a.engine.send_files(&b.id(), &out).unwrap();
+    let req = b.wait_request().await;
+    let want = format!("data:image/jpeg;base64,{}", data_encoding::BASE64.encode(&jpeg));
+    assert_eq!(
+        req.files.iter().map(|f| f.thumb.as_deref()).collect::<Vec<_>>(),
+        [Some(want.as_str()), None, None]
+    );
+    b.engine.accept(&req.id, false, false);
+    let t = b.wait_transfer("received", |t| t.id == id && t.status == TransferStatus::Done).await;
+    assert!(t.files.iter().all(|f| f.thumb.is_none()));
+    a.stop().await;
+    b.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn sends_a_folder_and_keeps_its_shape() {
     let mem = MemoryLookup::new();
@@ -418,6 +459,7 @@ async fn sends_a_folder_and_keeps_its_shape() {
         path: loose.clone(),
         name: "notes.txt".into(),
         folder: None,
+        thumb: None,
     });
     let id = a.engine.send_files(&b.id(), &out).unwrap();
     let req = b.wait_request().await;
@@ -535,11 +577,13 @@ async fn share_via_link_lets_in_only_who_you_allow() {
             path: photo.clone(),
             name: "beach.jpg".into(),
             folder: None,
+            thumb: None,
         },
         Outgoing {
             path: note.clone(),
             name: "note.txt".into(),
             folder: Some("Trip".into()),
+            thumb: None,
         },
     ];
     let share = a.engine.share_link(&out, Some("Wi-Fi password is on the fridge")).unwrap();

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nhako Beam drafts</title>
+<link rel="icon" href="../../desktop/public/favicon.svg">
+<link rel="stylesheet" href="shared/draft.css">
+<style>
+  .pages { display: grid; gap: 0; margin-top: var(--space-6); max-width: 860px; }
+  .pages a { display: grid; grid-template-columns: 200px 1fr; gap: var(--space-6); padding: var(--space-5) 0; border-bottom: 1px solid var(--color-separator); color: inherit; text-decoration: none; }
+  .pages a:hover .pagename { color: var(--color-accent-text); }
+  .pages .pagename { margin: 0; font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: 600; letter-spacing: var(--type-headline-tracking); }
+  .pages p { margin: 0; color: var(--color-text-secondary); }
+  .pages .q { margin-top: 6px; color: var(--color-text-primary); font-size: var(--type-footnote-size); }
+  .devices td, .devices th { font-variant-numeric: tabular-nums; }
+  @media (max-width: 640px) { .pages a { grid-template-columns: 1fr; gap: var(--space-2); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Custom icons, motion and pages</h1>
+  <p class="lede muted">First draft round for your approval. Nothing in the app has changed: these pages read the app's real tokens, brand files, copy and 3D bolt, and show what I propose on top. Each page ends with the questions I need you to answer.</p>
+
+  <div class="pages">
+    <a href="01-icon-styles.html"><h2 class="pagename">Icon styles</h2><div><p>8 sample icons in three styles, on every surface and size, next to today's Phosphor set.</p><p class="q">Pick A, B or C, then I draw the full set.</p></div></a>
+    <a href="07-icon-set.html"><h2 class="pagename">Icon set (style B)</h2><div><p>All 70 icons in style B, by group, at 24, 20 and 16 px and at the Flip's real pixels, next to today's set.</p><p class="q">Anything to redraw?</p></div></a>
+    <a href="02-brand-blue.html"><h2 class="pagename">Brand blue</h2><div><p>App icon, favicon, splash and window moved to #2F8FFF, with measured contrast.</p><p class="q">May the generator in the Nhako-home repo change too?</p></div></a>
+    <a href="03-moments.html"><h2 class="pagename">Motion moments</h2><div><p>Splash, searching and waiting, transfer progress, finish and fail, with the real 3D bolt and six new moods.</p><p class="q">New moods, the charging loader, the Live Update notification?</p></div></a>
+    <a href="04-pages.html"><h2 class="pagename">Pages</h2><div><p>Empty states, the five onboarding steps, toasts, banners and sheets, at true size.</p><p class="q">Moods per empty state, onboarding wording.</p></div></a>
+    <a href="05-system-icons.html"><h2 class="pagename">System icons</h2><div><p>Launcher in four mask shapes, themed icon, notification icon, tray and taskbar sizes.</p><p class="q">Launcher bleed or fit, flat bolt at 32 px and under?</p></div></a>
+    <a href="06-cover-mini.html"><h2 class="pagename">Cover screen</h2><div><p>The mini request, progress and done view for the Flip5 outer screen, around the real camera cutout.</p><p class="q">Live moments only, or an idle view too?</p></div></a>
+  </div>
+
+  <h2>Screens these drafts are measured on</h2>
+  <table class="spec devices">
+    <tr><th>Screen</th><th>Pixels</th><th>Density</th><th>Size used</th><th>Source</th></tr>
+    <tr><td>Z Flip5 main</td><td>1080 × 2640</td><td>480 dpi (3.0x)</td><td>360 × 880 dp</td><td>adb wm size / density</td></tr>
+    <tr><td>Z Flip5 cover</td><td>748 × 720</td><td>320 dpi (2.0x)</td><td>374 × 360 dp, cutout 184.5 × 33 dp bottom right</td><td>adb dumpsys window</td></tr>
+    <tr><td>Tab S9 FE</td><td>1440 × 2304</td><td>280 dpi (1.75x)</td><td>823 × 1317 dp, font scale 1.1</td><td>adb</td></tr>
+    <tr><td>Desktop window</td><td>1080 × 760</td><td>any</td><td>minimum 360 × 560</td><td>tauri.conf.json</td></tr>
+  </table>
+  <p class="muted small">The 3D bolt is loaded from the desktop dev server (launch config "prototype", port 5173). If it isn't running, those spots say so instead.</p>
+</main>
+<script type="module">
+  import { mountBar } from './shared/draft.js';
+  mountBar();
+</script>
+</body>
+</html>

@@ -35,7 +35,7 @@ use crate::{
     text,
     types::{self, *},
     wake,
-    wire::{self, Answer, ClientHello, Ctrl, DeclineReason, DeviceInfo, FileMeta, FileState, Folders, HelloExt, Intent, Offer, ServerHello, TransferId},
+    wire::{self, Answer, ClientHello, Ctrl, DeclineReason, DeviceInfo, FileMeta, FileState, Folders, HelloExt, Intent, Offer, ServerHello, Thumb, TransferId},
 };
 
 /// A file to send: where it is, the name it's sent under, and for a file inside a folder being
@@ -45,6 +45,9 @@ pub struct Outgoing {
     pub path: PathBuf,
     pub name: String,
     pub folder: Option<String>,
+    /// A small JPEG preview the app made of it (photos, and videos on Android), sent with the
+    /// request. See [`wire::Thumb`]; one that's too big or isn't a JPEG is left out.
+    pub thumb: Option<Thumb>,
 }
 
 /// The longest text sent as text, in bytes of UTF-8 (64 KiB). Longer text goes as a file.
@@ -232,6 +235,8 @@ pub(crate) struct Tx {
     pub temp: Option<PathBuf>,
     /// Receiver of folders: the folders made for them in the save folder, cleared out if cancelled.
     pub folders: Vec<PathBuf>,
+    /// Sender: previews to send with the request.
+    pub thumbs: Vec<Thumb>,
 }
 
 impl Tx {
@@ -802,6 +807,7 @@ impl Engine {
                 path: path.clone(),
                 name: name.clone(),
                 folder: None,
+                thumb: None,
             })
             .collect();
         self.send_files(device, &out)
@@ -835,6 +841,7 @@ impl Engine {
             path: path.clone(),
             name: name.into(),
             folder: None,
+            thumb: None,
         };
         self.start_send(device, &[file], Some(body.to_string()), Some(path.clone())).inspect_err(|_| {
             let _ = std::fs::remove_file(&path);
@@ -875,6 +882,7 @@ impl Engine {
                 name,
                 size: meta.len(),
                 folder: f.folder.as_deref().and_then(files::safe_folder).map(|p| p.join("/")),
+                thumb: None,
             });
             src.push(SrcFile {
                 path: f.path.clone(),
@@ -885,6 +893,13 @@ impl Engine {
         let id: TransferId = rand::random();
         let route = self.st().devices.get(&peer).and_then(|d| d.route).unwrap_or(Route::Relayed);
         let mut tx = new_tx(id, TransferDirection::Send, peer, items, route, TxSide::Send(src), TransferStatus::Connecting);
+        tx.thumbs = files
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| f.thumb.clone().map(|t| Thumb { file: i as u32, ..t }))
+            .filter(Thumb::looks_valid)
+            .take(wire::THUMBS_MAX)
+            .collect();
         tx.t.text = text;
         tx.temp = temp;
         self.st().transfers.insert(id, tx);
@@ -1931,10 +1946,20 @@ impl Engine {
                     name,
                     size: f.size,
                     folder: folders.as_ref().and_then(|d| d.of(i)).and_then(files::safe_folder).map(|p| p.join("/")),
+                    thumb: None,
                 }
             })
             .collect();
         let total: u64 = items.iter().map(|f| f.size).sum();
+        // Previews go on the request only, not the transfer: History never keeps them.
+        let mut shown = items.clone();
+        if body.is_none() {
+            for t in ext.thumbs.unwrap_or_default().into_iter().filter(Thumb::looks_valid).take(wire::THUMBS_MAX) {
+                if let Some(f) = shown.get_mut(t.file as usize) {
+                    f.thumb = Some(format!("data:image/jpeg;base64,{}", data_encoding::BASE64.encode(&t.jpeg)));
+                }
+            }
+        }
         let request_id = wire::transfer_id_str(&offer.id);
         let auto = self.store().trusted(&peer).is_some_and(|t| t.auto_accept);
 
@@ -1942,7 +1967,7 @@ impl Engine {
         let request = (!auto).then(|| IncomingRequest {
             id: request_id.clone(),
             device_id: device_id(&peer),
-            files: items.clone(),
+            files: shown,
             total_bytes: total,
             received_at: now_ms(),
             text: body.clone(),
@@ -2161,6 +2186,7 @@ impl Engine {
                 HelloExt {
                     folders: folders_of(&tx.t.files),
                     text: tx.t.text.clone(),
+                    thumbs: (!tx.thumbs.is_empty()).then(|| tx.thumbs.clone()),
                     ..HelloExt::default()
                 },
             )
@@ -2622,6 +2648,7 @@ fn new_tx(id: TransferId, direction: TransferDirection, peer: EndpointId, files:
         marks: Default::default(),
         temp: None,
         folders: vec![],
+        thumbs: vec![],
     }
 }
 

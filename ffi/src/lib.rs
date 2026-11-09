@@ -51,6 +51,16 @@ pub struct SendFile {
     pub path: String,
     pub name: String,
     pub folder: Option<String>,
+    /// A small JPEG preview (photos and videos), sent with the request.
+    pub thumb: Option<SendThumb>,
+}
+
+/// A JPEG of at most 160 px on its long side and 32 KiB; anything bigger is left out.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SendThumb {
+    pub jpeg: Vec<u8>,
+    pub w: u16,
+    pub h: u16,
 }
 
 /// Opens `content://` addresses for the engine, one file at a time as each is sent, so a folder
@@ -211,6 +221,12 @@ impl NhakoEngine {
                 path: PathBuf::from(f.path),
                 name: f.name,
                 folder: f.folder,
+                thumb: f.thumb.map(|t| nhako_core::wire::Thumb {
+                    file: 0,
+                    w: t.w,
+                    h: t.h,
+                    jpeg: t.jpeg,
+                }),
             })
             .collect();
         self.in_rt(|| e.send_files(&device_id, &out)).map_err(send_error)
@@ -225,6 +241,7 @@ impl NhakoEngine {
                 path: PathBuf::from(f.path),
                 name: f.name,
                 folder: f.folder,
+                thumb: None,
             })
             .collect();
         let share = self.in_rt(|| e.share_link(&out, text.as_deref())).map_err(|err| match err {

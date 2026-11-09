@@ -49,6 +49,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -267,15 +269,35 @@ private fun SendContent(app: AppState) {
             Spacer(Modifier.width(NhakoSpace.s4))
             BasicText("${app.stagedSummary} · ${formatBytes(app.staged.sumOf { it.size })}", style = NhakoType.callout.style(c.textPrimary).copy(fontWeight = FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        // The same previews the other device will see.
+        io.github.kimzam30.nhakobeam.ui.components.Previews(app.staged, size = 52.dp, list = false)
+    }
+    // Send to several: tick devices (or long-press one), then one button sends to all. With none
+    // ticked a tap sends right away.
+    var picked by remember { mutableStateOf(listOf<String>()) }
+    fun pick(id: String) {
+        picked = when {
+            id in picked -> picked - id
+            picked.size < io.github.kimzam30.nhakobeam.state.MAX_DEVICES -> picked + id
+            else -> picked.also { app.toast(t("send.many.max", "count" to io.github.kimzam30.nhakobeam.state.MAX_DEVICES)) }
+        }
     }
     var i = 0
     for ((label, list) in listOf(t("send.choose.trusted") to trusted, t("send.choose.nearby") to nearby)) {
         if (list.isEmpty()) continue
         BasicText(label, style = NhakoType.footnote.style(c.textSecondary).copy(fontWeight = FontWeight(600)))
         Column {
-            for (d in list) androidx.compose.runtime.key(d.id) { DeviceRow(app, d, i++) }
+            for (d in list) androidx.compose.runtime.key(d.id) {
+                DeviceRow(app, d, i++, picked = d.id in picked, picking = picked.isNotEmpty(), onPick = { pick(d.id) })
+            }
         }
     }
+    val label = when (picked.size) {
+        0 -> t("send.many.none")
+        1 -> t("send.many.one", "device" to app.deviceName(picked[0]))
+        else -> t("send.many.go", "count" to picked.size)
+    }
+    NButton(label, { app.sendToMany(picked) }, enabled = picked.isNotEmpty(), full = true)
     NButton(t("send.choose.useCode"), { app.sheet = Sheet.ShowCode }, variant = ButtonVariant.Plain, icon = "qr-code", full = true)
     // For a device without the app: a web page on the same Wi-Fi (Share via link).
     Row(
@@ -398,17 +420,23 @@ private fun VisitorRow(app: AppState, v: io.github.kimzam30.nhakobeam.model.Link
 }
 
 @Composable
-private fun DeviceRow(app: AppState, d: Device, order: Int) {
+private fun DeviceRow(app: AppState, d: Device, order: Int, picked: Boolean = false, picking: Boolean = false, onPick: () -> Unit = {}) {
     val c = Nhako.colors
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         delay((order.coerceAtMost(5) * NhakoMotion.staggerStepMs).toLong())
         enter.animateTo(1f, NhakoMotion.smooth.spec())
     }
+    val pickBg by androidx.compose.animation.animateColorAsState(if (picked) c.accentSubtle else Color.Transparent, tween(NhakoMotion.Duration.fast), label = "pickRow")
     Row(
         Modifier.fillMaxWidth().graphicsLayer { translationY = (1 - enter.value) * 8.dp.toPx(); alpha = enter.value.coerceIn(0f, 1f) }
-            .clip(RoundedCornerShape(NhakoRadius.md)).clickable(enabled = d.reachable || d.wakeable, role = Role.Button, onClick = withTap { app.sendTo(d.id) })
-            .alpha(if (d.reachable || d.wakeable) 1f else 0.5f).padding(vertical = NhakoSpace.s2),
+            .clip(RoundedCornerShape(NhakoRadius.md)).background(pickBg)
+            .combinedClickable(
+                enabled = d.reachable || d.wakeable, role = Role.Button,
+                onLongClick = onPick, onLongClickLabel = t("send.many.pick", "device" to d.name),
+                onClick = withTap { if (picking) onPick() else app.sendTo(d.id) },
+            )
+            .alpha(if (d.reachable || d.wakeable) 1f else 0.5f).padding(vertical = NhakoSpace.s2).padding(start = NhakoSpace.s1),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         DeviceOrb(d, 40.dp, showName = false)
@@ -429,6 +457,30 @@ private fun DeviceRow(app: AppState, d: Device, order: Int) {
         if (io.github.kimzam30.nhakobeam.state.canTrust(d)) {
             Spacer(Modifier.width(NhakoSpace.s2))
             NButton(t("send.choose.trust"), { app.askTrust(d.id) }, variant = ButtonVariant.Plain, size = ButtonSize.Sm, icon = "handshake")
+        }
+        PickDot(picked, enabled = d.reachable || d.wakeable, label = t(if (picked) "send.many.unpick" else "send.many.pick", "device" to d.name), onPick = onPick)
+    }
+}
+
+/** The tick for picking a device to send to with others: a ring, filled when picked. 48 dp to touch. */
+@Composable
+private fun PickDot(on: Boolean, enabled: Boolean, label: String, onPick: () -> Unit) {
+    val c = Nhako.colors
+    val reduced = Nhako.reducedMotion
+    val fill by androidx.compose.animation.animateColorAsState(if (on) c.accent else Color.Transparent, tween(NhakoMotion.Duration.fast), label = "pickFill")
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (on && !reduced) 1.08f else 1f, NhakoMotion.bouncy.spec(), label = "pickScale")
+    Box(
+        Modifier.size(48.dp).clip(CircleShape)
+            .toggleable(on, enabled = enabled, role = Role.Checkbox, onValueChange = { onPick() })
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.size(22.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(fill)
+                .border(2.dp, if (on) Color.Transparent else c.textTertiary, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (on) PhIcon("check", size = 13.dp, tint = c.onAccent, weight = IconWeight.Bold)
         }
     }
 }

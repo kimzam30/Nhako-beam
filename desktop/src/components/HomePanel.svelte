@@ -18,13 +18,15 @@
     bubbles: Device[];
     /** How far the buttons have gone, 0 to 1. */
     away: number;
+    /** How much of the panel shows above the window's bottom edge, in px. */
+    shown?: number;
     onfiles: () => void;
     onfolder: () => void;
     onpick: (deviceId: string) => void;
     above?: Snippet;
   }
 
-  let { staging, bubbles, away = $bindable(0), onfiles, onfolder, onpick, above }: Props = $props();
+  let { staging, bubbles, away = $bindable(0), shown = $bindable(0), onfiles, onfolder, onpick, above }: Props = $props();
 
   const kindIcon: Record<string, string> = { laptop: 'laptop', desktop: 'desktop-tower', phone: 'device-mobile', tablet: 'device-tablet' };
   let tray: HTMLElement | undefined = $state();
@@ -52,6 +54,7 @@
     tray.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0)`;
     const p = travel ? 1 - clamp01(y / travel) : 1;
     away = 1 - p;
+    shown = Math.max(0, tray.offsetHeight - y);
     rvs = btns ? [...btns.querySelectorAll<HTMLElement>('.rv')] : [];
     const n = rvs.length, has = bubbles.length > 0;
     // Each button has its own stretch of the travel, so they arrive one after another, even dragged slowly.
@@ -206,8 +209,9 @@
 
   onMount(() => {
     measure();
-    const ro = new ResizeObserver(measure);
+    const ro = new ResizeObserver(() => (measure(), draw()));
     if (btns) ro.observe(btns);
+    if (tray) ro.observe(tray);
     return () => {
       ro.disconnect();
       cancelAnimationFrame(raf);

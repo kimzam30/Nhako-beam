@@ -40,6 +40,9 @@ export interface FileItem {
   /** The folder it's in, inside a folder that was sent ("Photos/2024", "/" between folders).
    *  Missing for files sent on their own. */
   folder?: string;
+  /** A small preview (a `data:image/jpeg;base64,` URL): on an incoming request's photos and
+   *  videos when the sender added one, and on files staged to send when the app made one. */
+  thumb?: string;
 }
 
 export type TransferDirection = 'send' | 'receive';
@@ -132,6 +135,13 @@ export interface IncomingRequest {
   receivedAt: number;
   /** Text rather than files: the text, to read before accepting. */
   text?: string;
+}
+
+/** One device's part of a send to several devices. */
+export interface SentTo {
+  deviceId: string;
+  id?: string;
+  error?: string;
 }
 
 /** Another device on the same network asking to be one of your devices, and you one of its own
@@ -317,6 +327,9 @@ export interface Engine {
   /** Resolves to the transfer id. Rejects with a plain-language message (for example a file that was moved).
    *  On the desktop app the FileItem ids come from the shell, which knows each file's path. */
   send(deviceId: string, files: FileItem[]): Promise<string>;
+  /** The same files to several devices, side by side. One device failing to start doesn't stop
+   *  the others: each gets its transfer id or a plain-language error. */
+  sendMany(deviceIds: string[], files: FileItem[]): Promise<SentTo[]>;
   /** Sends text (a note, a link, a clipboard). Resolves to the transfer id. Rejects with a
    *  plain-language message (for example text over TEXT_MAX). */
   sendText(deviceId: string, text: string): Promise<string>;
