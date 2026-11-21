@@ -478,7 +478,8 @@
   }
   .name-ok.saved {
     background: var(--color-success);
-    color: var(--color-on-accent);
+    /* The page's ink: white on dark theme's light green is 2.2:1, this is 9:1 (light: 4.9:1). */
+    color: var(--color-canvas);
   }
   .name-ok:focus-visible {
     outline: 2px solid var(--color-focus-ring);

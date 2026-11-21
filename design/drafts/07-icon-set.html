@@ -48,6 +48,30 @@
   .swatch { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
   .swatch i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px var(--color-separator); }
   .ok { color: var(--color-success); font-weight: 600; }
+  :root { --nb-on-success: var(--color-canvas); }
+  .p5 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: var(--space-5); margin-top: var(--space-5); }
+  .p5 > div { background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-5); display: grid; gap: var(--space-4); align-content: start; }
+  .p5 h3 { margin: 0; }
+  .p5 .line { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+  .circ { border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .namefield { flex: 1; min-width: 0; height: 48px; border-radius: var(--radius-md); box-shadow: inset 0 0 0 1px var(--color-separator); display: flex; align-items: center; padding: 0 6px 0 14px; gap: 8px; background: var(--color-surface-raised); }
+  .namefield > span:first-child { flex: 1; }
+  .namefield .circ { width: 30px; height: 30px; }
+  .pickrow { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+  .tick { width: 44px; height: 44px; display: grid; place-items: center; flex: none; }
+  .tick i { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--color-text-tertiary); display: grid; place-items: center; }
+  .tick.on i { box-shadow: none; background: var(--color-accent); color: #fff; transform: scale(1.08); }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; position: relative; }
+  .tiles b { aspect-ratio: 1; border-radius: 8px; background: var(--color-fill-pressed); position: relative; display: grid; place-items: center; color: var(--color-text-secondary); }
+  .tiles .vid::after { content: none; }
+  .badge { position: absolute; right: 6px; bottom: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgb(0 0 0 / .55); color: #fff; display: grid; place-items: center; }
+  .pill { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; background: var(--color-surface-raised); box-shadow: var(--elevation-2); font-weight: 600; font-size: var(--type-footnote-size); white-space: nowrap; }
+  .showall { display: flex; align-items: center; gap: 6px; min-height: 44px; font-weight: 600; color: var(--color-accent-text); font-size: var(--type-footnote-size); }
+  .showall svg { transition: transform var(--spring-snappy-duration) var(--spring-snappy); }
+  .showall.open svg { transform: rotate(90deg); }
+  .grow-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; font-size: var(--type-footnote-size); }
+  .gbar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--color-beam-track); position: relative; }
+  .gbar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
   .warn { color: var(--color-warning); font-weight: 600; }
 </style>
 </head>
@@ -69,7 +93,7 @@
   <div class="px3" id="px3"></div>
 
   <h2>On blue, and the active state</h2>
-  <p class="muted lede">In light theme the accent blue is the same hex as the brand navy (#1A6FE0), so a navy offset vanishes on any blue surface or blue icon. On those, the offset uses the deeper navy #0B3E85, as you decided. Active icons turn accent on the soft accent circle.</p>
+  <p class="muted lede">In light theme the accent blue is the same hex as the brand navy (#1A6FE0), so a navy offset vanishes on any blue surface or blue icon. On those, the offset uses the deeper navy #0B3E85, as you decided. Active icons turn accent on the soft accent circle. Measured below: the deeper navy helps in light theme, but in dark mode the plain navy shows better on the light-blue active icon, so active icons use the deep navy in light theme only.</p>
   <div class="actives">
     <div class="bar-mock" id="barMock"></div>
     <div style="display:grid;gap:var(--space-5)">
@@ -78,6 +102,11 @@
     </div>
   </div>
   <table class="spec" id="offsetSpec"></table>
+
+  <h2>New in Phase 5</h2>
+  <p class="muted lede">The surfaces the other session shipped in dev 0954022, at their real sizes. Several use icons under 16 px (12, 13, 14). Those follow the 16 px rule: no offset. Style B has one weight only, so the silent fallback to duotone that happens today (for example eye at 16 px has no bold) can't happen.</p>
+  <div class="p5" id="p5"></div>
+  <table class="spec" id="p5Spec"></table>
 
   <h2>Not drawn</h2>
   <p class="muted lede"><span class="mono">android/tools/shared-assets.mjs</span> also lists camera, camera-slash, flashlight and arrow-left, but no screen uses them, so I left them out. Tell me if they're for something coming.</p>
@@ -92,7 +121,7 @@
   mountBar();
 
   const UNUSED_IN_APP = ['flask', 'wave-sine']; // DevPanel only
-  const base = '../../desktop/node_modules/@phosphor-icons/core/assets/duotone/';
+  const base = 'reference/phosphor/';
   const ph = Object.fromEntries(await Promise.all(NAMES.map(async (n) => {
     try { const r = await fetch(`${base}${n}-duotone.svg`); return [n, r.ok ? await r.text() : '']; } catch { return [n, '']; }
   })));
@@ -128,9 +157,34 @@
       <span class="rnd" data-hit>${iconB('folder-simple', 24)}</span><span class="rnd" data-hit>${iconB('text-aa', 24)}</span><span class="rnd" data-hit>${iconB('clipboard-text', 24)}</span></div>
     <div class="top"><span class="big-btn quiet" data-hit>${iconB('qr-code', 20)}Your code</span><span class="big-btn quiet" data-hit>${iconB('download-simple', 20)}Scan code</span></div>`;
   document.getElementById('segmented').innerHTML =
-    `<span>${iconB('sun', 20)}Light</span><span>${iconB('moon', 20)}Dark</span><span class="on">${iconB('circle-half', 20, { deep: true })}System</span>`;
+    `<span>${iconB('sun', 20)}Light</span><span>${iconB('moon', 20)}Dark</span><span class="on">${iconB('circle-half', 20)}System</span>`;
   document.getElementById('devpick').innerHTML = [['laptop', "Aisyah's laptop", true], ['device-mobile', 'Work phone', false], ['desktop-tower', 'Studio PC', false]]
-    .map(([n, label, on]) => `<div class="${on ? 'on' : ''}" data-hit><span class="ic">${iconB(n, 24, { deep: on })}</span>${label}</div>`).join('');
+    .map(([n, label, on]) => `<div class="${on ? 'on' : ''}" data-hit><span class="ic">${iconB(n, 24, { deep: on ? 'active' : false })}</span>${label}</div>`).join('');
+
+  // Phase 5 surfaces (dev 0954022), sizes as the audit session reported them
+  const tileBlur = 'filter: blur(6px)';
+  document.getElementById('p5').innerHTML = `
+    <div><h3>Rename confirm</h3><p class="muted small" style="margin:0">Desktop 16 px bolt in a 30 px circle, Android 20 dp in 48 dp. Blue while the name differs, grey while empty, then a green check for 1.4 s. The check uses the page ink (canvas), as now in the app: near-black on the dark-theme green #4CC487 (white there was only 2.2 : 1). The grey bolt is the disabled state, exempt from contrast.</p>
+      <div class="line"><span class="namefield">${"<span>Hakim's phone 2</span>"}<span class="circ" style="width:30px;height:30px;background:var(--color-accent);color:#fff">${iconB('lightning', 16)}</span></span></div>
+      <div class="line"><span class="namefield"><span class="muted">Name this device</span><span class="circ" style="width:30px;height:30px;background:var(--color-fill);color:var(--color-text-disabled)">${iconB('lightning', 16)}</span></span></div>
+      <div class="line"><span class="namefield"><span>Hakim's phone 2</span><span class="circ" style="width:30px;height:30px;background:var(--color-success);color:var(--nb-on-success)">${iconB('check', 16)}</span></span></div>
+      <div class="line"><span class="caption">Android 48 dp</span><span class="circ" data-hit style="width:48px;height:48px;background:var(--color-accent);color:#fff">${iconB('lightning', 20, { deep: true })}</span><span class="circ" style="width:48px;height:48px;background:var(--color-success);color:var(--nb-on-success)">${iconB('check', 20)}</span></div></div>
+    <div><h3>Send to several</h3><p class="muted small" style="margin:0">22 px ring in a 44 px target (48 dp on Android). Picked: filled accent, check 13 px, scale 1.08 on the bouncy spring.</p>
+      ${[["laptop", "Aisyah's laptop", true], ['device-mobile', 'Work phone', true], ['desktop-tower', 'Studio PC', false]].map(([n, l, on]) => `<div class="pickrow"><span class="circ" style="width:40px;height:40px;background:var(--color-fill)">${iconB(n, 20)}</span><b style="flex:1">${l}</b><span class="tick${on ? ' on' : ''}" data-hit><i>${on ? iconB('check', 13) : ''}</i></span></div>`).join('')}
+      <div class="big-btn primary" style="height:48px;font-size:16px">${iconB('paper-plane-tilt', 20, { deep: true })}Send to 2 devices</div></div>
+    <div><h3>Group card</h3><p class="muted small" style="margin:0">Only the dismiss x. Rows: 6 px bars on beam-track, done in success, ended in tertiary.</p>
+      <div class="line" style="justify-content:space-between"><b>Sending to 3 devices</b><span class="circ" data-hit style="width:44px;height:44px">${iconB('x', 20)}</span></div>
+      <div class="grow-row"><span>Aisyah's laptop</span><span class="tabular">Sent</span><div class="gbar"><i style="width:100%;background:var(--color-success)"></i></div></div>
+      <div class="grow-row"><span>Work phone</span><span class="tabular">58%</span><div class="gbar"><i style="width:58%;background:var(--color-beam-core)"></i></div></div>
+      <div class="grow-row"><span>Studio PC</span><span class="tabular">Declined</span><div class="gbar"><i style="width:30%;background:var(--color-text-tertiary)"></i></div></div></div>
+    <div><h3>Previews</h3><p class="muted small" style="margin:0">Eye 16 px in the pill over a stranger's blurred tiles, play 14 px badge on videos, caret-right 12 px that turns 90° when open. Fallbacks: image, film-strip, file.</p>
+      <div class="tiles"><b style="${tileBlur}"></b><b style="${tileBlur}"></b><b style="${tileBlur}"></b><span class="pill">${iconB('eye', 16)}Tap to see the previews</span></div>
+      <div class="tiles"><b></b><b><span class="badge">${iconB('play', 14)}</span></b><b>${iconB('file', 24)}</b></div>
+      <div class="line"><span class="showall" data-hit>${iconB('caret-right', 12)}Show all 7 files</span><span class="showall open">${iconB('caret-right', 12)}Hide</span><span style="display:flex;gap:10px;color:var(--color-text-secondary)">${iconB('image', 20)}${iconB('film-strip', 20)}${iconB('file', 20)}</span></div></div>`;
+  const px = (u, s) => (u * s / 24).toFixed(2);
+  document.getElementById('p5Spec').innerHTML = `
+    <tr><th>Size</th><th>Bold stroke</th><th>Cut-out</th><th>Offset</th></tr>
+    ${[12, 13, 14, 16, 20, 24].map((s) => `<tr><td class="tabular">${s} px</td><td class="tabular">${px(3, s)} px</td><td class="tabular">${px(2.2, s)} px</td><td>${s >= 20 ? '1 px' : 'none'}</td></tr>`).join('')}`;
 
   // Offset visibility: offset against the icon and the surface it sits on (decorative, so measured, not required)
   const sw = (c) => `<span class="swatch"><i style="background:${c}"></i>${c}</span>`;

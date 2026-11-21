@@ -217,6 +217,9 @@ androidComponents {
         variant.sources.kotlin?.addGeneratedSourceDirectory(uniffiBindings, UniffiBindingsTask::outputDir)
         // Colors, type, spacing, springs and haptics, shared with the desktop app.
         variant.sources.kotlin?.addStaticSourceDirectory(repoRoot.resolve("design/tokens/build").path)
+        // The icons (design/icons/build.mjs): the drawings in Kotlin, and Direct Share's drawables.
+        variant.sources.kotlin?.addStaticSourceDirectory(repoRoot.resolve("design/icons/build/kotlin").path)
+        variant.sources.res?.addStaticSourceDirectory(repoRoot.resolve("design/icons/build/res").path)
         // The sounds (design/sounds/build.mjs): the WAVs as res/raw, and their names in Kotlin.
         variant.sources.res?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/res").path)
         variant.sources.kotlin?.addStaticSourceDirectory(repoRoot.resolve("design/sounds/build/kotlin").path)

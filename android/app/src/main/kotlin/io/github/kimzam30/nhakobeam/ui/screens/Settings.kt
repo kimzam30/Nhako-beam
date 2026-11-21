@@ -664,7 +664,8 @@ private fun NameField(app: AppState) {
             exit = if (reduced) fadeOut(tween(NhakoMotion.Duration.fast)) else scaleOut(tween(NhakoMotion.Duration.fast), targetScale = 0.6f) + fadeOut(tween(NhakoMotion.Duration.fast)),
         ) {
             val bg by androidx.compose.animation.animateColorAsState(if (justSaved) c.success else if (canSave) c.accent else c.fill, tween(NhakoMotion.Duration.fast), label = "nameOkBg")
-            val fg = if (justSaved || canSave) c.onAccent else c.textDisabled
+            // On green, the page's ink: white on dark theme's light green is 2.2:1, this is 9:1.
+            val fg = if (justSaved) c.canvas else if (canSave) c.onAccent else c.textDisabled
             Box(Modifier.padding(start = NhakoSpace.s3).size(48.dp).clip(CircleShape).background(bg)
                 .clickable(enabled = canSave, role = androidx.compose.ui.semantics.Role.Button) { save() }
                 .semantics { contentDescription = t("settings.device.name.save") },

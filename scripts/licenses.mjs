@@ -124,7 +124,7 @@ function androidPackages() {
   return list;
 }
 
-/** Things bundled as files rather than packages: the font and the icons. */
+/** Things bundled as files rather than packages: the font. The icons are our own (design/icons). */
 function assets() {
   return [
     {
@@ -133,14 +133,6 @@ function assets() {
       license: 'OFL-1.1',
       url: 'https://rsms.me/inter/',
       found: [readFileSync(join(root, 'android/third-party/Inter-OFL.txt'), 'utf8')],
-      authors: [],
-    },
-    {
-      name: 'Phosphor Icons',
-      version: JSON.parse(readFileSync(join(root, 'desktop/node_modules/@phosphor-icons/core/package.json'), 'utf8')).version,
-      license: 'MIT',
-      url: 'https://phosphoricons.com',
-      found: filesIn(join(root, 'desktop/node_modules/@phosphor-icons/core')),
       authors: [],
     },
   ];

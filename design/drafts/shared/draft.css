@@ -20,6 +20,8 @@ body {
 * { scrollbar-color: var(--color-fill-pressed) transparent; scrollbar-width: thin; }
 a { color: var(--color-accent-text); text-underline-offset: 3px; }
 .tabular { font-variant-numeric: tabular-nums; }
+:root { --nb-active-offset: #0B3E85; }
+[data-theme="dark"] { --nb-active-offset: #1A6FE0; }
 
 /* Top bar */
 .bar {

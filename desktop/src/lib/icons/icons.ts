@@ -1,39 +1,48 @@
-// Phosphor icons (MIT). Only the icons the app uses are bundled, in three weights:
-// duotone (default), fill (active state) and bold (16px and smaller).
-const duotone = import.meta.glob(
-  '/node_modules/@phosphor-icons/core/assets/duotone/{paper-plane-tilt,laptop,desktop-tower,device-mobile,device-tablet,check,check-circle,x,x-circle,pause,play,arrow-clockwise,qr-code,scan,copy,folder-open,file,files,image,film-strip,music-note,file-zip,file-text,gear-six,caret-left,caret-right,shield-check,wifi-high,wifi-slash,lightning,share-network,warning-circle,tray,info,trash,plus,download-simple,broadcast,hand-swipe-right,lock-simple,sun,moon,circle-half,wave-sine,bell,flask,hard-drives,keyboard,sparkle,arrows-clockwise,fingerprint-simple,timer,upload-simple,arrow-square-out,globe-hemisphere-west,eye,eye-slash,clock-counter-clockwise,magnifying-glass,speaker-high,speaker-low,speaker-slash,folder-simple,text-aa,link-simple,clipboard-text,handshake,cell-signal-full,devices}-duotone.svg',
-  { query: '?raw', import: 'default', eager: true },
-) as Record<string, string>;
+// The Nhako Beam icon set (style B, "Bolt solid"). The drawings come from design/icons/icons.mjs
+// (run `npm run icons` after editing it); Android draws the same data in PhIcon (ui/theme/Theme.kt).
+import { ICONS, OFFSET } from '../../../../design/icons/build/icons.js';
 
-const fill = import.meta.glob(
-  '/node_modules/@phosphor-icons/core/assets/fill/{paper-plane-tilt,laptop,desktop-tower,device-mobile,device-tablet,check-circle,x-circle,pause,play,shield-check,download-simple,gear-six,broadcast,qr-code,lightning,wifi-high,share-network,sparkle,bell,folder-open,globe-hemisphere-west,hard-drives,warning-circle,folder-simple,handshake,text-aa,link-simple}-fill.svg',
-  { query: '?raw', import: 'default', eager: true },
-) as Record<string, string>;
-
-const bold = import.meta.glob(
-  '/node_modules/@phosphor-icons/core/assets/bold/{check,x,caret-left,caret-right,plus,shield-check,lightning,wifi-high,share-network,warning-circle,lock-simple}-bold.svg',
-  { query: '?raw', import: 'default', eager: true },
-) as Record<string, string>;
-
+/**
+ * Kept so existing callers still type-check. Style B has one drawing per icon: an active icon is
+ * shown by its color (accent on the soft accent circle), not by a heavier weight.
+ */
 export type IconWeight = 'duotone' | 'fill' | 'bold';
 
-function index(map: Record<string, string>, suffix: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const [path, svg] of Object.entries(map)) {
-    const name = path.split('/').pop()!.replace(`-${suffix}.svg`, '');
-    // Keep only the inner shapes; the component draws its own <svg>.
-    out.set(name, svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, ''));
-  }
-  return out;
+export const iconNames = Object.keys(ICONS);
+
+export function hasIcon(name: string): boolean {
+  return name in ICONS;
 }
 
-const sets: Record<IconWeight, Map<string, string>> = {
-  duotone: index(duotone, 'duotone'),
-  fill: index(fill, 'fill'),
-  bold: index(bold, 'bold'),
-};
+/**
+ * The offset sits on blue, or the icon is blue itself (the accent is the brand navy in light theme),
+ * when the icon's color is the accent or white. Then the offset uses the deeper navy, so it still shows.
+ */
+export function wantsDeepOffset(cssColor: string): boolean {
+  return cssColor === 'rgb(26, 111, 224)' || cssColor === 'rgb(255, 255, 255)';
+}
 
-/** Inner SVG markup for an icon, falling back to duotone if a weight is not bundled. */
-export function iconMarkup(name: string, weight: IconWeight): string {
-  return sets[weight].get(name) ?? sets.duotone.get(name) ?? '';
+let uid = 0;
+
+/** Inner SVG markup (viewBox 0 0 24 24) for an icon at `size` CSS px; '' for an unknown name. */
+export function iconMarkup(name: string, size: number, deep = false): string {
+  const i = ICONS[name];
+  if (!i) return '';
+  const id = `nbi${++uid}`;
+  const cut = i.k.length ? ` mask="url(#${id})"` : '';
+  const mask = i.k.length
+    ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28"><rect x="-2" y="-2" width="28" height="28" fill="#fff"/>${i.k
+        .map((k) => `<path d="${k.d}" fill="none" stroke="#000" stroke-width="${k.w}" stroke-linecap="round" stroke-linejoin="round"/>`)
+        .join('')}</mask></defs>`
+    : '';
+  const draw = (color: string) =>
+    `<g${cut}>${i.s.map((d) => `<path d="${d}" fill="${color}" fill-rule="evenodd"/>`).join('')}${i.b
+      .map((b) => `<path d="${b.d}" fill="none" stroke="${color}" stroke-width="${b.w}" stroke-linecap="round" stroke-linejoin="round"/>`)
+      .join('')}</g>${i.f.map((d) => `<path d="${d}" fill="${color}"/>`).join('')}${i.t
+      .map((t) => `<path d="${t.d}" fill="none" stroke="${color}" stroke-width="${t.w}" stroke-linecap="round"/>`)
+      .join('')}`;
+  // The navy offset: exactly 1 px down and right, from 20 px up; at smaller sizes it would only blur.
+  const shift = 24 / size;
+  const offset = size >= 20 ? `<g transform="translate(${shift} ${shift})">${draw(deep ? OFFSET.deep : OFFSET.navy)}</g>` : '';
+  return mask + offset + draw('currentColor');
 }

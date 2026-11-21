@@ -9,7 +9,7 @@ const { chromium } = createRequire(new URL('../../../desktop/package.json', impo
 const out = process.argv[2] ?? 'measure-out';
 mkdirSync(out, { recursive: true });
 
-const PAGES = ['index.html', '01-icon-styles.html', '02-brand-blue.html', '03-moments.html', '04-pages.html', '05-system-icons.html', '06-cover-mini.html'];
+const PAGES = ['index.html', '01-icon-styles.html', '02-brand-blue.html', '03-moments.html', '04-pages.html', '05-system-icons.html', '06-cover-mini.html', '07-icon-set.html'];
 // Widths of the screens the drafts are read on (measured): Flip5 main 360, Flip cover 374, Tab S9 FE 823, desktop 1080, wide 1280.
 const WIDTHS = [360, 374, 823, 1080, 1280];
 const THEMES = ['light', 'dark'];
@@ -90,6 +90,7 @@ function audit() {
   const live = [];
   const seen = new Set();
   for (const s of document.querySelectorAll('svg[data-icon][data-size="24"]')) {
+    if (s.closest('.cell, .px3')) continue;
     const key = s.dataset.icon + s.dataset.style;
     if (seen.has(key)) continue; seen.add(key);
     let x1 = 99, y1 = 99, x2 = -99, y2 = -99;
@@ -98,7 +99,7 @@ function audit() {
       const b = p.getBBox(); const sw = +(p.closest('[stroke-width]')?.getAttribute('stroke-width') ?? 0) / 2;
       x1 = Math.min(x1, b.x - sw); y1 = Math.min(y1, b.y - sw); x2 = Math.max(x2, b.x + b.width + sw); y2 = Math.max(y2, b.y + b.height + sw);
     }
-    const round = /check|close/.test(s.dataset.icon);
+    const round = s.hasAttribute('data-round') || /check|close/.test(s.dataset.icon);
     const lo = round ? 0.99 : 1.99, hi = round ? 23.01 : 22.01;
     live.push({ icon: s.dataset.icon, style: s.dataset.style, box: [x1, y1, x2, y2].map((v) => +v.toFixed(2)), ok: x1 >= lo && y1 >= lo && x2 <= hi && y2 <= hi });
   }

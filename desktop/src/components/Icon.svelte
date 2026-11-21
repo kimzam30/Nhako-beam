@@ -1,33 +1,40 @@
 <script lang="ts">
-  // Phosphor icon. Changing `name` or `weight` crossfades with a small snappy scale,
-  // so state changes (pause to play, copy to check) never just blink.
-  import { iconMarkup, type IconWeight } from '../lib/icons/icons';
+  // An icon from the Nhako Beam set (style B, design/icons/icons.mjs). Changing `name` crossfades
+  // with a small snappy scale, so state changes (pause to play, copy to check) never just blink.
+  import { iconMarkup, wantsDeepOffset, type IconWeight } from '../lib/icons/icons';
   import { springIn, quickOut } from '../lib/motion/transitions';
 
   interface Props {
     name: string;
+    /** Accepted for older callers; style B has one drawing per icon. Active is shown by color. */
     weight?: IconWeight;
     size?: number;
     label?: string;
     class?: string;
   }
 
-  let { name, weight, size = 20, label, class: klass = '' }: Props = $props();
-  const resolved = $derived<IconWeight>(weight ?? (size <= 16 ? 'bold' : 'duotone'));
-  const key = $derived(`${name}:${resolved}`);
+  let { name, size = 20, label, class: klass = '' }: Props = $props();
+  let el: HTMLSpanElement | undefined = $state();
+  // Blue or white icons get the deeper navy offset; read from the real color once it's on screen.
+  let deep = $state(false);
+  $effect(() => {
+    void name;
+    if (el && size >= 20) deep = wantsDeepOffset(getComputedStyle(el).color);
+  });
+  const markup = $derived(iconMarkup(name, size, deep));
 </script>
 
-<span class="icon {klass}" style:width="{size}px" style:height="{size}px" role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'}>
-  {#key key}
+<span bind:this={el} class="icon {klass}" style:width="{size}px" style:height="{size}px" role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'}>
+  {#key name}
     <svg
-      viewBox="0 0 256 256"
-      fill="currentColor"
+      viewBox="0 0 24 24"
       width={size}
       height={size}
+      overflow="visible"
       in:springIn={{ scale: 0.6, y: 0, preset: 'snappy' }}
       out:quickOut={{ scale: 0.6, y: 0, duration: 90 }}
     >
-      {@html iconMarkup(name, resolved)}
+      {@html markup}
     </svg>
   {/key}
 </span>
@@ -43,5 +50,4 @@
     grid-area: 1 / 1;
     display: block;
   }
-  /* The duotone layer uses the same color at 20% (set in the SVG), so it follows currentColor. */
 </style>

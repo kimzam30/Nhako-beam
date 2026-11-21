@@ -376,8 +376,7 @@ licensed as above, without any additional terms.
 
 Built on [iroh](https://iroh.computer) by n0, [Tauri](https://tauri.app),
 [Svelte](https://svelte.dev), [Jetpack Compose](https://developer.android.com/compose) and
-[UniFFI](https://github.com/mozilla/uniffi-rs). Icons from [Phosphor](https://phosphoricons.com),
-type in [Inter](https://rsms.me/inter/).
+[UniFFI](https://github.com/mozilla/uniffi-rs). Type in [Inter](https://rsms.me/inter/).
 
 <div align="center">
 <br>

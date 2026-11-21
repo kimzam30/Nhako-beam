@@ -64,10 +64,10 @@ object DirectShare {
         val canvas = Canvas(bitmap)
         canvas.drawColor(ContextCompat.getColor(context, R.color.icon_background))
         val res = when (kind) {
-            DeviceKind.Laptop -> R.drawable.ph_laptop_fill
-            DeviceKind.Desktop -> R.drawable.ph_desktop_tower_fill
-            DeviceKind.Phone -> R.drawable.ph_device_mobile_fill
-            DeviceKind.Tablet -> R.drawable.ph_device_tablet_fill
+            DeviceKind.Laptop -> R.drawable.nb_share_laptop
+            DeviceKind.Desktop -> R.drawable.nb_share_desktop_tower
+            DeviceKind.Phone -> R.drawable.nb_share_device_mobile
+            DeviceKind.Tablet -> R.drawable.nb_share_device_tablet
         }
         ContextCompat.getDrawable(context, res)?.mutate()?.let { art ->
             DrawableCompat.setTint(art, Color.WHITE)

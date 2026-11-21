@@ -99,6 +99,9 @@
 <main>
   <h1>Motion moments</h1>
   <p class="lede muted">Each moment runs live with the real 3D bolt from the app. Moods marked <b>new</b> are my proposals, added in this page only. The timings come from the tokens: UI motion stays at or under 400 ms, and only the bolt is allowed to take longer. Switch Reduced motion in the bar to see the still version of everything.</p>
+  <table class="spec">
+    <tr><th>Idle rule</th><td>Every loop on this page holds still after 30 s with no touch and no news, as shipped in 8ea21cc (Tab idle went from 261 to 2 frames per 20 s). Desktop: CSS loops pause under <span class="mono">.still-app</span> and <span class="mono">.hidden-app</span>; the bolt's rAF loop stops on <span class="mono">nhako:still</span>. Android: <span class="mono">loopFloat()</span> or <span class="mono">LocalStill</span>. That covers the charging bolt, the beam shine, the waiting and searching moods.</td></tr>
+  </table>
 
   <h2>Splash and app start</h2>
   <div class="moment">

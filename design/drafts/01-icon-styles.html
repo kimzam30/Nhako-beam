@@ -117,7 +117,7 @@
   // Today's Phosphor icons, read from the app's own package so the comparison is exact.
   const PH = { send: 'paper-plane-tilt', receive: 'download-simple', laptop: 'laptop', phone: 'device-mobile',
     check: 'check', close: 'x', pause: 'pause', settings: 'gear-six' };
-  const base = '../../desktop/node_modules/@phosphor-icons/core/assets/duotone/';
+  const base = 'reference/phosphor/';
   const svgs = await Promise.all(names.map((n) => fetch(`${base}${PH[n]}-duotone.svg`).then((r) => r.text())));
   const phRow = (size, cls) => `<div class="strip ${cls}">${svgs.map((s) => `<span class="ph" style="--s:${size}px">${s}</span>`).join('')}</div>`;
   document.getElementById('today').innerHTML =
